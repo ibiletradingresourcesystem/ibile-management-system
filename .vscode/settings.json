@@ -1,0 +1,208 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^Copy-Item \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\\\\pages\\\\manage\\\\staff\\.js\" \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\\\\pages\\\\manage\\\\staff\\.js\\.bak\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$content = @'\nimport \\{ useEffect \\} from \"react\";\nimport \\{ useRouter \\} from \"next/router\";\n\nexport default function Register\\(\\) \\{\n  const router = useRouter\\(\\);\n  useEffect\\(\\(\\) => \\{ router\\.replace\\(\"/login\"\\); \\}, \\[router\\]\\);\n  return null;\n\\}\n'@\nSet-Content -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\\\\pages\\\\register\\.js\" -Value \\$content -Encoding UTF8$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Copy-Item \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\\\\pages\\\\manage\\\\assets\\.js\" \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\\\\pages\\\\setup\\\\assets\\.js\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$content = @'\nimport \\{ useEffect \\} from \"react\";\nimport \\{ useRouter \\} from \"next/router\";\n\nexport default function AssetsRedirect\\(\\) \\{\n  const router = useRouter\\(\\);\n  useEffect\\(\\(\\) => \\{ router\\.replace\\(\"/setup/assets\"\\); \\}, \\[router\\]\\);\n  return null;\n\\}\n'@\nSet-Content -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\\\\pages\\\\manage\\\\assets\\.js\" -Value \\$content -Encoding UTF8$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Copy-Item \"C:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\BizSuits\\\\BizSuits_System\\\\public\\\\images\\\\Icon\\.svg\" \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\\\\public\\\\images\\\\bizsuits-icon\\.svg\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx next build 2>&1 \\| Select-String -Pattern \"error\\|Error\\|failed\\|Failed\" \\| Select-Object -First 20$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx next build 2>&1 \\| Out-String$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx next dev -p 3099$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\webpage-app\" ; npm install nodemailer ; npm uninstall mogoose$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npm install nodemailer --legacy-peer-deps ; npm uninstall mogoose --legacy-peer-deps$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx next build 2>&1 \\| Select-Object -Last 40$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\" ; npx next build 2>&1 \\| Select-Object -Last 15$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cd \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\sales-point-app\" ; npx next build 2>&1 \\| Select-Object -Last 15$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx next build$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\sales-point-app\\\\src\" -Recurse -Include \"\\*\\.js\",\"\\*\\.jsx\" \\| Select-String -Pattern \"api/transactions\" \\| ForEach-Object \\{ \"\\$\\(\\$_\\.Path -replace '\\.\\*sales-point-app\\\\\\\\',''\\): L\\$\\(\\$_\\.LineNumber\\): \\$\\(\\$_\\.Line\\.Trim\\(\\)\\)\" \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\sales-point-app\\\\src\" -Recurse -Include \"\\*\\.js\",\"\\*\\.jsx\" \\| Select-String -Pattern \"api/transactions/save\" \\| ForEach-Object \\{ \"\\$\\(\\$_\\.Path -replace '\\.\\*sales-point-app\\\\\\\\',''\\): L\\$\\(\\$_\\.LineNumber\\): \\$\\(\\$_\\.Line\\.Trim\\(\\)\\)\" \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\sales-point-app\\\\src\\\\components\\\\pos\" -Include \"\\*\\.js\" \\| Select-String -Pattern \"PaymentModal\\|handlePayment\\|onConfirm\\.\\*payment\" \\| ForEach-Object \\{ \"\\$\\(\\$_\\.Filename\\): L\\$\\(\\$_\\.LineNumber\\): \\$\\(\\$_\\.Line\\.Trim\\(\\)\\)\" \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Get-ChildItem -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\sales-point-app\\\\src\\\\components\\\\pos\" -Recurse -Filter \"\\*\\.js\" \\| Select-String -Pattern \"PaymentModal\" \\| ForEach-Object \\{ \"\\$\\(\\$_\\.Filename\\): L\\$\\(\\$_\\.LineNumber\\): \\$\\(\\$_\\.Line\\.Trim\\(\\)\\)\" \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Select-String -Path \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\sales-point-app\\\\src\\\\context\\\\CartContext\\.js\" -Pattern \"addToCart\\|addItem\\|setCustomer\\|appliedPromotion\" \\| ForEach-Object \\{ \"L\\$\\(\\$_\\.LineNumber\\): \\$\\(\\$_\\.Line\\.Trim\\(\\)\\)\" \\} \\| Select-Object -First 20$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npm run build$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Set-Location \"c:\\\\Users\\\\hp\\\\Desktop\\\\Projects\\\\Inventory-sales\\\\Inventory\\\\inventory-admin-app\"; npm run build$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint components/DialogProvider\\.js lib/dialogs\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Resolve-DnsName _mongodb\\._tcp\\.cluster0\\.z4yj0gu\\.mongodb\\.net -Type SRV; Resolve-DnsName cluster0-shard-00-00\\.z4yj0gu\\.mongodb\\.net; Resolve-DnsName cluster0-shard-00-01\\.z4yj0gu\\.mongodb\\.net; Resolve-DnsName cluster0-shard-00-02\\.z4yj0gu\\.mongodb\\.net$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^Resolve-DnsName cluster0\\.z4yj0gu\\.mongodb\\.net -Type TXT; Resolve-DnsName _mongodb\\._tcp\\.cluster0\\.z4yj0gu\\.mongodb\\.net -Type TXT; Resolve-DnsName ac-wosvnkt-shard-00-00\\.z4yj0gu\\.mongodb\\.net; Resolve-DnsName ac-wosvnkt-shard-00-01\\.z4yj0gu\\.mongodb\\.net; Resolve-DnsName ac-wosvnkt-shard-00-02\\.z4yj0gu\\.mongodb\\.net$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node -e \"const bcrypt=require\\('bcryptjs'\\); const mongoose=require\\('mongoose'\\); const uri=process\\.env\\.MONGODB_URI; mongoose\\.connect\\(uri\\)\\.then\\(async\\(\\)=>\\{ const User=require\\('\\./models/User'\\)\\.default \\|\\| require\\('\\./models/User'\\); const users=await User\\.find\\(\\{\\}, 'name email password role'\\)\\.lean\\(\\); const guesses=\\['1234','0000','1111','2222','4321','9999','pass123'\\]; for \\(const user of users\\)\\{ const matches=\\[\\]; for \\(const guess of guesses\\)\\{ try\\{ if\\(await bcrypt\\.compare\\(guess,user\\.password\\)\\) matches\\.push\\(guess\\); \\}catch\\{\\} \\} console\\.log\\(JSON\\.stringify\\(\\{name:user\\.name,email:user\\.email,role:user\\.role,matches\\},null,2\\)\\); \\} await mongoose\\.disconnect\\(\\); \\}\\)\\.catch\\(err=>\\{ console\\.error\\(err\\); process\\.exit\\(1\\); \\}\\);\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node -r dotenv/config -e \"const bcrypt=require\\('bcryptjs'\\); const mongoose=require\\('mongoose'\\); const uri=process\\.env\\.MONGODB_URI; mongoose\\.connect\\(uri\\)\\.then\\(async\\(\\)=>\\{ const UserModule=require\\('\\./models/User'\\); const User=UserModule\\.default \\|\\| UserModule; const users=await User\\.find\\(\\{\\}, 'name email password role'\\)\\.lean\\(\\); const guesses=\\['1234','0000','1111','2222','4321','9999','pass123','password123'\\]; for \\(const user of users\\)\\{ const matches=\\[\\]; for \\(const guess of guesses\\)\\{ try\\{ if\\(await bcrypt\\.compare\\(guess,user\\.password\\)\\) matches\\.push\\(guess\\); \\}catch\\{\\} \\} console\\.log\\(JSON\\.stringify\\(\\{name:user\\.name,email:user\\.email,role:user\\.role,matches\\},null,2\\)\\); \\} await mongoose\\.disconnect\\(\\); \\}\\)\\.catch\\(err=>\\{ console\\.error\\(err\\); process\\.exit\\(1\\); \\}\\);\" dotenv_config_path=\\.env$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint pages/accounting/journal-entries\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint lib/toast-state\\.js pages/accounting/journal-entries\\.js pages/accounting/chart-of-accounts\\.js pages/manage/campaigns\\.js pages/manage/promotions-management\\.js pages/manage/customers\\.js pages/manage/staff\\.js pages/manage/staff-roles\\.js pages/support/index\\.js pages/stock/stock-take/\\[id\\]\\.js pages/login\\.js pages/setup/users\\.js pages/setup/setup\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint pages/stock/movement/index\\.js pages/expenses/tax-analysis\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint components/AccessDeniedState\\.js components/Layout\\.js pages/setup/users\\.js pages/404\\.js pages/500\\.js models/PendingTransactionAction\\.js models/Till\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --input-type=module -e \"import \\{ aggregateProductSales \\} from '\\./lib/product-sales-report\\.js'; const transactions = \\[\\{ items: \\[\\{ productId: '507f1f77bcf86cd799439011', name: 'Cway bottle water \\(Pack\\)', qty: 2, salePriceIncTax: 100 \\}\\] \\}, \\{ items: \\[\\{ productId: '507f1f77bcf86cd799439011', name: 'Cway bottle water \\(Pack of 12\\)', qty: 3, salePriceIncTax: 100 \\}\\] \\}\\]; console\\.log\\(JSON\\.stringify\\(aggregateProductSales\\(transactions\\), null, 2\\)\\);\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --input-type=module -e \"import 'dotenv/config'; import \\{ mongooseConnect \\} from '\\./lib/mongodb\\.js'; import Transaction from '\\./models/Transactions\\.js'; import \\{ aggregateProductSales \\} from '\\./lib/product-sales-report\\.js'; await mongooseConnect\\(\\); const transactions = await Transaction\\.find\\(\\{ status: 'completed', 'items\\.name': /cway bottle water/i \\}\\)\\.sort\\(\\{ createdAt: -1 \\}\\)\\.lean\\(\\); const rawItems = \\[\\]; for \\(const tx of transactions\\) \\{ const items = Array\\.isArray\\(tx\\.items\\) \\? tx\\.items : \\[\\]; for \\(const item of items\\) \\{ const itemName = item ; item\\.name \\? String\\(item\\.name\\) : ''; if \\(!/cway bottle water/i\\.test\\(itemName\\)\\) continue; const productId = item ; item\\.productId \\? \\(typeof item\\.productId\\.toString === 'function' \\? item\\.productId\\.toString\\(\\) : String\\(item\\.productId\\)\\) : null; const qtyValue = item ; item\\.qty != null \\? Number\\(item\\.qty\\) : item ; item\\.quantity != null \\? Number\\(item\\.quantity\\) : 0; const priceValue = item ; item\\.salePriceIncTax != null \\? Number\\(item\\.salePriceIncTax\\) : item ; item\\.price != null \\? Number\\(item\\.price\\) : 0; rawItems\\.push\\(\\{ productId, name: itemName, qty: Number\\.isFinite\\(qtyValue\\) \\? qtyValue : 0, price: Number\\.isFinite\\(priceValue\\) \\? priceValue : 0 \\}\\); \\} \\} const grouped = aggregateProductSales\\(transactions\\)\\.filter\\(\\(item\\) => /cway bottle water/i\\.test\\(String\\(item\\.name ; ''\\)\\)\\); console\\.log\\(JSON\\.stringify\\(\\{ rawItems: rawItems\\.slice\\(0, 10\\), grouped \\}, null, 2\\)\\); process\\.exit\\(0\\);\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint lib/vendorProductSync\\.js lib/vendorDisplay\\.js lib/inputGuards\\.js lib/textSanitizers\\.js lib/hotelEmailTemplates\\.js lib/mail\\.js models/StockMovement\\.js components/ProductForm\\.js pages/_app\\.js pages/manage/vendors\\.js pages/manage/products\\.js pages/stock/add\\.js pages/api/vendors/index\\.js pages/api/vendors/\\[id\\]\\.js pages/api/products/index\\.js pages/api/purchase-orders/index\\.js pages/api/purchase-orders/\\[id\\]\\.js pages/api/stock-movement/stock-movement\\.js pages/api/stock-movement/get\\.js pages/api/stock-movement/\\[id\\]\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node -e \"require\\('dotenv'\\)\\.config\\(\\); const \\{ MongoClient \\} = require\\('mongodb'\\); const jwt = require\\('jsonwebtoken'\\); \\(async \\(\\) => \\{ const client = new MongoClient\\(process\\.env\\.MONGODB_URI\\); await client\\.connect\\(\\); const db = client\\.db\\(\\); const users = await db\\.collection\\('users'\\)\\.find\\(\\{ isActive: \\{ \\$ne: false \\} \\}\\)\\.project\\(\\{ name: 1, email: 1, role: 1, permissions: 1 \\}\\)\\.limit\\(10\\)\\.toArray\\(\\); if \\(!users\\.length\\) \\{ console\\.log\\(JSON\\.stringify\\(\\{ error: 'NO_USERS' \\}\\)\\); await client\\.close\\(\\); return; \\} const admin = users\\.find\\(\\(user\\) => user\\.role === 'admin'\\) \\|\\| users\\[0\\]; const token = jwt\\.sign\\(\\{ id: String\\(admin\\._id\\), email: admin\\.email, name: admin\\.name, role: admin\\.role \\}, process\\.env\\.JWT_SECRET, \\{ expiresIn: '2h' \\}\\); console\\.log\\(JSON\\.stringify\\(\\{ user: \\{ id: String\\(admin\\._id\\), name: admin\\.name, email: admin\\.email, role: admin\\.role, permissions: admin\\.permissions \\|\\| \\[\\] \\}, token \\}\\)\\); await client\\.close\\(\\); \\}\\)\\(\\)\\.catch\\(async \\(error\\) => \\{ console\\.error\\(error\\); process\\.exit\\(1\\); \\}\\);\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node -e 'require\\(\"dotenv\"\\)\\.config\\(\\); const \\{ MongoClient \\} = require\\(\"mongodb\"\\); const jwt = require\\(\"jsonwebtoken\"\\); \\(async \\(\\) => \\{ const client = new MongoClient\\(process\\.env\\.MONGODB_URI\\); await client\\.connect\\(\\); const db = client\\.db\\(\\); const users = await db\\.collection\\(\"users\"\\)\\.find\\(\\{ isActive: \\{ \\$ne: false \\} \\}\\)\\.project\\(\\{ name: 1, email: 1, role: 1, permissions: 1 \\}\\)\\.limit\\(10\\)\\.toArray\\(\\); if \\(!users\\.length\\) \\{ console\\.log\\(JSON\\.stringify\\(\\{ error: \"NO_USERS\" \\}\\)\\); await client\\.close\\(\\); return; \\} const admin = users\\.find\\(\\(user\\) => user\\.role === \"admin\"\\) \\|\\| users\\[0\\]; const token = jwt\\.sign\\(\\{ id: String\\(admin\\._id\\), email: admin\\.email, name: admin\\.name, role: admin\\.role \\}, process\\.env\\.JWT_SECRET, \\{ expiresIn: \"2h\" \\}\\); console\\.log\\(JSON\\.stringify\\(\\{ user: \\{ id: String\\(admin\\._id\\), name: admin\\.name, email: admin\\.email, role: admin\\.role, permissions: admin\\.permissions \\|\\| \\[\\] \\}, token \\}\\)\\); await client\\.close\\(\\); \\}\\)\\(\\)\\.catch\\(\\(error\\) => \\{ console\\.error\\(error\\); process\\.exit\\(1\\); \\}\\);'$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$script = @'\nrequire\\(\"dotenv\"\\)\\.config\\(\\);\nconst \\{ MongoClient \\} = require\\(\"mongodb\"\\);\nconst jwt = require\\(\"jsonwebtoken\"\\);\n\n\\(async \\(\\) => \\{\n  const client = new MongoClient\\(process\\.env\\.MONGODB_URI\\);\n  await client\\.connect\\(\\);\n  const db = client\\.db\\(\\);\n  const users = await db\\.collection\\(\"users\"\\)\n    \\.find\\(\\{ isActive: \\{ \\$ne: false \\} \\}\\)\n    \\.project\\(\\{ name: 1, email: 1, role: 1, permissions: 1 \\}\\)\n    \\.limit\\(10\\)\n    \\.toArray\\(\\);\n\n  if \\(!users\\.length\\) \\{\n    console\\.log\\(JSON\\.stringify\\(\\{ error: \"NO_USERS\" \\}\\)\\);\n    await client\\.close\\(\\);\n    return;\n  \\}\n\n  const admin = users\\.find\\(\\(user\\) => user\\.role === \"admin\"\\) \\|\\| users\\[0\\];\n  const token = jwt\\.sign\\(\n    \\{ id: String\\(admin\\._id\\), email: admin\\.email, name: admin\\.name, role: admin\\.role \\},\n    process\\.env\\.JWT_SECRET,\n    \\{ expiresIn: \"2h\" \\}\n  \\);\n\n  console\\.log\\(JSON\\.stringify\\(\\{\n    user: \\{\n      id: String\\(admin\\._id\\),\n      name: admin\\.name,\n      email: admin\\.email,\n      role: admin\\.role,\n      permissions: admin\\.permissions \\|\\| \\[\\],\n    \\},\n    token,\n  \\}\\)\\);\n\n  await client\\.close\\(\\);\n\\}\\)\\(\\)\\.catch\\(\\(error\\) => \\{\n  console\\.error\\(error\\);\n  process\\.exit\\(1\\);\n\\}\\);\n'@; \\$script \\| node$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$script = @'\nrequire\\(\"dotenv\"\\)\\.config\\(\\);\nconst \\{ MongoClient, ObjectId \\} = require\\(\"mongodb\"\\);\n\nconst baseUrl = \"http://localhost:3000\";\nconst token = \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\\.eyJpZCI6IjY5NWM5NTBlZDQ2MjA4MTA3M2M1OWYxOCIsImVtYWlsIjoiSGVsbG8uYXlvb2xhQGdtYWlsLmNvbSIsIm5hbWUiOiJBZG1pbiIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc3Nzg3OTQxNCwiZXhwIjoxNzc3ODg2NjE0fQ\\.9LpeyjX39UvXk-bH-t_eR-Cyex_B57pikeS4H6NBd9w\";\nconst headers = \\{\n  Authorization: `Bearer \\$\\{token\\}`,\n  \"Content-Type\": \"application/json\",\n\\};\n\nasync function api\\(path, options = \\{\\}\\) \\{\n  const response = await fetch\\(`\\$\\{baseUrl\\}\\$\\{path\\}`, \\{\n    \\.\\.\\.options,\n    headers: \\{\n      \\.\\.\\.headers,\n      \\.\\.\\.\\(options\\.headers \\|\\| \\{\\}\\),\n    \\},\n  \\}\\);\n\n  const text = await response\\.text\\(\\);\n  let body;\n  try \\{\n    body = text \\? JSON\\.parse\\(text\\) : null;\n  \\} catch \\{\n    body = text;\n  \\}\n\n  if \\(!response\\.ok\\) \\{\n    throw new Error\\(`\\$\\{path\\} -> \\$\\{response\\.status\\}: \\$\\{typeof body === \"string\" \\? body : JSON\\.stringify\\(body\\)\\}`\\);\n  \\}\n\n  return body;\n\\}\n\n\\(async \\(\\) => \\{\n  const stamp = Date\\.now\\(\\);\n  const productName = `Copilot Vendor Sync Product \\$\\{stamp\\}`;\n  const vendorName = `Copilot Vendor \\$\\{stamp\\}`;\n  const bookingEmail = `copilot-validation-\\$\\{stamp\\}@example\\.com`;\n\n  const setup = await api\\(\"/api/setup/get\", \\{ method: \"GET\" \\}\\);\n  const firstLocation = \\(setup\\.store\\?\\.locations \\|\\| \\[\\]\\)\\[0\\];\n  if \\(!firstLocation\\?\\._id \\|\\| !\\(firstLocation\\.name \\|\\| firstLocation\\)\\) \\{\n    throw new Error\\(\"No store location available for PO receipt validation\"\\);\n  \\}\n  const locationName = firstLocation\\.name \\|\\| firstLocation;\n\n  const productCreate = await api\\(\"/api/products\", \\{\n    method: \"POST\",\n    body: JSON\\.stringify\\(\\{\n      name: productName,\n      description: \"Disposable validation product\",\n      costPrice: 125,\n      taxRate: 0,\n      salePriceIncTax: 175,\n      margin: 40,\n      barcode: `VAL-\\$\\{stamp\\}`,\n      category: \"Top Level\",\n      quantity: 3,\n      locations: \\[locationName\\],\n      vendors: \\[\\],\n      packType: \"unit\",\n      qtyPerPack: 1,\n    \\}\\),\n  \\}\\);\n  const product = productCreate\\.data;\n\n  const vendorCreate = await api\\(\"/api/vendors\", \\{\n    method: \"POST\",\n    body: JSON\\.stringify\\(\\{\n      companyName: vendorName,\n      vendorRep: \"Copilot Validator\",\n      repPhone: \"08000000000\",\n      email: bookingEmail,\n      address: \"Validation Street\",\n      mainProduct: productName,\n      products: \\[\\],\n      isActive: true,\n    \\}\\),\n  \\}\\);\n  const vendor = vendorCreate\\.vendor;\n\n  const vendorUpdate = await api\\(`/api/vendors/\\$\\{vendor\\._id\\}`, \\{\n    method: \"PUT\",\n    body: JSON\\.stringify\\(\\{\n      companyName: vendorName,\n      vendorRep: \"Copilot Validator\",\n      repPhone: \"08000000000\",\n      email: bookingEmail,\n      address: \"Validation Street\",\n      mainProduct: productName,\n      products: \\[\n        \\{\n          product: product\\._id,\n          productName,\n          price: 125,\n          packType: \"unit\",\n          qtyPerPack: 1,\n        \\},\n      \\],\n      isActive: true,\n    \\}\\),\n  \\}\\);\n\n  const productAfterVendor = await api\\(`/api/products\\?id=\\$\\{product\\._id\\}`, \\{ method: \"GET\" \\}\\);\n  const vendorLinkedOnProduct = \\(productAfterVendor\\.data\\?\\.vendors \\|\\| \\[\\]\\)\\.map\\(String\\)\\.includes\\(String\\(vendor\\._id\\)\\);\n\n  const poCreate = await api\\(\"/api/purchase-orders\", \\{\n    method: \"POST\",\n    body: JSON\\.stringify\\(\\{\n      vendor: vendor\\._id,\n      vendorName,\n      contact: \"08000000000\",\n      date: new Date\\(\\)\\.toISOString\\(\\),\n      products: \\[\n        \\{\n          productId: product\\._id,\n          name: productName,\n          quantity: 2,\n          price: 125,\n          total: 250,\n        \\},\n      \\],\n      grandTotal: 250,\n      notes: \"Disposable validation PO\",\n      payBeforeSupply: false,\n    \\}\\),\n  \\}\\);\n  const order = poCreate\\.order;\n\n  const poConfirm = await api\\(`/api/purchase-orders/\\$\\{order\\._id\\}`, \\{\n    method: \"PUT\",\n    body: JSON\\.stringify\\(\\{\n      action: \"confirm-received\",\n      toLocationId: String\\(firstLocation\\._id\\),\n      products: \\[\n        \\{\n          id: product\\._id,\n          quantity: 2,\n          costPrice: 125,\n        \\},\n      \\],\n      notes: \"Disposable validation receipt\",\n    \\}\\),\n  \\}\\);\n\n  const orderAfterReceipt = await api\\(`/api/purchase-orders/\\$\\{order\\._id\\}`, \\{ method: \"GET\" \\}\\);\n  const stockMovementId = poConfirm\\.stockMovementId \\|\\| orderAfterReceipt\\.order\\?\\.stockMovementId;\n  const movement = await api\\(`/api/stock-movement/\\$\\{stockMovementId\\}`, \\{ method: \"GET\" \\}\\);\n\n  const client = new MongoClient\\(process\\.env\\.MONGODB_URI\\);\n  await client\\.connect\\(\\);\n  const db = client\\.db\\(\\);\n\n  const bookingDoc = \\{\n    siteKey: \"hotel\",\n    guestName: `Copilot Guest \\$\\{stamp\\}`,\n    email: bookingEmail,\n    phone: \"08000000000\",\n    roomName: \"Validation Room\",\n    checkInDate: new Date\\(Date\\.now\\(\\) \\+ 24 \\* 60 \\* 60 \\* 1000\\),\n    checkOutDate: new Date\\(Date\\.now\\(\\) \\+ 48 \\* 60 \\* 60 \\* 1000\\),\n    roomRate: 1000,\n    totalAmount: 1000,\n    nights: 1,\n    adults: 1,\n    children: 0,\n    preferredArrivalTime: \"14:00\",\n    specialRequests: \"Validation only\",\n    status: \"requested\",\n    cancelledAt: null,\n    completedAt: null,\n    transactionId: null,\n    createdAt: new Date\\(\\),\n    updatedAt: new Date\\(\\),\n  \\};\n\n  const bookingInsert = await db\\.collection\\(\"hotelbookings\"\\)\\.insertOne\\(bookingDoc\\);\n  const bookingId = String\\(bookingInsert\\.insertedId\\);\n\n  const reservationUpdate = await api\\(`/api/hotel/reservations/\\$\\{bookingId\\}`, \\{\n    method: \"PUT\",\n    body: JSON\\.stringify\\(\\{\n      kind: \"stay\",\n      status: \"confirmed\",\n    \\}\\),\n  \\}\\);\n\n  console\\.log\\(JSON\\.stringify\\(\\{\n    productId: String\\(product\\._id\\),\n    productName,\n    vendorId: String\\(vendor\\._id\\),\n    vendorName,\n    vendorLinkedOnProduct,\n    purchaseOrderId: String\\(order\\._id\\),\n    receivedStatus: orderAfterReceipt\\.order\\?\\.receivedStatus,\n    stockMovementId: String\\(stockMovementId\\),\n    stockMovementFromLocation: movement\\.fromLocation,\n    reservationId: bookingId,\n    reservationEmailState: reservationUpdate\\.emailState,\n    reservationStatus: reservationUpdate\\.status,\n    cleanup: \\{\n      productId: String\\(product\\._id\\),\n      vendorId: String\\(vendor\\._id\\),\n      purchaseOrderId: String\\(order\\._id\\),\n      stockMovementId: String\\(stockMovementId\\),\n      reservationId: bookingId,\n    \\},\n  \\}, null, 2\\)\\);\n\n  await client\\.close\\(\\);\n\\}\\)\\(\\)\\.catch\\(\\(error\\) => \\{\n  console\\.error\\(error\\);\n  process\\.exit\\(1\\);\n\\}\\);\n'@; \\$script \\| node$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$script = @'\nrequire\\(\"dotenv\"\\)\\.config\\(\\);\nconst \\{ MongoClient, ObjectId \\} = require\\(\"mongodb\"\\);\n\n\\(async \\(\\) => \\{\n  const client = new MongoClient\\(process\\.env\\.MONGODB_URI\\);\n  await client\\.connect\\(\\);\n  const db = client\\.db\\(\\);\n\n  const ids = \\{\n    productId: new ObjectId\\(\"69f84a9561dc3663d5aad3c0\"\\),\n    vendorId: new ObjectId\\(\"69f84a9661dc3663d5aad3c2\"\\),\n    purchaseOrderId: new ObjectId\\(\"69f84a9861dc3663d5aad3cd\"\\),\n    stockMovementId: new ObjectId\\(\"69f84a9b61dc3663d5aad3e1\"\\),\n    reservationId: new ObjectId\\(\"69f84a9fb9358ddc15196330\"\\),\n  \\};\n\n  const result = \\{\n    product: await db\\.collection\\(\"products\"\\)\\.deleteOne\\(\\{ _id: ids\\.productId \\}\\),\n    vendor: await db\\.collection\\(\"vendors\"\\)\\.deleteOne\\(\\{ _id: ids\\.vendorId \\}\\),\n    purchaseOrder: await db\\.collection\\(\"purchaseorders\"\\)\\.deleteOne\\(\\{ _id: ids\\.purchaseOrderId \\}\\),\n    stockMovement: await db\\.collection\\(\"stockmovements\"\\)\\.deleteOne\\(\\{ _id: ids\\.stockMovementId \\}\\),\n    reservation: await db\\.collection\\(\"hotelbookings\"\\)\\.deleteOne\\(\\{ _id: ids\\.reservationId \\}\\),\n  \\};\n\n  console\\.log\\(JSON\\.stringify\\(\\{\n    deletedCounts: Object\\.fromEntries\\(Object\\.entries\\(result\\)\\.map\\(\\(\\[key, value\\]\\) => \\[key, value\\.deletedCount \\|\\| 0\\]\\)\\)\n  \\}, null, 2\\)\\);\n\n  await client\\.close\\(\\);\n\\}\\)\\(\\)\\.catch\\(\\(error\\) => \\{\n  console\\.error\\(error\\);\n  process\\.exit\\(1\\);\n\\}\\);\n'@; \\$script \\| node$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$script = @'\nrequire\\(\"dotenv\"\\)\\.config\\(\\);\nconst nodemailer = require\\(\"nodemailer\"\\);\n\nconst configs = \\[\n  \\{\n    name: \"gmail-service\",\n    config: \\{\n      service: \"gmail\",\n      auth: \\{ user: process\\.env\\.EMAIL_USER, pass: process\\.env\\.EMAIL_PASS \\},\n      connectionTimeout: 10000,\n      socketTimeout: 10000,\n    \\},\n  \\},\n  \\{\n    name: \"smtp-587\",\n    config: \\{\n      host: process\\.env\\.EMAIL_HOST \\|\\| \"smtp\\.gmail\\.com\",\n      port: Number\\(process\\.env\\.EMAIL_PORT \\|\\| 587\\),\n      secure: false,\n      auth: \\{ user: process\\.env\\.EMAIL_USER, pass: process\\.env\\.EMAIL_PASS \\},\n      connectionTimeout: 10000,\n      socketTimeout: 10000,\n    \\},\n  \\},\n  \\{\n    name: \"smtp-587-insecure-cert\",\n    config: \\{\n      host: process\\.env\\.EMAIL_HOST \\|\\| \"smtp\\.gmail\\.com\",\n      port: Number\\(process\\.env\\.EMAIL_PORT \\|\\| 587\\),\n      secure: false,\n      auth: \\{ user: process\\.env\\.EMAIL_USER, pass: process\\.env\\.EMAIL_PASS \\},\n      tls: \\{ rejectUnauthorized: false \\},\n      connectionTimeout: 10000,\n      socketTimeout: 10000,\n    \\},\n  \\},\n\\];\n\n\\(async \\(\\) => \\{\n  for \\(const entry of configs\\) \\{\n    const transport = nodemailer\\.createTransport\\(entry\\.config\\);\n    try \\{\n      await transport\\.verify\\(\\);\n      console\\.log\\(JSON\\.stringify\\(\\{ name: entry\\.name, ok: true \\}\\)\\);\n    \\} catch \\(error\\) \\{\n      console\\.log\\(JSON\\.stringify\\(\\{ name: entry\\.name, ok: false, code: error\\.code, message: error\\.message \\}\\)\\);\n    \\}\n  \\}\n\\}\\)\\(\\);\n'@; \\$script \\| node$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$script = @'\nrequire\\(\"dotenv\"\\)\\.config\\(\\);\nconst nodemailer = require\\(\"nodemailer\"\\);\n\nconst configs = \\[\n  \\{\n    name: \"smtp-465\",\n    config: \\{\n      host: process\\.env\\.EMAIL_HOST \\|\\| \"smtp\\.gmail\\.com\",\n      port: 465,\n      secure: true,\n      auth: \\{ user: process\\.env\\.EMAIL_USER, pass: process\\.env\\.EMAIL_PASS \\},\n      connectionTimeout: 10000,\n      socketTimeout: 10000,\n    \\},\n  \\},\n  \\{\n    name: \"smtp-465-insecure-cert\",\n    config: \\{\n      host: process\\.env\\.EMAIL_HOST \\|\\| \"smtp\\.gmail\\.com\",\n      port: 465,\n      secure: true,\n      auth: \\{ user: process\\.env\\.EMAIL_USER, pass: process\\.env\\.EMAIL_PASS \\},\n      tls: \\{ rejectUnauthorized: false \\},\n      connectionTimeout: 10000,\n      socketTimeout: 10000,\n    \\},\n  \\},\n  \\{\n    name: \"smtp-465-requireTLS-false\",\n    config: \\{\n      host: process\\.env\\.EMAIL_HOST \\|\\| \"smtp\\.gmail\\.com\",\n      port: 465,\n      secure: true,\n      requireTLS: false,\n      auth: \\{ user: process\\.env\\.EMAIL_USER, pass: process\\.env\\.EMAIL_PASS \\},\n      tls: \\{ rejectUnauthorized: false \\},\n      connectionTimeout: 10000,\n      socketTimeout: 10000,\n    \\},\n  \\},\n\\];\n\n\\(async \\(\\) => \\{\n  for \\(const entry of configs\\) \\{\n    const transport = nodemailer\\.createTransport\\(entry\\.config\\);\n    try \\{\n      await transport\\.verify\\(\\);\n      console\\.log\\(JSON\\.stringify\\(\\{ name: entry\\.name, ok: true \\}\\)\\);\n    \\} catch \\(error\\) \\{\n      console\\.log\\(JSON\\.stringify\\(\\{ name: entry\\.name, ok: false, code: error\\.code, message: error\\.message \\}\\)\\);\n    \\}\n  \\}\n\\}\\)\\(\\);\n'@; \\$script \\| node$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$script = @'\nimport \"dotenv/config\";\nimport \\{ createMailTransport \\} from \"\\./lib/mail\\.js\";\n\ntry \\{\n  const transport = createMailTransport\\(\\);\n  await transport\\.verify\\(\\);\n  console\\.log\\(JSON\\.stringify\\(\\{ ok: true \\}\\)\\);\n\\} catch \\(error\\) \\{\n  console\\.log\\(JSON\\.stringify\\(\\{ ok: false, code: error\\.code, message: error\\.message \\}\\)\\);\n\\}\n'@; \\$script \\| node --input-type=module$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$script = @'\nimport \"dotenv/config\";\nimport \\{ mongooseConnect \\} from \"\\./lib/mongodb\\.js\";\nimport \\{ createToken \\} from \"\\./lib/jwt\\.js\";\nimport User from \"\\./models/User\\.js\";\nimport HotelTableReservation from \"\\./models/HotelTableReservation\\.js\";\n\nawait mongooseConnect\\(\\);\n\nconst user = await User\\.findOne\\(\\{ isActive: true, role: \\{ \\$in: \\[\"admin\", \"manager\", \"staff\"\\] \\} \\}\\)\\.sort\\(\\{ createdAt: 1 \\}\\);\nif \\(!user\\) \\{\n  throw new Error\\(\"No active staff user found for API verification\"\\);\n\\}\n\nconst token = createToken\\(\\{\n  id: user\\._id\\.toString\\(\\),\n  email: user\\.email,\n  name: user\\.name,\n  role: user\\.role,\n\\}, \"15m\"\\);\n\nconst reservation = await HotelTableReservation\\.create\\(\\{\n  guestName: \"Copilot Email Verification\",\n  email: process\\.env\\.TEST_EMAIL \\|\\| process\\.env\\.EMAIL_USER,\n  phone: \"0000000000\",\n  reservationDate: new Date\\(Date\\.now\\(\\) \\+ 86400000\\),\n  reservationTime: \"19:00\",\n  partySize: 2,\n  areaPreference: \"Indoor\",\n  occasion: \"Verification\",\n  specialRequests: \"Disposable reservation for email verification\",\n  status: \"requested\",\n\\}\\);\n\nlet responseBody;\nlet statusCode;\ntry \\{\n  const response = await fetch\\(`http://localhost:3000/api/hotel/reservations/\\$\\{reservation\\._id\\}\\?kind=table`, \\{\n    method: \"PUT\",\n    headers: \\{\n      \"Content-Type\": \"application/json\",\n      Authorization: `Bearer \\$\\{token\\}`,\n    \\},\n    body: JSON\\.stringify\\(\\{ kind: \"table\", status: \"confirmed\" \\}\\),\n  \\}\\);\n\n  statusCode = response\\.status;\n  responseBody = await response\\.json\\(\\);\n\\} finally \\{\n  await HotelTableReservation\\.deleteOne\\(\\{ _id: reservation\\._id \\}\\);\n\\}\n\nconsole\\.log\\(JSON\\.stringify\\(\\{ statusCode, responseBody \\}, null, 2\\)\\);\n'@; \\$script \\| node --input-type=module$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint pages/stock/management\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint pages/api/reporting/reporting-data\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint pages/reporting/reporting\\.js pages/api/reporting/reporting-data\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint pages/api/daily-mail\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node --input-type=module -e \"import mongoose from 'mongoose'; import jwt from 'jsonwebtoken'; const uri = process\\.env\\.MONGODB_URI; const secret = process\\.env\\.JWT_SECRET; if \\(!uri\\) throw new Error\\('MONGODB_URI missing'\\); if \\(!secret\\) throw new Error\\('JWT_SECRET missing'\\); await mongoose\\.connect\\(uri\\); const UserSchema = new mongoose\\.Schema\\(\\{ name: String, email: String, role: String, isActive: Boolean, permissions: \\[String\\] \\}, \\{ collection: 'users' \\}\\); const User = mongoose\\.models\\.TokenMintUser ; mongoose\\.model\\('TokenMintUser', UserSchema\\); const user = await User\\.findOne\\(\\{ role: 'admin', isActive: true \\}\\)\\.select\\('_id email name role permissions'\\)\\.lean\\(\\); if \\(!user\\) throw new Error\\('No active admin user found'\\); const token = jwt\\.sign\\(\\{ id: user\\._id\\.toString\\(\\), email: user\\.email, name: user\\.name, role: user\\.role \\}, secret, \\{ expiresIn: '24h' \\}\\); console\\.log\\(JSON\\.stringify\\(\\{ token, user \\}, null, 2\\)\\); await mongoose\\.disconnect\\(\\);\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$env:MONGODB_URI='mongodb://stmichealsfoods_db_user:kBdPk5DpHdzynYMY@ac-wosvnkt-shard-00-00\\.z4yj0gu\\.mongodb\\.net:27017,ac-wosvnkt-shard-00-01\\.z4yj0gu\\.mongodb\\.net:27017,ac-wosvnkt-shard-00-02\\.z4yj0gu\\.mongodb\\.net:27017/\\?authSource=admin&replicaSet=atlas-tnf21f-shard-0&tls=true&retryWrites=true&w=majority&appName=Cluster0'; \\$env:JWT_SECRET='zW4pj5YQWzMv1DlO/kB6hz5IHpQ2p8Aa8k42FDtqNH8='; node --input-type=module -e \"import mongoose from 'mongoose'; import jwt from 'jsonwebtoken'; await mongoose\\.connect\\(process\\.env\\.MONGODB_URI\\); const UserSchema = new mongoose\\.Schema\\(\\{ name: String, email: String, role: String, isActive: Boolean, permissions: \\[String\\] \\}, \\{ collection: 'users' \\}\\); let User = mongoose\\.models\\.TokenMintUser; if \\(!User\\) \\{ User = mongoose\\.model\\('TokenMintUser', UserSchema\\); \\} const user = await User\\.findOne\\(\\{ role: 'admin', isActive: true \\}\\)\\.select\\('_id email name role permissions'\\)\\.lean\\(\\); if \\(!user\\) throw new Error\\('No active admin user found'\\); const token = jwt\\.sign\\(\\{ id: user\\._id\\.toString\\(\\), email: user\\.email, name: user\\.name, role: user\\.role \\}, process\\.env\\.JWT_SECRET, \\{ expiresIn: '24h' \\}\\); console\\.log\\(JSON\\.stringify\\(\\{ token, user \\}, null, 2\\)\\); await mongoose\\.disconnect\\(\\);\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint pages/reporting/reporting\\.js pages/api/daily-mail\\.js pages/api/reporting/reporting-data\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint components/Loader\\.js lib/storeLogo\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx eslint components/ThemeProvider\\.js pages/_app\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

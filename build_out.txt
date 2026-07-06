@@ -1,0 +1,118 @@
+﻿
+> inventory-admin-app@0.1.0 build
+> next build
+
+   Ôû▓ Next.js 15.5.9
+   - Environments: .env
+
+   Skipping linting
+   Checking validity of types ...
+   Creating an optimized production build ...
+node.exe : Failed to compile.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Failed to compile.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+./pages/setup/pos-tenders.js
+Error:   [31mx[0m Expression expected
+     ,-[[36;1;4mC:\Users\hp\Desktop\Projects\Inventory-sales\Inventory\inventory-admin-app\pages\setup\pos-tenders.js[0m:404:1]
+ [2m401[0m |         </div>
+ [2m402[0m |       )}
+ [2m403[0m |         </div>
+ [2m404[0m |       </div>
+     : [35;1m      ^[0m
+ [2m405[0m |     </Layout>
+ [2m406[0m |   );
+ [2m406[0m | }
+     `----
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4mC:\Users\hp\Desktop\Projects\Inventory-sales\Inventory\inventory-admin-app\pages\setup\pos-tenders.js[0m:404:1]
+ [2m401[0m |         </div>
+ [2m402[0m |       )}
+ [2m403[0m |         </div>
+ [2m404[0m |       </div>
+     : [35;1m       ^^^^^[0m
+ [2m405[0m |     </Layout>
+ [2m406[0m |   );
+ [2m406[0m | }
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./pages/setup/pos-tenders.js
+
+./pages/setup/receipts.js
+Error:   [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4mC:\Users\hp\Desktop\Projects\Inventory-sales\Inventory\inventory-admin-app\pages\setup\receipts.js[0m:634:1]
+ [2m631[0m |       </div>
+ [2m632[0m |     </Layout>
+ [2m633[0m |   );
+ [2m634[0m | }
+     : [35;1m^[0m
+ [2m635[0m | 
+     `----
+  [31mx[0m Expected '</', got 'jsx text (
+  [31m|[0m   );
+  [31m|[0m }
+  [31m|[0m
+  [31m|[0m )'
+     ,-[[36;1;4mC:\Users\hp\Desktop\Projects\Inventory-sales\Inventory\inventory-admin-app\pages\setup\receipts.js[0m:632:1]
+ [2m629[0m |               </button>
+ [2m630[0m |             </div>
+ [2m631[0m |           </div>
+ [2m632[0m | [35;1m,[0m[35;1m-[0m[35;1m>[0m     </Layout>
+ [2m633[0m | [35;1m|[0m     );
+ [2m634[0m | [35;1m|[0m   }
+ [2m635[0m | [35;1m`[0m[35;1m-[0m[35;1m>[0m 
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./pages/setup/receipts.js
+
+./pages/stock/add.js
+Error:   [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4mC:\Users\hp\Desktop\Projects\Inventory-sales\Inventory\inventory-admin-app\pages\stock\add.js[0m:493:1]
+ [2m490[0m |       </div>
+ [2m491[0m |     </Layout>
+ [2m492[0m |   );
+ [2m493[0m | }
+     : [35;1m^[0m
+ [2m494[0m | 
+ [2m495[0m | function Dropdown({ label, value, onChange, options, required = false }) {
+ [2m495[0m |   return (
+     `----
+  [31mx[0m Expected '</', got 'jsx text (
+  [31m|[0m   );
+  [31m|[0m }
+  [31m|[0m
+  [31m|[0m function Dropdown()'
+     ,-[[36;1;4mC:\Users\hp\Desktop\Projects\Inventory-sales\Inventory\inventory-admin-app\pages\stock\add.js[0m:491:1]
+ [2m488[0m |               </div>
+ [2m489[0m |             </div>
+ [2m490[0m |           </div>
+ [2m491[0m | [35;1m,[0m[35;1m-[0m[35;1m>[0m     </Layout>
+ [2m492[0m | [35;1m|[0m     );
+ [2m493[0m | [35;1m|[0m   }
+ [2m494[0m | [35;1m|[0m   
+ [2m495[0m | [35;1m`[0m[35;1m-[0m[35;1m>[0m function Dropdown({ label, value, onChange, options, required = false }) {
+ [2m496[0m |       return (
+ [2m497[0m |         <div>
+ [2m497[0m |           <label className="block text-sm font-semibold text-gray-700 mb-2">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./pages/stock/add.js
+
+
+> Build failed because of webpack errors

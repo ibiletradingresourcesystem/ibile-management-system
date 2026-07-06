@@ -1,0 +1,1 @@
+export { default } from "@/pages/reporting/transaction-report/stock-history-levels";
