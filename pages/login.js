@@ -21,7 +21,7 @@ function createRipple(event) {
   button.appendChild(circle);
 }
 
-export default function Login({ staffList, locations, businessName, poweredBy }) {
+export default function Login({ staffList, locations, businessName, poweredBy, noAdmin }) {
   const [name, setName] = useState("");
   const [location, setLocation] = useState(locations?.[0] || "");
   const [availableLocations, setAvailableLocations] = useState(locations || []);
@@ -29,6 +29,16 @@ export default function Login({ staffList, locations, businessName, poweredBy })
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // Admin setup state
+  const [showSetup, setShowSetup] = useState(false);
+  const [setupStep, setSetupStep] = useState(1); // 1=email, 2=code+details
+  const [setupEmail, setSetupEmail] = useState("");
+  const [setupCode, setSetupCode] = useState("");
+  const [setupName, setSetupName] = useState("");
+  const [setupPin, setSetupPin] = useState("");
+  const [setupLoading, setSetupLoading] = useState(false);
+  const [setupMessage, setSetupMessage] = useState("");
 
   // Determine if selected user is admin
   const selectedUser = staffList.find((u) => u.name === name);
@@ -133,6 +143,52 @@ export default function Login({ staffList, locations, businessName, poweredBy })
     else if (password.length < 4) setPassword((p) => p + value);
   };
 
+  // Admin setup handlers
+  const handleSendCode = async (e) => {
+    e.preventDefault();
+    setSetupMessage("");
+    if (!setupEmail) return setSetupMessage("Please enter your email.");
+    setSetupLoading(true);
+    try {
+      const res = await fetch("/api/auth/setup-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "send-code", email: setupEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setSetupMessage(data.message);
+      setSetupStep(2);
+    } catch (err) {
+      setSetupMessage(err.message);
+    } finally {
+      setSetupLoading(false);
+    }
+  };
+
+  const handleVerifyAndCreate = async (e) => {
+    e.preventDefault();
+    setSetupMessage("");
+    if (!setupCode || !setupName || !setupPin) return setSetupMessage("All fields are required.");
+    if (!/^\d{4}$/.test(setupPin)) return setSetupMessage("PIN must be exactly 4 digits.");
+    setSetupLoading(true);
+    try {
+      const res = await fetch("/api/auth/setup-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify-and-create", code: setupCode, name: setupName, password: setupPin }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setSetupMessage("Admin created! Reloading...");
+      setTimeout(() => router.reload(), 1500);
+    } catch (err) {
+      setSetupMessage(err.message);
+    } finally {
+      setSetupLoading(false);
+    }
+  };
+
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-center px-6 py-12 overflow-hidden" style={{ backgroundColor: 'var(--page-bg, #f9fafb)' }}>
       {/* Decorative blobs */}
@@ -170,6 +226,90 @@ export default function Login({ staffList, locations, businessName, poweredBy })
         {/* ===== LOGIN CARD ===== */}
         <div className="w-full max-w-sm lg:flex-shrink-0">
           <div className="bg-white rounded-lg shadow-lg p-8 border border-gray-200">
+
+            {/* Admin Setup Flow */}
+            {showSetup ? (
+              <div>
+                <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">Admin Setup</h2>
+                <p className="text-sm text-gray-500 text-center mb-6">Create the first admin account</p>
+
+                {setupStep === 1 && (
+                  <form onSubmit={handleSendCode}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin Email</label>
+                    <input
+                      type="email"
+                      value={setupEmail}
+                      onChange={(e) => setSetupEmail(e.target.value)}
+                      placeholder="Enter authorized admin email"
+                      className="form-input mb-4"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      disabled={setupLoading}
+                      className="w-full py-3 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 transition"
+                    >
+                      {setupLoading ? "Sending..." : "Send Verification Code"}
+                    </button>
+                  </form>
+                )}
+
+                {setupStep === 2 && (
+                  <form onSubmit={handleVerifyAndCreate}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Verification Code</label>
+                    <input
+                      type="text"
+                      value={setupCode}
+                      onChange={(e) => setSetupCode(e.target.value)}
+                      placeholder="6-digit code from email"
+                      maxLength={6}
+                      className="form-input mb-3"
+                      autoFocus
+                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                    <input
+                      type="text"
+                      value={setupName}
+                      onChange={(e) => setSetupName(e.target.value)}
+                      placeholder="Admin display name"
+                      className="form-input mb-3"
+                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">4-Digit PIN</label>
+                    <input
+                      type="password"
+                      value={setupPin}
+                      onChange={(e) => setSetupPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="••••"
+                      maxLength={4}
+                      inputMode="numeric"
+                      className="form-input mb-4"
+                    />
+                    <button
+                      type="submit"
+                      disabled={setupLoading}
+                      className="w-full py-3 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 transition"
+                    >
+                      {setupLoading ? "Creating..." : "Create Admin Account"}
+                    </button>
+                  </form>
+                )}
+
+                {setupMessage && (
+                  <p className={`mt-4 text-sm text-center ${setupMessage.includes("sent") || setupMessage.includes("created") || setupMessage.includes("Reloading") ? "text-green-600" : "text-red-600"}`}>
+                    {setupMessage}
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => { setShowSetup(false); setSetupStep(1); setSetupMessage(""); }}
+                  className="w-full mt-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition"
+                >
+                  &larr; Back to Login
+                </button>
+              </div>
+            ) : (
+              <>
             <h2 className="text-2xl font-bold text-center text-gray-900 mb-6">
               Staff Login
             </h2>
@@ -262,6 +402,18 @@ export default function Login({ staffList, locations, businessName, poweredBy })
               {loading ? "Logging in..." : "Log In"}
             </button>
           </form>
+
+            {noAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowSetup(true)}
+                className="w-full mt-4 py-2.5 rounded-lg font-medium text-blue-600 border-2 border-blue-200 hover:bg-blue-50 active:scale-95 transition text-sm"
+              >
+                Setup Admin Account
+              </button>
+            )}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -282,6 +434,10 @@ export async function getServerSideProps() {
   const Staff = (await import("@/models/Staff")).default;
 
   await connectToDatabase();
+
+  // Check if any admin exists
+  const adminCount = await User.countDocuments({ role: "admin" });
+  const noAdmin = adminCount === 0;
 
   // Fetch all users (for login dropdown)
   const adminUsers = await User.find({}, "name email role").lean();
@@ -311,7 +467,8 @@ export async function getServerSideProps() {
       })),
       locations,
       businessName: store?.businessName || store?.name || "BizSuits",
-      poweredBy: store?.poweredBy || store?.providerName || store?.vendorName || "BizSuits",
+      poweredBy: store?.poweredBy || store?.providerName || store?.vendorName || "BizSuits Inventory Systems",
+      noAdmin,
     },
   };
 }
