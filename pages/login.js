@@ -190,7 +190,7 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
   };
 
   return (
-    <div className="relative min-h-screen flex flex-col items-center justify-center px-6 py-12 overflow-hidden" style={{ backgroundColor: 'var(--page-bg, #f9fafb)' }}>
+    <div className="relative min-h-screen flex flex-col items-center justify-center px-6 py-12 overflow-x-hidden" style={{ backgroundColor: 'var(--page-bg, #f9fafb)' }}>
       {/* Decorative blobs */}
       <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 rounded-full bg-blue-100 opacity-40 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-indigo-100 opacity-40 blur-3xl" />
@@ -224,7 +224,7 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
         </div>
 
         {/* ===== LOGIN CARD ===== */}
-        <div className="w-full max-w-sm lg:flex-shrink-0">
+        <div className="relative z-10 w-full max-w-sm lg:flex-shrink-0">
           <div className="bg-white rounded-lg shadow-lg p-8 border border-gray-200">
 
             {/* Admin Setup Flow */}
@@ -319,7 +319,7 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
             <select
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="form-input mb-4"
+              className="form-input mb-4 appearance-none"
             >
               <option value="" disabled>Select User</option>
               {staffList.map((user, index) => (
@@ -332,7 +332,7 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               disabled={name && !isSelectedAdmin && !!userAssignedLocation}
-              className={`form-input mb-4 ${
+              className={`form-input mb-4 appearance-none ${
                 name && !isSelectedAdmin && userAssignedLocation ? "bg-gray-100 text-gray-600 cursor-not-allowed" : ""
               }`}
             >
@@ -467,7 +467,7 @@ export async function getServerSideProps() {
       })),
       locations,
       businessName: store?.businessName || store?.name || "BizSuits",
-      poweredBy: store?.poweredBy || store?.providerName || store?.vendorName || "BizSuits Inventory Systems",
+      poweredBy: store?.poweredBy || store?.providerName || store?.vendorName || "BizSuits",
       noAdmin,
     },
   };
