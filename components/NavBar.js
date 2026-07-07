@@ -69,8 +69,8 @@ const TopBar = ({ user, logout }) => {
           setExpiringCount(expiringBatches.length);
         }
 
-        const creditsRes = await fetch("/api/credits");
-        if (creditsRes.ok) {
+        const creditsRes = await fetch("/api/credits").catch(() => null);
+        if (creditsRes?.ok) {
           const creditsData = await creditsRes.json();
           const summary = creditsData.summary || {};
           setCreditCount(Number(summary.activeCredits || 0));
@@ -138,7 +138,7 @@ const TopBar = ({ user, logout }) => {
         >
           <FontAwesomeIcon icon={faStore} className="w-4 md:w-6 h-4 md:h-6 text-white" />
         </div>
-        <h2 className="text-gray-900 text-lg md:text-2xl font-bold tracking-tight">Back Office</h2>
+        <h2 className="text-gray-900 text-lg md:text-2xl font-bold tracking-tight">Ibile Inventory</h2>
       </div>
 
       {/* Mobile Logo Icon - Shown only on mobile */}
