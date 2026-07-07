@@ -72,6 +72,7 @@ export default function PurchaseOrdersPage() {
   const [paidFilter, setPaidFilter] = useState("tillDate");
   const [currentPage, setCurrentPage] = useState(1);
   const entriesPerPage = 10;
+  const [selectedOrders, setSelectedOrders] = useState(new Set());
 
   // Period filter state
   const [selectedPeriod, setSelectedPeriod] = useState("");
@@ -519,6 +520,15 @@ export default function PurchaseOrdersPage() {
                       </ul>
                     ))}
                   </div>
+                  <button
+                    onClick={() => {
+                      const msg = overdueOrders.map(o => `${o.vendorName} — Balance: ${formatCurrency(o.balance ?? o.grandTotal)}`).join("\n");
+                      window.open(`https://wa.me/?text=${encodeURIComponent("Payment Reminder:\n\n" + msg)}`, "_blank");
+                    }}
+                    className="mt-3 px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
+                  >
+                    📨 Send Vendor Reminder
+                  </button>
                 </div>
               ) : (
                 <div className="bg-green-50 border border-green-200 text-green-800 p-5 rounded-xl shadow-md text-sm">
@@ -556,10 +566,10 @@ export default function PurchaseOrdersPage() {
             {/* Right Side: Stats Cards */}
             <div className="w-full lg:w-1/2 flex flex-col gap-3 sm:gap-6">
               {/* Total Paid Card */}
-              <div className="bg-emerald-600 border border-emerald-700 text-white p-4 sm:p-5 rounded-2xl shadow-lg text-center">
+              <div className="bg-emerald-600 border border-emerald-700 text-white p-4 sm:p-5 rounded-2xl shadow-lg text-center relative">
+                <span className="absolute top-2 right-3 text-[10px] bg-white/20 px-2 py-0.5 rounded-full">Till Date</span>
                 <div className="text-xs uppercase tracking-wide font-semibold opacity-90 mb-1">Total Paid</div>
                 <div className="text-2xl sm:text-3xl font-bold">{formatCurrency(totalPaid)}</div>
-                <div className="text-xs opacity-80 mt-1">Excludes prepaid credit awaiting supply</div>
               </div>
 
               <button onClick={() => { setTableFilter("all"); setStatusFilter(""); }}
@@ -658,28 +668,58 @@ export default function PurchaseOrdersPage() {
             )}
           </div>
 
+          {/* Vendor Filter */}
+          <div className="flex items-center gap-3 mb-4">
+            <label className="text-sm font-medium text-gray-700">Vendor:</label>
+            <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500">
+              <option value="">All vendors</option>
+              {vendorNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Desktop Table */}
           <div className="hidden md:block bg-white rounded-lg border border-gray-200 overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-300 text-sm select-none">
               <thead className="text-white font-semibold uppercase tracking-wide" style={{ backgroundColor: "var(--table-header-bg)", borderBottom: "1px solid var(--table-header-border)" }}>
                 <tr>
+                  <th className="px-2 py-3 text-center w-8">
+                    <input type="checkbox"
+                      checked={selectedOrders.size === paginatedOrders.length && paginatedOrders.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedOrders(new Set(paginatedOrders.map(o => o._id)));
+                        else setSelectedOrders(new Set());
+                      }}
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left">Date</th>
-                  <th className="px-4 py-3 text-left">Ref</th>
                   <th className="px-4 py-3 text-left">Vendor</th>
-                  <th className="px-4 py-3 text-left">Main Product</th>
+                  <th className="px-4 py-3 text-left">Contact</th>
+                  <th className="px-4 py-3 text-left">Products</th>
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3 text-right">Paid</th>
                   <th className="px-4 py-3 text-left">Pay Date</th>
                   <th className="px-4 py-3 text-right">Balance</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-center">Type</th>
-                  <th className="px-4 py-3 text-center">Received</th>
-                  <th className="px-4 py-3 text-left">Actions</th>
+                  <th className="px-4 py-3 text-center">Memo</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100">
                 {paginatedOrders.map((order, idx) => (
                   <tr key={order._id ?? idx} className="hover:bg-gray-50 transition">
+                    <td className="px-2 py-3 text-center">
+                      <input type="checkbox"
+                        checked={selectedOrders.has(order._id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedOrders);
+                          if (e.target.checked) next.add(order._id);
+                          else next.delete(order._id);
+                          setSelectedOrders(next);
+                        }}
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       {editIndex === idx ? (
                         <input type="date" className="border border-gray-300 px-2 py-1 rounded text-sm" value={editedDate} onChange={(e) => setEditedDate(e.target.value)} />
@@ -687,8 +727,8 @@ export default function PurchaseOrdersPage() {
                         order.date ? new Date(order.date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{order.orderRef || "—"}</td>
                     <td className="px-4 py-3 font-medium text-gray-800">{order.vendorName || "—"}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{order.contact || "—"}</td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
                       {order.products?.[0]?.name || "—"}
                     </td>
@@ -733,24 +773,14 @@ export default function PurchaseOrdersPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-block px-2 py-1 rounded-full text-[10px] font-semibold ${RECEIVED_COLORS[getDisplayReceivedStatus(order)] || RECEIVED_COLORS[order.receivedStatus] || "bg-gray-100 text-gray-600"}`}>
-                        {getDisplayReceivedStatus(order)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        {order.receivedStatus !== "Received" && (
-                          <button onClick={() => handleConfirmReceived(order._id)} className="px-2 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded transition">Received</button>
-                        )}
-                        {order.receivedStatus !== "Received" && isAdmin && (
-                          <button onClick={() => setDeleteConfirm(order._id)} className="px-2 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded transition">Delete</button>
-                        )}
-                      </div>
+                      <Link href={`/memo/${order._id}`} className="inline-block px-2 py-1 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 hover:bg-blue-200 transition">
+                        Memo
+                      </Link>
                     </td>
                   </tr>
                 ))}
                 {paginatedOrders.length === 0 && (
-                  <tr><td colSpan="12" className="text-center py-8 text-gray-400">No orders found</td></tr>
+                  <tr><td colSpan="10" className="text-center py-8 text-gray-400">No orders found</td></tr>
                 )}
               </tbody>
             </table>
