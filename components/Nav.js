@@ -592,6 +592,7 @@ export default function Sidebar() {
                 {renderSubMenu([
                   { href: "/expenses/expenses", label: "Expenses Entry" },
                   { href: "/expenses/analysis", label: "Expenses Analysis" },
+                  { href: "/expenses/categories", label: "Categories" },
                   { href: "/expenses/petty-cash", label: "Petty Cash" },
                   { href: "/expenses/tax-analysis", label: "Tax Analysis" },
                   {
@@ -602,6 +603,7 @@ export default function Sidebar() {
                   const permMap = {
                     "/expenses/expenses": "expenses.entry",
                     "/expenses/analysis": "expenses.analysis",
+                    "/expenses/categories": "expenses.entry",
                     "/expenses/petty-cash": "expenses.entry",
                     "/expenses/tax-analysis": "expenses.tax-analysis",
                     "/expenses/tax-personal": "expenses.tax-personal",

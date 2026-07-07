@@ -310,16 +310,20 @@ export default function ExpenseAnalysisPage() {
           <h2 className="text-lg font-semibold text-gray-800 mb-4">💰 Daily Cash Report</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {locations.length === 1 ? (
-              // Single location - show detailed report
               <div className="md:col-span-2">
-                <EndOfDayCard location={locations[0]} report={reports[locations[0]]} date={selectedDate} />
+                <h3 className="font-semibold text-sm text-gray-700 mb-2">🏪 {locations[0]}</h3>
+                {reports[locations[0]] ? (
+                  <EndOfDayCard location={locations[0]} report={reports[locations[0]]} />
+                ) : (
+                  <p className="text-xs text-gray-400 italic">No daily cash records for {locations[0]}</p>
+                )}
               </div>
             ) : (
               locations.map(loc => (
                 <div key={loc}>
                   <h3 className="font-semibold text-sm text-gray-700 mb-2">🏪 {loc}</h3>
                   {reports[loc] ? (
-                    <EndOfDayCard location={loc} report={reports[loc]} date={selectedDate} />
+                    <EndOfDayCard location={loc} report={reports[loc]} />
                   ) : (
                     <p className="text-xs text-gray-400 italic">No daily cash records for {loc}</p>
                   )}
@@ -329,71 +333,102 @@ export default function ExpenseAnalysisPage() {
           </div>
         </div>
 
-        {/* End of Day Report */}
-        <div className="content-card">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">📊 End of Day Report</h2>
-          <div className="mb-3">
-            <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="form-input w-auto text-sm" />
-          </div>
-          {locations.map(loc => (
-            <div key={loc} className="mb-6 border border-gray-100 rounded-lg p-4">
-              <div className="flex justify-between items-center mb-3">
-                <div>
-                  <h3 className="font-bold text-gray-900">📊 End of Day Report</h3>
-                  <p className="text-xs text-gray-500">Date: {selectedDate} | Location: {loc}</p>
-                </div>
+        {/* End of Day Report - Detailed */}
+        {locations.map(loc => (
+          <div key={loc} className="content-card mb-6">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">📊 End of Day Report</h2>
+                <p className="text-sm text-gray-500">Date: {selectedDate} | Location: {loc}</p>
               </div>
-              {reports[loc] ? (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 text-blue-700 font-semibold">METRIC</th>
-                      <th className="text-right py-2 text-blue-700 font-semibold">AMOUNT (₦)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-gray-50">
-                      <td className="py-2 text-gray-700">Cash B/F (Prev. Day)</td>
-                      <td className="py-2 text-right">{Number(reports[loc].cashBroughtForward || 0).toLocaleString()}</td>
-                    </tr>
-                    <tr className="border-b border-gray-50">
-                      <td className="py-2 text-gray-700">Cash Received</td>
-                      <td className="py-2 text-right">{Number(reports[loc].cashReceived || 0).toLocaleString()}</td>
-                    </tr>
-                    <tr className="border-b border-gray-50">
-                      <td className="py-2 text-gray-700">Total Cash Available</td>
-                      <td className="py-2 text-right">{Number(reports[loc].totalCashAvailable || 0).toLocaleString()}</td>
-                    </tr>
-                    <tr className="border-b border-gray-50">
-                      <td className="py-2 text-gray-700">Total Payments</td>
-                      <td className="py-2 text-right text-red-600">-{Number(reports[loc].totalPayments || 0).toLocaleString()}</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2 font-semibold text-green-700">Cash at Hand</td>
-                      <td className="py-2 text-right font-bold text-green-700">{Number(reports[loc].cashAtHand || 0).toLocaleString()}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              ) : (
-                <p className="text-sm text-gray-400 italic">No report data for this date.</p>
-              )}
-
-              {/* Payments list */}
-              {reports[loc]?.expenses?.length > 0 ? (
-                <div className="mt-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">💎 Payments</h4>
-                  <div className="space-y-1">
-                    {reports[loc].expenses.map(e => (
-                      <p key={e._id} className="text-xs text-gray-600">• {e.title} — {formatCurrency(e.amount)}</p>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400 italic mt-3">No payments for this date.</p>
-              )}
+              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="form-input w-auto text-sm" />
             </div>
-          ))}
-        </div>
+
+            {reports[loc] ? (
+              <>
+                <div className="border border-gray-100 rounded-lg overflow-hidden mb-4">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="text-left py-3 px-4 text-blue-700 font-semibold">METRIC</th>
+                        <th className="text-right py-3 px-4 text-blue-700 font-semibold">AMOUNT (₦)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b border-gray-50">
+                        <td className="py-3 px-4 text-gray-700">Cash B/F (Prev. Day)</td>
+                        <td className="py-3 px-4 text-right font-medium">{Number(reports[loc].cashBroughtForward || 0).toLocaleString()}</td>
+                      </tr>
+                      <tr className="border-b border-gray-50">
+                        <td className="py-3 px-4 text-gray-700">Cash Received</td>
+                        <td className="py-3 px-4 text-right font-medium">{Number(reports[loc].cashReceived || 0).toLocaleString()}</td>
+                      </tr>
+                      <tr className="border-b border-gray-50">
+                        <td className="py-3 px-4 text-gray-700">Total Cash Available</td>
+                        <td className="py-3 px-4 text-right font-medium">{Number(reports[loc].totalCashAvailable || 0).toLocaleString()}</td>
+                      </tr>
+                      <tr className="border-b border-gray-50">
+                        <td className="py-3 px-4 text-gray-700">Total Payments</td>
+                        <td className="py-3 px-4 text-right font-medium text-red-600">-{Number(reports[loc].totalPayments || 0).toLocaleString()}</td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 px-4 font-semibold text-green-700">Cash at Hand</td>
+                        <td className="py-3 px-4 text-right font-bold text-green-700">{Number(reports[loc].cashAtHand || 0).toLocaleString()}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Payments */}
+                <div className="mb-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">💎 Payments</h4>
+                  {reports[loc]?.expenses?.length > 0 ? (
+                    <div className="space-y-1">
+                      {reports[loc].expenses.map(e => (
+                        <p key={e._id} className="text-xs text-gray-600">• {e.title} — {formatCurrency(e.amount)}</p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">No payments for this date.</p>
+                  )}
+                </div>
+
+                {/* Share Buttons */}
+                <div className="flex flex-wrap gap-3 pt-3 border-t border-gray-100">
+                  <button
+                    onClick={() => {
+                      const text = `End of Day Report\nDate: ${selectedDate} | ${loc}\n\nCash B/F: ₦${Number(reports[loc].cashBroughtForward || 0).toLocaleString()}\nCash Received: ₦${Number(reports[loc].cashReceived || 0).toLocaleString()}\nTotal Available: ₦${Number(reports[loc].totalCashAvailable || 0).toLocaleString()}\nTotal Payments: -₦${Number(reports[loc].totalPayments || 0).toLocaleString()}\nCash at Hand: ₦${Number(reports[loc].cashAtHand || 0).toLocaleString()}`;
+                      navigator.clipboard.writeText(text);
+                    }}
+                    className="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                  >
+                    📋 Copy
+                  </button>
+                  <button
+                    onClick={() => {
+                      const text = `End of Day Report\nDate: ${selectedDate} | ${loc}\n\nCash B/F: ₦${Number(reports[loc].cashBroughtForward || 0).toLocaleString()}\nCash Received: ₦${Number(reports[loc].cashReceived || 0).toLocaleString()}\nTotal Available: ₦${Number(reports[loc].totalCashAvailable || 0).toLocaleString()}\nTotal Payments: -₦${Number(reports[loc].totalPayments || 0).toLocaleString()}\nCash at Hand: ₦${Number(reports[loc].cashAtHand || 0).toLocaleString()}`;
+                      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+                    }}
+                    className="text-xs border border-green-300 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-50 flex items-center gap-1"
+                  >
+                    💬 WhatsApp
+                  </button>
+                  <button
+                    onClick={() => {
+                      const text = `End of Day Report\nDate: ${selectedDate} | ${loc}\n\nCash B/F: ₦${Number(reports[loc].cashBroughtForward || 0).toLocaleString()}\nCash Received: ₦${Number(reports[loc].cashReceived || 0).toLocaleString()}\nTotal Available: ₦${Number(reports[loc].totalCashAvailable || 0).toLocaleString()}\nTotal Payments: -₦${Number(reports[loc].totalPayments || 0).toLocaleString()}\nCash at Hand: ₦${Number(reports[loc].cashAtHand || 0).toLocaleString()}`;
+                      window.open(`mailto:?subject=End of Day Report - ${loc}&body=${encodeURIComponent(text)}`);
+                    }}
+                    className="text-xs border border-blue-300 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-50 flex items-center gap-1"
+                  >
+                    ✉️ Email
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No report data for this date.</p>
+            )}
+          </div>
+        ))}
       </div>
     </Layout>
   );
