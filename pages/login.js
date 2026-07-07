@@ -310,7 +310,7 @@ export async function getServerSideProps() {
         assignedLocation: staffLocationMap[u.name] || "",
       })),
       locations,
-      businessName: store?.businessName || store?.name || "St Micheals",
+      businessName: store?.businessName || store?.name || "BizSuits",
       poweredBy: store?.poweredBy || store?.providerName || store?.vendorName || "BizSuits",
     },
   };
