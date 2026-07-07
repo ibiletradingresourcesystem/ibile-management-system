@@ -11,9 +11,10 @@ export default function PriceTagsPage() {
     async function loadProducts() {
       try {
         const { data } = await apiClient.get("/api/products", {
-          params: { limit: 500, fields: "name,sellingPrice,barcode,price" },
+          params: { limit: 200 },
         });
-        setProducts(data.products || data || []);
+        const list = Array.isArray(data) ? data : Array.isArray(data.data) ? data.data : Array.isArray(data.products) ? data.products : [];
+        setProducts(list);
       } catch (err) {
         console.error("Failed to load products:", err);
       } finally {

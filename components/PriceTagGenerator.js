@@ -32,6 +32,7 @@ const TAG_SIZES = {
 };
 
 export default function PriceTagGenerator({ products: productsProp = [] }) {
+  const safeProducts = Array.isArray(productsProp) ? productsProp : [];
   const [products, setProducts] = useState([]);
   const [tagSize, setTagSize] = useState("standard");
   const [currency, setCurrency] = useState("₦");
@@ -143,7 +144,7 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
     });
   };
 
-  const filteredDbProducts = productsProp.filter(
+  const filteredDbProducts = safeProducts.filter(
     (p) =>
       (p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (p.barcode || "").toLowerCase().includes(searchTerm.toLowerCase())
@@ -213,7 +214,7 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
             onChange={handleExcelUpload}
             className="hidden"
           />
-          {productsProp.length > 0 && (
+          {safeProducts.length > 0 && (
             <button
               onClick={() => setSource(source === "database" ? "manual" : "database")}
               className={`px-4 py-2 rounded text-sm font-medium border ${
