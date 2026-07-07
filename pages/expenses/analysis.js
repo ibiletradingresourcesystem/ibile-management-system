@@ -1,513 +1,413 @@
+import { useState, useEffect, useMemo } from "react";
 import Layout from "@/components/Layout";
 import { formatCurrency } from "@/lib/format";
-import { useEffect, useState } from "react";
-import {
-  Download,
-  Mail,
-  Share2,
-  Filter,
-  BarChart2,
-  PieChart as PieIcon,
-  Calendar,
-} from "lucide-react";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-} from "recharts";
-import Loader from "@/components/Loader";
-import useProgress from "@/lib/useProgress";
+import { RefreshCw, Filter, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 
-const COLORS = [
-  "#3B82F6",
-  "#60A5FA",
-  "#93C5FD",
-  "#1E3A8A",
-  "#2563EB",
-  "#1D4ED8",
-  "#60A5FA",
-];
+const COLORS = ["#2563eb", "#059669", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#be185d", "#4f46e5", "#65a30d", "#ea580c"];
 
-export default function ExpenseAnalysis() {
+function formatDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function getDateRange(period) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let start, end;
+
+  switch (period) {
+    case "today":
+      start = today;
+      end = new Date(today); end.setDate(end.getDate() + 1);
+      break;
+    case "yesterday":
+      start = new Date(today); start.setDate(start.getDate() - 1);
+      end = today;
+      break;
+    case "this-week": {
+      const day = today.getDay();
+      const diff = (day + 6) % 7;
+      start = new Date(today); start.setDate(start.getDate() - diff);
+      end = new Date(today); end.setDate(end.getDate() + 1);
+      break;
+    }
+    case "last-week": {
+      const day = today.getDay();
+      const diff = (day + 6) % 7;
+      start = new Date(today); start.setDate(start.getDate() - diff - 7);
+      end = new Date(start); end.setDate(end.getDate() + 7);
+      break;
+    }
+    case "this-month":
+      start = new Date(today.getFullYear(), today.getMonth(), 1);
+      end = new Date(today); end.setDate(end.getDate() + 1);
+      break;
+    case "last-month":
+      start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      end = new Date(today.getFullYear(), today.getMonth(), 1);
+      break;
+    default:
+      return null;
+  }
+  return { start, end };
+}
+
+export default function ExpenseAnalysisPage() {
   const [expenses, setExpenses] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showBarChart, setShowBarChart] = useState(false);
-  const { progress, start, onFetch, onProcess, complete } = useProgress();
-  const [activePeriod, setActivePeriod] = useState("");
-  const [filters, setFilters] = useState({
-    category: "",
-    minAmount: "",
-    maxAmount: "",
-    startDate: "",
-    endDate: "",
-    location: "",
-  });
 
-  // Quick period date helpers
-  const getDateRange = (period) => {
-    const today = new Date();
-    const yyyy = (d) => d.getFullYear();
-    const mm = (d) => String(d.getMonth() + 1).padStart(2, "0");
-    const dd = (d) => String(d.getDate()).padStart(2, "0");
-    const fmt = (d) => `${yyyy(d)}-${mm(d)}-${dd(d)}`;
+  // Filters
+  const [activePeriod, setActivePeriod] = useState("today");
+  const [filters, setFilters] = useState({ category: "", minAmount: "", maxAmount: "", location: "" });
+  const [showFilters, setShowFilters] = useState(false);
 
-    switch (period) {
-      case "today": {
-        const s = fmt(today);
-        return { startDate: s, endDate: s };
-      }
-      case "yesterday": {
-        const d = new Date(today);
-        d.setDate(d.getDate() - 1);
-        const s = fmt(d);
-        return { startDate: s, endDate: s };
-      }
-      case "this-week": {
-        const d = new Date(today);
-        const day = d.getDay();
-        const diff = day === 0 ? 6 : day - 1; // Monday start
-        d.setDate(d.getDate() - diff);
-        return { startDate: fmt(d), endDate: fmt(today) };
-      }
-      case "last-week": {
-        const d = new Date(today);
-        const day = d.getDay();
-        const diff = day === 0 ? 6 : day - 1;
-        const weekStart = new Date(d);
-        weekStart.setDate(d.getDate() - diff - 7);
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        return { startDate: fmt(weekStart), endDate: fmt(weekEnd) };
-      }
-      case "this-month": {
-        const s = new Date(today.getFullYear(), today.getMonth(), 1);
-        return { startDate: fmt(s), endDate: fmt(today) };
-      }
-      case "last-month": {
-        const s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const e = new Date(today.getFullYear(), today.getMonth(), 0);
-        return { startDate: fmt(s), endDate: fmt(e) };
-      }
-      case "this-year": {
-        const s = new Date(today.getFullYear(), 0, 1);
-        return { startDate: fmt(s), endDate: fmt(today) };
-      }
-      default:
-        return {};
-    }
-  };
+  // Daily cash report
+  const [reports, setReports] = useState({});
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
 
-  const handlePeriodSelect = (period) => {
-    if (activePeriod === period) {
-      // Toggle off — clear dates
-      setActivePeriod("");
-      setFilters((prev) => ({ ...prev, startDate: "", endDate: "" }));
-      return;
-    }
-    setActivePeriod(period);
-    const { startDate, endDate } = getDateRange(period);
-    setFilters((prev) => ({ ...prev, startDate, endDate }));
-  };
+  // Expense list
+  const [showAllExpenses, setShowAllExpenses] = useState(false);
 
   useEffect(() => {
-    async function fetchExpenses() {
-      start();
-      const res = await fetch("/api/expenses");
-      onFetch();
-      if (res.ok) {
-        const data = await res.json();
-        onProcess();
-        // API returns { success: true, expenses: [...] }
-        setExpenses(Array.isArray(data) ? data : (data.expenses || []));
-      }
-      complete();
-      setLoading(false);
-    }
-
-    async function fetchLocations() {
-      try {
-        const locRes = await fetch("/api/setup/get");
-        const locData = await locRes.json();
-        if (locData.store?.locations && Array.isArray(locData.store.locations)) {
-          setLocations(locData.store.locations);
-        }
-      } catch (err) {
-        console.error("Failed to fetch locations:", err);
-      }
-    }
-
-    fetchExpenses();
-    fetchLocations();
+    fetchData();
   }, []);
 
-  const allCategories = [
-    ...new Set(expenses.map((exp) => exp.categoryName).filter(Boolean)),
+  useEffect(() => {
+    if (locations.length > 0) {
+      fetchReports();
+    }
+  }, [selectedDate, locations]);
+
+  async function fetchData() {
+    setLoading(true);
+    try {
+      const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
+      const [expRes, locRes] = await Promise.all([
+        fetch("/api/expenses", { headers }),
+        fetch("/api/setup/get"),
+      ]);
+      const expData = await expRes.json();
+      setExpenses(expData.expenses || expData || []);
+      const locData = await locRes.json();
+      if (locData.store?.locations) {
+        const locs = locData.store.locations.map(l => typeof l === "string" ? l : l.name);
+        setLocations(locs);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  }
+
+  async function fetchReports() {
+    const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
+    const reportData = {};
+    for (const loc of locations) {
+      try {
+        const res = await fetch(`/api/daily-cash/report?location=${encodeURIComponent(loc)}&date=${selectedDate}`, { headers });
+        if (res.ok) reportData[loc] = await res.json();
+      } catch (err) {
+        console.error(`Report fetch failed for ${loc}:`, err);
+      }
+    }
+    setReports(reportData);
+  }
+
+  // === Filtering ===
+  const filteredExpenses = useMemo(() => {
+    let list = [...expenses];
+    const range = getDateRange(activePeriod);
+    if (range) {
+      list = list.filter(e => {
+        const d = new Date(e.createdAt || e.expenseDate);
+        return d >= range.start && d < range.end;
+      });
+    }
+    if (filters.category) list = list.filter(e => e.categoryName === filters.category);
+    if (filters.location) list = list.filter(e => e.locationName === filters.location);
+    if (filters.minAmount) list = list.filter(e => Number(e.amount) >= Number(filters.minAmount));
+    if (filters.maxAmount) list = list.filter(e => Number(e.amount) <= Number(filters.maxAmount));
+    return list;
+  }, [expenses, activePeriod, filters]);
+
+  const totalSpent = filteredExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const allCategories = [...new Set(expenses.map(e => e.categoryName).filter(Boolean))];
+
+  const expensesByCategory = useMemo(() => {
+    const map = {};
+    filteredExpenses.forEach(e => {
+      const cat = e.categoryName || "Uncategorized";
+      map[cat] = (map[cat] || 0) + Number(e.amount || 0);
+    });
+    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [filteredExpenses]);
+
+  // Cash summary from reports
+  const totalCashReceived = Object.values(reports).reduce((s, r) => s + (r?.cashReceived || 0), 0);
+  const totalPayments = Object.values(reports).reduce((s, r) => s + (r?.totalPayments || 0), 0);
+  const totalCashAtHand = Object.values(reports).reduce((s, r) => s + (r?.cashAtHand || 0), 0);
+
+  const handlePeriodSelect = (p) => setActivePeriod(prev => prev === p ? "" : p);
+  const resetFilters = () => {
+    setFilters({ category: "", minAmount: "", maxAmount: "", location: "" });
+    setActivePeriod("today");
+  };
+
+  const periods = [
+    { key: "today", label: "Today" },
+    { key: "yesterday", label: "Yesterday" },
+    { key: "this-week", label: "This Week" },
+    { key: "last-week", label: "Last Week" },
+    { key: "this-month", label: "This Month" },
+    { key: "last-month", label: "Last Month" },
   ];
-
-  const applyFilters = (expense) => {
-    const { category, minAmount, maxAmount, startDate, endDate, location } =
-      filters;
-    const amount = Number(expense.amount);
-    const date = new Date(expense.createdAt);
-    return (
-      (!category || expense.categoryName === category) &&
-      (!location || expense.locationName === location) &&
-      (!minAmount || amount >= Number(minAmount)) &&
-      (!maxAmount || amount <= Number(maxAmount)) &&
-      (!startDate || date >= new Date(startDate)) &&
-      (!endDate || date <= new Date(endDate))
-    );
-  };
-
-  const filteredExpenses = expenses.filter(applyFilters);
-  const totalSpent = filteredExpenses.reduce(
-    (acc, exp) => acc + Number(exp.amount),
-    0
-  );
-
-  const expensesByCategory = filteredExpenses.reduce((acc, curr) => {
-    const catName = curr.categoryName || "Uncategorized";
-    acc[catName] = (acc[catName] || 0) + Number(curr.amount);
-    return acc;
-  }, {});
-
-  const chartData = Object.entries(expensesByCategory).map(
-    ([category, amount]) => ({
-      category,
-      amount,
-    })
-  );
-
-  const downloadReport = async () => {
-    const res = await fetch("/api/expenses/analysis");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "ExpenseReport.pdf";
-    a.click();
-  };
 
   return (
     <Layout>
       <div className="page-container">
-        <div className="page-content">
-          <div className="page-header">
-            <h1 className="page-title">Expense Dashboard</h1>
-            <p className="page-subtitle">
-              Visualize and monitor your business expenditures in one place.
-            </p>
+        {/* Header */}
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h1 className="page-title">Dashboard</h1>
+            <p className="page-subtitle">Visualize and monitor your business expenditures in one place.</p>
           </div>
+          <button onClick={() => { fetchData(); fetchReports(); }} className="btn-action-primary flex items-center gap-2 text-sm">
+            <RefreshCw className="w-4 h-4" /> Refresh Data
+          </button>
+        </div>
 
-          {/* Period Quick Filters */}
+        {/* Active Filters Badge */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <span className="text-xs text-gray-500">Active Filters:</span>
+          {activePeriod && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Date: {activePeriod}</span>}
+          {filters.location && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Location: {filters.location}</span>}
+          {(activePeriod || filters.location || filters.category) && (
+            <button onClick={resetFilters} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded hover:bg-red-200">Reset Filters</button>
+          )}
+        </div>
+
+        {/* Filter Panel */}
+        <div className="content-card mb-6">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Period</label>
+              <select value={activePeriod} onChange={e => setActivePeriod(e.target.value)} className="form-select text-sm w-auto">
+                <option value="">All Time</option>
+                {periods.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Location</label>
+              <select value={filters.location} onChange={e => setFilters(f => ({ ...f, location: e.target.value }))} className="form-select text-sm w-auto">
+                <option value="">All</option>
+                {locations.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Min Amount</label>
+              <input type="number" value={filters.minAmount} onChange={e => setFilters(f => ({ ...f, minAmount: e.target.value }))} placeholder="₦0" className="form-input text-sm w-28" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Max Amount</label>
+              <input type="number" value={filters.maxAmount} onChange={e => setFilters(f => ({ ...f, maxAmount: e.target.value }))} placeholder="₦100,000" className="form-input text-sm w-28" />
+            </div>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="content-card text-center">
+            <p className="text-sm text-gray-500">Cash Received</p>
+            <p className="text-2xl font-bold text-blue-700">{formatCurrency(totalCashReceived)}</p>
+          </div>
+          <div className="content-card text-center">
+            <p className="text-sm text-gray-500">Expenses</p>
+            <p className="text-2xl font-bold text-red-600">{formatCurrency(totalSpent)}</p>
+          </div>
+          <div className="content-card text-center">
+            <p className="text-sm text-gray-500">Cash at Hand</p>
+            <p className="text-2xl font-bold text-green-700">{formatCurrency(totalCashAtHand)}</p>
+          </div>
+        </div>
+
+        {/* Chart + Expense List */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Category Breakdown */}
           <div className="content-card">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-3">
-              <Calendar className="w-5 h-5 theme-accent-text" /> Quick Date Filter
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: "today", label: "Today" },
-                { key: "yesterday", label: "Yesterday" },
-                { key: "this-week", label: "This Week" },
-                { key: "last-week", label: "Last Week" },
-                { key: "this-month", label: "This Month" },
-                { key: "last-month", label: "Last Month" },
-                { key: "this-year", label: "This Year" },
-              ].map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => handlePeriodSelect(key)}
-                  className={`border px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activePeriod === key
-                      ? "theme-toggle-active"
-                      : "theme-toggle-neutral"
-                  }`}
-                >
-                  {label}
-                </button>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">Category Breakdown</h2>
+              <button onClick={() => setShowBarChart(!showBarChart)} className="text-xs text-blue-600 hover:underline">
+                {showBarChart ? "Pie Chart" : "Bar Chart"}
+              </button>
+            </div>
+            {expensesByCategory.length === 0 ? (
+              <p className="text-sm text-gray-400 italic text-center py-8">No data for selected period.</p>
+            ) : showBarChart ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={expensesByCategory}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                  <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]}>
+                    {expensesByCategory.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie data={expensesByCategory} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name }) => name}>
+                    {expensesByCategory.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+            {/* Legend */}
+            <div className="flex flex-wrap gap-2 mt-3">
+              {expensesByCategory.map((item, i) => (
+                <span key={item.name} className="flex items-center gap-1 text-xs text-gray-600">
+                  <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                  {item.name}
+                </span>
               ))}
             </div>
           </div>
 
-          {/* Filters */}
-          <div className="content-card space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Filter className="w-5 h-5 theme-accent-text" /> Filter Expenses
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              <select
-                value={filters.category}
-                onChange={(e) =>
-                  setFilters({ ...filters, category: e.target.value })
-                }
-                className="form-select"
-              >
-                <option value="">All Categories</option>
-                {allCategories.map((cat, idx) => (
-                  <option key={idx} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={filters.location}
-                onChange={(e) =>
-                  setFilters({ ...filters, location: e.target.value })
-                }
-                className="form-select"
-              >
-                <option value="">All Locations</option>
-                {locations.map((loc) => (
-                  <option key={loc._id || loc.name} value={loc.name}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                placeholder="Min Amount"
-                value={filters.minAmount}
-                onChange={(e) =>
-                  setFilters({ ...filters, minAmount: e.target.value })
-                }
-                className="form-input"
-                onWheel={(e) => e.target.blur()}
-              />
-              <input
-                type="number"
-                placeholder="Max Amount"
-                value={filters.maxAmount}
-                onChange={(e) =>
-                  setFilters({ ...filters, maxAmount: e.target.value })
-                }
-                className="form-input"
-                onWheel={(e) => e.target.blur()}
-              />
-              <input
-                type="date"
-                value={filters.startDate}
-                onChange={(e) => {
-                  setActivePeriod("");
-                  setFilters({ ...filters, startDate: e.target.value });
-                }}
-                className="form-input"
-              />
-              <input
-                type="date"
-                value={filters.endDate}
-                onChange={(e) => {
-                  setActivePeriod("");
-                  setFilters({ ...filters, endDate: e.target.value });
-                }}
-                className="form-input"
-              />
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="content-card flex items-center justify-center py-16">
-              <Loader size="md" text="Loading expenses..." progress={progress} />
-            </div>
-          ) : filteredExpenses.length === 0 ? (
-            <div className="empty-state-container">
-              <div className="empty-state-icon"></div>
-              <p className="empty-state-text">No expenses match the selected filters.</p>
-            </div>
-          ) : (
-            <>
-              <div className="stat-card border-l-4 border-red-500">
-                <h2 className="text-lg font-semibold text-gray-700">
-                  Total Amount Spent
-                </h2>
-                <p className="stat-card-value text-red-600">
-                  {totalSpent.toLocaleString()}
-                </p>
-              </div>
-
-              {/* Chart + List */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="content-card relative">
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-lg font-semibold theme-section-title">
-                      Category Breakdown
-                    </h2>
-                    <button
-                      onClick={() => setShowBarChart(!showBarChart)}
-                      className="btn-action p-2 text-sky-600 hover:text-sky-800 hover:bg-sky-50 rounded-lg transition-colors"
-                      title={
-                        showBarChart
-                          ? "Switch to Pie Chart"
-                          : "Switch to Bar Chart"
-                      }
-                    >
-                      {showBarChart ? (
-                        <PieIcon className="w-5 h-5" />
-                      ) : (
-                        <BarChart2 className="w-5 h-5" />
-                      )}
-                    </button>
+          {/* All Expenses */}
+          <div className="content-card">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">All Expenses</h2>
+            {filteredExpenses.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No expenses for this period.</p>
+            ) : (
+              <div className="space-y-3 max-h-[350px] overflow-y-auto">
+                {(showAllExpenses ? filteredExpenses : filteredExpenses.slice(0, 6)).map(exp => (
+                  <div key={exp._id} className="border-b border-gray-100 pb-2">
+                    <p className="font-medium text-sm text-gray-900">{exp.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {formatCurrency(exp.amount)} - {exp.categoryName} - {exp.locationName || "—"}
+                    </p>
+                    <p className="text-xs text-gray-400">{formatDate(exp.createdAt)}</p>
                   </div>
+                ))}
+              </div>
+            )}
+            {filteredExpenses.length > 6 && (
+              <button onClick={() => setShowAllExpenses(!showAllExpenses)} className="mt-3 text-xs text-blue-600 hover:underline flex items-center gap-1">
+                {showAllExpenses ? <><ChevronUp className="w-3 h-3" /> Show less</> : <><ChevronDown className="w-3 h-3" /> Show all ({filteredExpenses.length})</>}
+              </button>
+            )}
+          </div>
+        </div>
 
-                <ResponsiveContainer width="100%" height={320}>
-                  {showBarChart ? (
-                    <BarChart data={chartData}>
-                      <XAxis dataKey="category" />
-                      <YAxis />
-                      <Tooltip
-                        formatter={(value) =>
-                          `${Number(value).toLocaleString()}`
-                        }
-                      />
-                      <Legend />
-                      <Bar dataKey="amount" fill="#3B82F6">
-                        {chartData.map((entry, index) => (
-                          <Cell
-                            key={`bar-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
+        {/* Daily Cash Report */}
+        <div className="content-card mb-6">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">💰 Daily Cash Report</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {locations.length === 1 ? (
+              // Single location - show detailed report
+              <div className="md:col-span-2">
+                <EndOfDayCard location={locations[0]} report={reports[locations[0]]} date={selectedDate} />
+              </div>
+            ) : (
+              locations.map(loc => (
+                <div key={loc}>
+                  <h3 className="font-semibold text-sm text-gray-700 mb-2">🏪 {loc}</h3>
+                  {reports[loc] ? (
+                    <EndOfDayCard location={loc} report={reports[loc]} date={selectedDate} />
                   ) : (
-                    <PieChart>
-                      <Pie
-                        data={chartData}
-                        dataKey="amount"
-                        nameKey="category"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={110}
-                        label={({ name }) => name}
-                      >
-                        {chartData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value) =>
-                          `${Number(value).toLocaleString()}`
-                        }
-                      />
-                      <Legend />
-                    </PieChart>
+                    <p className="text-xs text-gray-400 italic">No daily cash records for {loc}</p>
                   )}
-                </ResponsiveContainer>
-              </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
 
-                {/* Expense List */}
-                <div className="content-card overflow-auto">
-                  <h2 className="text-lg font-semibold theme-section-title mb-4">
-                    All Expenses
-                  </h2>
-                  <ul className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
-                  {filteredExpenses
-                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-                    .map((exp) => (
-                      <li
-                        key={exp._id}
-                        className="flex flex-col border-b pb-2 border-gray-200"
-                      >
-                        <span className="font-medium text-gray-800">
-                          {exp.title}
-                        </span>
-                        <span className="text-sm text-gray-600">
-                          {Number(exp.amount).toLocaleString()} -{" "}
-                          {exp.categoryName || "Uncategorized"}{" "}
-                          {exp.locationName && `- ${exp.locationName}`}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {new Date(exp.createdAt).toLocaleDateString()}
-                        </span>
-                      </li>
+        {/* End of Day Report */}
+        <div className="content-card">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">📊 End of Day Report</h2>
+          <div className="mb-3">
+            <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="form-input w-auto text-sm" />
+          </div>
+          {locations.map(loc => (
+            <div key={loc} className="mb-6 border border-gray-100 rounded-lg p-4">
+              <div className="flex justify-between items-center mb-3">
+                <div>
+                  <h3 className="font-bold text-gray-900">📊 End of Day Report</h3>
+                  <p className="text-xs text-gray-500">Date: {selectedDate} | Location: {loc}</p>
+                </div>
+              </div>
+              {reports[loc] ? (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 text-blue-700 font-semibold">METRIC</th>
+                      <th className="text-right py-2 text-blue-700 font-semibold">AMOUNT (₦)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-50">
+                      <td className="py-2 text-gray-700">Cash B/F (Prev. Day)</td>
+                      <td className="py-2 text-right">{Number(reports[loc].cashBroughtForward || 0).toLocaleString()}</td>
+                    </tr>
+                    <tr className="border-b border-gray-50">
+                      <td className="py-2 text-gray-700">Cash Received</td>
+                      <td className="py-2 text-right">{Number(reports[loc].cashReceived || 0).toLocaleString()}</td>
+                    </tr>
+                    <tr className="border-b border-gray-50">
+                      <td className="py-2 text-gray-700">Total Cash Available</td>
+                      <td className="py-2 text-right">{Number(reports[loc].totalCashAvailable || 0).toLocaleString()}</td>
+                    </tr>
+                    <tr className="border-b border-gray-50">
+                      <td className="py-2 text-gray-700">Total Payments</td>
+                      <td className="py-2 text-right text-red-600">-{Number(reports[loc].totalPayments || 0).toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2 font-semibold text-green-700">Cash at Hand</td>
+                      <td className="py-2 text-right font-bold text-green-700">{Number(reports[loc].cashAtHand || 0).toLocaleString()}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No report data for this date.</p>
+              )}
+
+              {/* Payments list */}
+              {reports[loc]?.expenses?.length > 0 ? (
+                <div className="mt-4">
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2">💎 Payments</h4>
+                  <div className="space-y-1">
+                    {reports[loc].expenses.map(e => (
+                      <p key={e._id} className="text-xs text-gray-600">• {e.title} — {formatCurrency(e.amount)}</p>
                     ))}
-                </ul>
-              </div>
-
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 italic mt-3">No payments for this date.</p>
+              )}
             </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap gap-4 mt-6">
-                <button
-                  onClick={downloadReport}
-                  className="btn-action btn-action-primary flex items-center gap-2"
-                >
-                  <Download className="w-5 h-5" /> Download Report
-                </button>
-
-                <button
-                  onClick={() => {
-                    const subject = encodeURIComponent(`Expense Report - ${new Date().toLocaleDateString()}`);
-                    const body = encodeURIComponent(
-                      `Expense Report Summary\n\n` +
-                      `Date: ${new Date().toLocaleDateString()}\n` +
-                      `Total Expenses: ${totalSpent.toLocaleString()}\n` +
-                      `Number of Expenses: ${filteredExpenses.length}\n\n` +
-                      `Category Breakdown:\n` +
-                      chartData.map(c => ` ${c.category}: ${c.amount.toLocaleString()}`).join('\n') +
-                      `\n\nGenerated from St. Micheals Inventory System`
-                    );
-                    window.open(`mailto:?subject=${subject}&body=${body}`);
-                  }}
-                  className="btn-action btn-action-success flex items-center gap-2"
-                >
-                  <Mail className="w-5 h-5" /> Send via Email
-                </button>
-
-                <button
-                  onClick={() => {
-                    // Build date range information
-                    let dateRangeText = ` Report Generated: ${new Date().toLocaleDateString()}`;
-                    if (filters.startDate || filters.endDate) {
-                      const startDate = filters.startDate 
-                        ? new Date(filters.startDate).toLocaleDateString() 
-                        : "Start";
-                      const endDate = filters.endDate 
-                        ? new Date(filters.endDate).toLocaleDateString() 
-                        : "End";
-                      dateRangeText += `\n Date Range: ${startDate} to ${endDate}`;
-                    }
-
-                    // Build expense details with dates
-                    const expenseDetails = filteredExpenses
-                      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-                      .map(exp => ` ${exp.title}: ${Number(exp.amount).toLocaleString()} (${new Date(exp.createdAt).toLocaleDateString()})`)
-                      .join('\n');
-
-                    const message = encodeURIComponent(
-                      ` *Expense Report Summary*\n\n` +
-                      `${dateRangeText}\n` +
-                      ` Total Expenses: ${totalSpent.toLocaleString()}\n` +
-                      ` Number of Expenses: ${filteredExpenses.length}\n\n` +
-                      `*Category Breakdown:*\n` +
-                      chartData.map(c => ` ${c.category}: ${c.amount.toLocaleString()}`).join('\n') +
-                      `\n\n*Expense Details:*\n` +
-                      expenseDetails +
-                      `\n\n_Generated from St. Micheals Inventory System_`
-                    );
-                    window.open(`https://wa.me/?text=${message}`, "_blank");
-                  }}
-                  className="btn-action bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
-                >
-                  <Share2 className="w-5 h-5" /> Share on WhatsApp
-                </button>
-              </div>
-            </>
-          )}
+          ))}
         </div>
       </div>
     </Layout>
   );
 }
 
+function EndOfDayCard({ location, report }) {
+  if (!report) return null;
+  return (
+    <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+      <div className="flex justify-between"><span className="text-gray-600">Cash B/F</span><span>{formatCurrency(report.cashBroughtForward || 0)}</span></div>
+      <div className="flex justify-between"><span className="text-gray-600">Cash Received</span><span>{formatCurrency(report.cashReceived || 0)}</span></div>
+      <div className="flex justify-between"><span className="text-gray-600">Total Available</span><span>{formatCurrency(report.totalCashAvailable || 0)}</span></div>
+      <div className="flex justify-between"><span className="text-gray-600">Payments</span><span className="text-red-600">-{formatCurrency(report.totalPayments || 0)}</span></div>
+      <div className="flex justify-between font-bold border-t pt-1"><span className="text-green-700">Cash at Hand</span><span className="text-green-700">{formatCurrency(report.cashAtHand || 0)}</span></div>
+    </div>
+  );
+}

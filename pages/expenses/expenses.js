@@ -1,490 +1,350 @@
-import ExpenseForm from "@/components/ExpenseForm";
+import { useState, useEffect, useMemo } from "react";
 import Layout from "@/components/Layout";
-import { showAlertDialog } from "@/lib/dialogs";
+import ExpenseForm from "@/components/ExpenseForm";
 import { formatCurrency } from "@/lib/format";
-import { useEffect, useState } from "react";
-import { Wrench } from "lucide-react";
-import { CalendarDays, CircleDollarSign, MapPin, User, Pencil, Trash2, X } from "lucide-react";
+import { showAlertDialog } from "@/lib/dialogs";
+import { RefreshCw, Search, Save, X, DollarSign } from "lucide-react";
 
-export default function ManageExpenses() {
+function formatDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+export default function ExpensesPage() {
   const [expenses, setExpenses] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [cashEntries, setCashEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [locations, setLocations] = useState([]);
-  const [staff, setStaff] = useState([]);
-  const [assets, setAssets] = useState([]);
+  const [userLocation, setUserLocation] = useState("");
+  const [userName, setUserName] = useState("");
+
+  // Filters
+  const [filterLocation, setFilterLocation] = useState("All");
+  const [filterDate, setFilterDate] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Cash form
+  const [cashDate, setCashDate] = useState(new Date().toISOString().split("T")[0]);
+  const [cashAmount, setCashAmount] = useState("");
+  const [cashSaving, setCashSaving] = useState(false);
+
+  // Inline edit
   const [editingExpense, setEditingExpense] = useState(null);
-  const [editForm, setEditForm] = useState({
-    title: "",
-    amount: "",
-    categoryId: "",
-    categoryName: "",
-    description: "",
-    locationName: "",
-    staffId: "",
-    staffName: "",
-    assetId: "",
-    assetName: "",
-  });
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [editingCash, setEditingCash] = useState(null);
+  const [editCashAmount, setEditCashAmount] = useState("");
 
-  const fetchExpenses = async () => {
-    const res = await fetch("/api/expenses");
-    if (res.ok) {
-      const data = await res.json();
-      // Handle the response object with expenses array
-      setExpenses(Array.isArray(data.expenses) ? data.expenses : []);
-    } else {
-      console.error("Failed to fetch expenses");
-      setExpenses([]);
-    }
-  };
-
-  const fetchDropdownData = async () => {
-    // Fetch categories
-    try {
-      const catRes = await fetch("/api/expenses/expense-category");
-      const catData = await catRes.json();
-      setCategories(Array.isArray(catData) ? catData : []);
-    } catch (err) {
-      console.error("Failed to fetch categories:", err);
-    }
-
-    // Fetch locations
-    try {
-      const locRes = await fetch("/api/setup/get");
-      const locData = await locRes.json();
-      if (locData.store?.locations && Array.isArray(locData.store.locations)) {
-        setLocations(locData.store.locations);
-      }
-    } catch (err) {
-      console.error("Failed to fetch locations:", err);
-    }
-
-    // Fetch staff
-    try {
-      const staffRes = await fetch("/api/staff");
-      const staffData = await staffRes.json();
-      if (Array.isArray(staffData)) {
-        setStaff(staffData);
-      } else if (staffData.staff && Array.isArray(staffData.staff)) {
-        setStaff(staffData.staff);
-      }
-    } catch (err) {
-      console.error("Failed to fetch staff:", err);
-    }
-
-    // Fetch assets
-    try {
-      const assetRes = await fetch("/api/assets?limit=500");
-      const assetData = await assetRes.json();
-      setAssets(Array.isArray(assetData.assets) ? assetData.assets : []);
-    } catch (err) {
-      console.error("Failed to fetch assets:", err);
-    }
-  };
+  // Pagination
+  const [expenseLimit, setExpenseLimit] = useState(10);
+  const [cashLimit, setCashLimit] = useState(10);
 
   useEffect(() => {
-    fetchExpenses();
-    fetchDropdownData();
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+    setUserLocation(user.location || "");
+    setUserName(user.name || "");
+    fetchAll();
   }, []);
 
-  const handleEdit = (expense) => {
-    setEditingExpense(expense);
-    setEditForm({
-      title: expense.title || "",
-      amount: expense.amount || "",
-      categoryId: expense.categoryId || "",
-      categoryName: expense.categoryName || "",
-      description: expense.description || "",
-      locationName: expense.locationName || "",
-      staffId: expense.staffId || "",
-      staffName: expense.staffName || "",
-      assetId: expense.assetId || "",
-      assetName: expense.assetName || "",
+  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : "";
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  async function fetchAll() {
+    setLoading(true);
+    try {
+      const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
+      const [expRes, cashRes, locRes] = await Promise.all([
+        fetch("/api/expenses", { headers }),
+        fetch("/api/daily-cash", { headers }),
+        fetch("/api/setup/get"),
+      ]);
+      const expData = await expRes.json();
+      setExpenses(expData.expenses || expData || []);
+      const cashData = await cashRes.json();
+      setCashEntries(Array.isArray(cashData) ? cashData : []);
+      const locData = await locRes.json();
+      if (locData.store?.locations) {
+        setLocations(locData.store.locations.map(l => typeof l === "string" ? l : l.name));
+      }
+    } catch (err) {
+      console.error("Fetch error:", err);
+    }
+    setLoading(false);
+  }
+
+  // === Cash Handlers ===
+  const handleSaveCash = async () => {
+    if (!cashAmount || Number(cashAmount) <= 0) return;
+    setCashSaving(true);
+    try {
+      const loc = userLocation || locations[0] || "";
+      const res = await fetch("/api/daily-cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+        body: JSON.stringify({ date: cashDate, amount: Number(cashAmount), location: loc, staffName: userName }),
+      });
+      if (res.ok) {
+        setCashAmount("");
+        fetchAll();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    setCashSaving(false);
+  };
+
+  const handleEditCash = (entry) => {
+    setEditingCash(entry._id);
+    setEditCashAmount(String(entry.amount));
+  };
+
+  const handleSaveCashEdit = async (id) => {
+    const res = await fetch(`/api/daily-cash/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+      body: JSON.stringify({ amount: Number(editCashAmount) }),
     });
-  };
-
-  const handleEditChange = (e) => {
-    const { name, value } = e.target;
-    
-    if (name === "categoryId") {
-      const selectedCat = categories.find(cat => cat._id === value);
-      setEditForm(prev => ({
-        ...prev,
-        categoryId: value,
-        categoryName: selectedCat?.name || "",
-      }));
-    } else if (name === "staffId") {
-      const selectedStaff = staff.find(s => s._id === value);
-      setEditForm(prev => ({
-        ...prev,
-        staffId: value,
-        staffName: selectedStaff?.name || "",
-      }));
-    } else if (name === "assetId") {
-      const selectedAsset = assets.find(a => a._id === value);
-      setEditForm(prev => ({
-        ...prev,
-        assetId: value,
-        assetName: selectedAsset?.name || "",
-      }));
-    } else {
-      setEditForm(prev => ({ ...prev, [name]: value }));
+    if (res.ok) {
+      setEditingCash(null);
+      fetchAll();
     }
   };
 
-  const handleEditSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      const res = await fetch(`/api/expenses/${editingExpense._id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editForm),
-      });
-
-      if (res.ok) {
-        setEditingExpense(null);
-        fetchExpenses();
-      } else {
-        await showAlertDialog({
-          title: "Update failed",
-          message: "Failed to update expense.",
-          tone: "danger",
-        });
-      }
-    } catch (err) {
-      console.error("Error updating expense:", err);
-      await showAlertDialog({
-        title: "Update failed",
-        message: "Failed to update expense.",
-        tone: "danger",
-      });
-    }
-
-    setLoading(false);
+  // === Expense Handlers ===
+  const handleEditExpense = (exp) => {
+    setEditingExpense(exp._id);
+    setEditForm({ title: exp.title, amount: exp.amount, categoryName: exp.categoryName });
   };
 
-  const handleDelete = async (id) => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/expenses/${id}`, {
-        method: "DELETE",
-      });
+  const handleSaveExpenseEdit = async (id) => {
+    const res = await fetch(`/api/expenses/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+      body: JSON.stringify(editForm),
+    });
+    if (res.ok) {
+      setEditingExpense(null);
+      fetchAll();
+    }
+  };
 
-      if (res.ok) {
-        setDeleteConfirm(null);
-        fetchExpenses();
-      } else {
-        await showAlertDialog({
-          title: "Delete failed",
-          message: "Failed to delete expense.",
-          tone: "danger",
-        });
-      }
-    } catch (err) {
-      console.error("Error deleting expense:", err);
-      await showAlertDialog({
-        title: "Delete failed",
-        message: "Failed to delete expense.",
-        tone: "danger",
+  const handleDeleteExpense = async (id) => {
+    const confirmed = await showAlertDialog({
+      title: "Delete Expense",
+      message: "Are you sure you want to delete this expense?",
+      tone: "danger",
+      confirm: "Delete",
+    });
+    if (!confirmed) return;
+    const res = await fetch(`/api/expenses/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+    });
+    if (res.ok) fetchAll();
+  };
+
+  // === Filtered Data ===
+  const filteredExpenses = useMemo(() => {
+    let list = [...expenses];
+    if (filterLocation !== "All") list = list.filter(e => e.locationName === filterLocation);
+    if (filterDate) {
+      list = list.filter(e => {
+        const d = new Date(e.createdAt || e.expenseDate);
+        return d.toISOString().split("T")[0] === filterDate;
       });
     }
-    setLoading(false);
-  };
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter(e => e.title?.toLowerCase().includes(q) || e.categoryName?.toLowerCase().includes(q));
+    }
+    return list;
+  }, [expenses, filterLocation, filterDate, searchTerm]);
+
+  const visibleExpenses = filteredExpenses.slice(0, expenseLimit);
+
+  const filteredCash = useMemo(() => {
+    let list = [...cashEntries];
+    if (filterLocation !== "All") list = list.filter(c => c.location === filterLocation);
+    return list;
+  }, [cashEntries, filterLocation]);
+
+  const visibleCash = filteredCash.slice(0, cashLimit);
 
   return (
     <Layout>
       <div className="page-container">
-        <div className="page-content">
-          {/* Header */}
-          <div className="page-header">
-            <h1 className="page-title">Expense Management</h1>
-            <p className="page-subtitle">Track and manage all business expenses</p>
-          </div>
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="page-title">Expense Management</h1>
+          <p className="page-subtitle">Manage expenses and daily cash. Edit items inline by admins.</p>
+        </div>
 
-          {/* Add Expense Form */}
-          <div className="mb-6">
-            <ExpenseForm onSaved={fetchExpenses} />
+        {/* Staff Info & Filters */}
+        <div className="content-card mb-4">
+          <p className="text-sm text-gray-600 mb-3">Logged in: <strong>{userName}</strong> | Location: <strong>{userLocation}</strong></p>
+          <div className="flex flex-wrap gap-3 items-center">
+            <label className="text-sm font-medium text-gray-700">Location:</label>
+            <select value={filterLocation} onChange={e => setFilterLocation(e.target.value)} className="form-select text-sm w-auto">
+              <option value="All">All</option>
+              {locations.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <label className="text-sm font-medium text-gray-700">Date:</label>
+            <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="form-input text-sm w-auto" />
+            {filterDate && <button onClick={() => setFilterDate("")} className="text-sm text-blue-600 hover:underline">Clear</button>}
           </div>
+        </div>
 
-          {/* Expenses List */}
+        {/* Add Cash for the Day */}
+        <div className="content-card mb-6">
+          <h2 className="text-lg font-semibold text-blue-700 mb-3 flex items-center gap-2">
+            <DollarSign className="w-5 h-5" /> Add Cash for the Day
+          </h2>
+          <div className="flex flex-wrap gap-3 items-end">
+            <input type="date" value={cashDate} onChange={e => setCashDate(e.target.value)} className="form-input w-auto" />
+            <input
+              type="number"
+              value={cashAmount}
+              onChange={e => setCashAmount(e.target.value)}
+              placeholder="Enter cash amount"
+              className="form-input w-48"
+              onWheel={e => e.target.blur()}
+            />
+            <button onClick={handleSaveCash} disabled={cashSaving} className="btn-action-primary px-6">
+              {cashSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2">Cash received from POS or manual entry for today&apos;s operations.</p>
+        </div>
+
+        {/* Main Grid: Form + Recent Expenses + Daily Cash */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: Expense Form */}
           <div>
-            <div className="mb-4">
-              <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Recent Expenses</h2>
-              <p className="text-gray-600 text-sm mt-1">Total expenses: {expenses.length}</p>
+            <ExpenseForm onSaved={fetchAll} />
+          </div>
+
+          {/* Center: Recent Expenses */}
+          <div className="content-card">
+            <h2 className="text-lg font-semibold text-green-700 mb-3 flex items-center gap-2">
+              <RefreshCw className="w-4 h-4" /> Recent Expenses
+            </h2>
+            <div className="relative mb-3">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search expenses..."
+                className="form-input pl-9 text-sm"
+              />
             </div>
 
-            {expenses.length === 0 ? (
-              <div className="content-card empty-state">
-                <CircleDollarSign className="empty-state-icon" />
-                <p className="empty-state-title">No expenses recorded yet.</p>
-                <p className="empty-state-description">Add your first expense to get started.</p>
-              </div>
+            {loading ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : visibleExpenses.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No expenses found.</p>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {expenses.map((exp) => (
-                  <div
-                    key={exp._id}
-                    className="content-card hover:shadow-md transition-shadow"
-                  >
-                    {/* Header with Title and Amount */}
-                    <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-200">
-                      <div className="flex items-start gap-3">
-                        <CircleDollarSign className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
-                        <h3 className="text-lg font-bold text-gray-900 flex-1">{exp.title}</h3>
+              <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                {visibleExpenses.map(exp => (
+                  <div key={exp._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
+                    {editingExpense === exp._id ? (
+                      <div className="space-y-2">
+                        <input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className="form-input text-sm" />
+                        <input type="number" value={editForm.amount} onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))} className="form-input text-sm" />
+                        <div className="flex gap-2">
+                          <button onClick={() => handleSaveExpenseEdit(exp._id)} className="text-xs bg-green-600 text-white px-3 py-1 rounded flex items-center gap-1"><Save className="w-3 h-3" /> Save</button>
+                          <button onClick={() => setEditingExpense(null)} className="text-xs bg-gray-400 text-white px-3 py-1 rounded flex items-center gap-1"><X className="w-3 h-3" /> Cancel</button>
+                        </div>
                       </div>
-                      <span className="text-xl font-bold text-green-600 whitespace-nowrap ml-2">
-                        {formatCurrency(exp.amount || 0, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      </span>
-                    </div>
-
-                    {/* Category Badge */}
-                    <div className="mb-4">
-                      <span className="inline-block bg-cyan-100 text-cyan-800 px-3 py-1.5 rounded-full text-xs font-bold uppercase">
-                        {exp?.categoryName || "Uncategorized"}
-                      </span>
-                    </div>
-
-                    {/* Location and Date */}
-                    <div className="space-y-2 mb-4 text-sm">
-                      {exp.locationName && (
-                        <div className="flex items-center gap-2 text-gray-700">
-                          <MapPin className="w-4 h-4 text-gray-500" />
-                          <span className="font-medium">{exp.locationName}</span>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-start">
+                          <h3 className="font-semibold text-sm text-gray-900">{exp.title}</h3>
+                          <span className="font-bold text-sm text-green-700">{formatCurrency(exp.amount)}</span>
                         </div>
-                      )}
-                      {exp.staffName && (
-                        <div className="flex items-center gap-2 text-gray-700">
-                          <User className="w-4 h-4 text-gray-500" />
-                          <span className="font-medium">{exp.staffName}</span>
+                        <p className="text-xs text-gray-500 mt-1">
+                          <span className="text-green-600">●</span> {exp.locationName || "—"} &nbsp;📅 {formatDate(exp.createdAt)}
+                        </p>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium uppercase">{exp.categoryName}</span>
+                          <span className="text-xs text-gray-400">Entered by: {exp.staffName || "—"}</span>
                         </div>
-                      )}
-                      {exp.assetName && (
-                        <div className="flex items-center gap-2 text-gray-700">
-                          <Wrench className="w-4 h-4 text-gray-500" />
-                          <span className="font-medium">Asset: {exp.assetName}</span>
+                        <div className="flex gap-2 mt-2">
+                          <button onClick={() => handleEditExpense(exp)} className="text-xs border border-blue-300 text-blue-700 px-2 py-0.5 rounded hover:bg-blue-50">Edit</button>
+                          <button onClick={() => handleDeleteExpense(exp._id)} className="text-xs border border-red-300 text-red-700 px-2 py-0.5 rounded hover:bg-red-50">Delete</button>
                         </div>
-                      )}
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <CalendarDays className="w-4 h-4 text-gray-500" />
-                        <span>
-                          {new Date(exp.createdAt).toLocaleDateString("en-NG", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    {exp.description && (
-                      <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
-                        {exp.description}
-                      </p>
+                      </>
                     )}
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200">
-                      <button
-                        onClick={() => handleEdit(exp)}
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200 transition-colors text-sm font-medium"
-                      >
-                        <Pencil className="w-4 h-4" />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => setDeleteConfirm(exp)}
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete
-                      </button>
-                    </div>
                   </div>
                 ))}
               </div>
             )}
+            {filteredExpenses.length > expenseLimit && (
+              <button onClick={() => setExpenseLimit(l => l + 10)} className="mt-3 text-sm text-blue-600 hover:underline w-full text-center">
+                Load more...
+              </button>
+            )}
+          </div>
+
+          {/* Right: Daily Cash Entries */}
+          <div className="content-card">
+            <h2 className="text-lg font-semibold text-orange-700 mb-3 flex items-center gap-2">
+              <RefreshCw className="w-4 h-4" /> Daily Cash Entries
+            </h2>
+
+            {loading ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : visibleCash.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No cash entries found.</p>
+            ) : (
+              <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                {visibleCash.map(entry => (
+                  <div key={entry._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
+                    {editingCash === entry._id ? (
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="number"
+                          value={editCashAmount}
+                          onChange={e => setEditCashAmount(e.target.value)}
+                          className="form-input text-sm flex-1"
+                        />
+                        <button onClick={() => handleSaveCashEdit(entry._id)} className="text-xs bg-green-600 text-white px-2 py-1 rounded">Save</button>
+                        <button onClick={() => setEditingCash(null)} className="text-xs bg-gray-400 text-white px-2 py-1 rounded">Cancel</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="font-semibold text-sm text-gray-900">Daily Cash</p>
+                            <p className="text-xs text-gray-500">
+                              <span className="text-green-600">●</span> {entry.location} &nbsp;📅 {formatDate(entry.date)}
+                            </p>
+                          </div>
+                          <span className="font-bold text-sm text-green-700">{formatCurrency(entry.amount)}</span>
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-medium">
+                            {entry.source === "pos" ? "FROM POS" : "CASH ENTRY"}
+                          </span>
+                          <span className="text-xs text-gray-400">Entered by: {entry.staffName || "—"}</span>
+                        </div>
+                        <div className="mt-2">
+                          <button onClick={() => handleEditCash(entry)} className="text-xs border border-blue-300 text-blue-700 px-2 py-0.5 rounded hover:bg-blue-50">Edit</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {filteredCash.length > cashLimit && (
+              <button onClick={() => setCashLimit(l => l + 10)} className="mt-3 text-sm text-blue-600 hover:underline w-full text-center">
+                Load more...
+              </button>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Edit Modal */}
-      {editingExpense && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">Edit Expense</h3>
-              <button
-                onClick={() => setEditingExpense(null)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <form onSubmit={handleEditSubmit} className="p-4 space-y-4">
-              <div className="form-group">
-                <label className="form-label">Title</label>
-                <input
-                  type="text"
-                  name="title"
-                  value={editForm.title}
-                  onChange={handleEditChange}
-                  required
-                  className="form-input"
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Amount (NGN)</label>
-                <input
-                  type="number"
-                  name="amount"
-                  value={editForm.amount}
-                  onChange={handleEditChange}
-                  required
-                  className="form-input"
-                  onWheel={(e) => e.target.blur()}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Category</label>
-                <select
-                  name="categoryId"
-                  value={editForm.categoryId}
-                  onChange={handleEditChange}
-                  className="form-select"
-                >
-                  <option value="">Select Category</option>
-                  {categories.map((cat) => (
-                    <option key={cat._id} value={cat._id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Location</label>
-                <select
-                  name="locationName"
-                  value={editForm.locationName}
-                  onChange={handleEditChange}
-                  className="form-select"
-                >
-                  <option value="">Select Location</option>
-                  {locations.map((loc) => (
-                    <option key={loc._id || loc.name} value={loc.name}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Staff Member</label>
-                <select
-                  name="staffId"
-                  value={editForm.staffId}
-                  onChange={handleEditChange}
-                  className="form-select"
-                >
-                  <option value="">Select Staff</option>
-                  {staff.map((s) => (
-                    <option key={s._id} value={s._id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {editForm.categoryName?.toLowerCase().includes("maintenance") && (
-                <div className="form-group">
-                  <label className="form-label">Linked Asset</label>
-                  <select
-                    name="assetId"
-                    value={editForm.assetId}
-                    onChange={handleEditChange}
-                    className="form-select"
-                  >
-                    <option value="">Select Asset</option>
-                    {assets.map((a) => (
-                      <option key={a._id} value={a._id}>
-                        {a.name}{a.category ? ` (${a.category})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label">Description</label>
-                <textarea
-                  name="description"
-                  value={editForm.description}
-                  onChange={handleEditChange}
-                  rows={3}
-                  className="form-input min-h-[80px]"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingExpense(null)}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 px-4 py-2.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors font-medium disabled:opacity-50"
-                >
-                  {loading ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
-            <div className="text-center">
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-600" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Expense?</h3>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to delete "{deleteConfirm.title}"? This action cannot be undone.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setDeleteConfirm(null)}
-                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleDelete(deleteConfirm._id)}
-                  disabled={loading}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50"
-                >
-                  {loading ? "Deleting..." : "Delete"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 }
-
