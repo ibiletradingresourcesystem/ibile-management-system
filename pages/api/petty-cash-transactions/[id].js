@@ -3,7 +3,6 @@ import { authMiddleware } from "@/lib/auth-middleware";
 import {
   buildApprovalHistoryEntry,
   buildStaffSnapshot,
-  recalculateDailyCashForLocation,
   syncPettyCashExpense,
 } from "@/lib/petty-cash-transactions";
 import PettyCashTransaction from "@/models/PettyCashTransaction";
@@ -246,13 +245,6 @@ export default async function handler(req, res) {
     const expenseId = await syncPettyCashExpense(transaction);
     transaction.expense = expenseId;
     await transaction.save();
-
-    if (fromStatus === "Paid" || transaction.status === "Paid") {
-      await recalculateDailyCashForLocation(previousLocation);
-      if (transaction.location !== previousLocation) {
-        await recalculateDailyCashForLocation(transaction.location);
-      }
-    }
 
     await transaction.populate("vendor");
     await transaction.populate("expense");

@@ -58,10 +58,10 @@ export default async function handler(req, res) {
         safePermissions = [
           "dashboard",
           "setup", "setup.company", "setup.hero-promo", "setup.receipts", "setup.pos-tenders", "setup.location-items", "setup.assets", "setup.users", "setup.color-theme",
-          "manage", "manage.products", "manage.archived", "manage.categories", "manage.promotions", "manage.promotions-management", "manage.customer-promotions", "manage.orders", "manage.hotel-reservations", "manage.customers", "manage.campaigns", "manage.staff", "manage.staff-roles", "manage.vendors", "manage.purchase-orders",
+          "manage", "manage.products", "manage.archived", "manage.categories", "manage.promotions", "manage.promotions-management", "manage.customer-promotions", "manage.orders", "manage.customers", "manage.campaigns", "manage.staff", "manage.staff-roles", "manage.vendors", "manage.purchase-orders",
           "stock", "stock.management", "stock.movement", "stock.stock-take", "stock.stock-take-report", "stock.expiration-report", "stock.stock-history-levels",
           "reporting", "reporting.sales-report", "reporting.eod", "reporting.time-intervals", "reporting.time-comparisons", "reporting.products", "reporting.employees", "reporting.locations", "reporting.categories", "reporting.transactions", "reporting.stock-history-levels",
-          "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal", "expenses.credit-management",
+          "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal",
           "accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.reports",
           "support", "till",
         ];
@@ -72,7 +72,7 @@ export default async function handler(req, res) {
         ];
       } else if (safeRole === "account") {
         safePermissions = [
-          "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal", "expenses.credit-management",
+          "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal",
           "reporting", "reporting.sales-report", "reporting.eod", "reporting.transactions", "reporting.stock-history-levels",
           "accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.reports",
         ];

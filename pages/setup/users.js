@@ -28,7 +28,6 @@ const ALL_PERMISSIONS = [
     { key: "manage.promotions-management", label: "Campaign Promotions" },
     { key: "manage.customer-promotions", label: "Customer Promotions" },
     { key: "manage.orders", label: "Orders" },
-    { key: "manage.hotel-reservations", label: "Hotel Reservations" },
     { key: "manage.customers", label: "Customers" },
     { key: "manage.campaigns", label: "Campaigns" },
     { key: "manage.staff", label: "Staff" },
@@ -61,7 +60,6 @@ const ALL_PERMISSIONS = [
     { key: "expenses.analysis", label: "Expenses Analysis" },
     { key: "expenses.tax-analysis", label: "Tax Analysis" },
     { key: "expenses.tax-personal", label: "Personal Tax Calculator" },
-    { key: "expenses.credit-management", label: "Credit Management" },
   ]},
   { key: "accounting", label: "Accounting", description: "Chart of accounts, journals, ledger, reports", children: [
     { key: "accounting.chart-of-accounts", label: "Chart of Accounts" },
@@ -109,7 +107,7 @@ function getDefaultPermissions(role) {
       "stock", "stock.management", "stock.movement", "stock.stock-take", "stock.stock-take-report", "stock.expiration-report", "stock.stock-history-levels",
     ];
     case "account": return [
-      "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal", "expenses.credit-management",
+      "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal",
       "reporting", "reporting.sales-report", "reporting.eod", "reporting.transactions", "reporting.stock-history-levels",
       "accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.reports",
     ];

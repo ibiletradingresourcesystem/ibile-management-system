@@ -265,8 +265,8 @@ const TopBar = ({ user, logout }) => {
                         <p className="text-xs text-gray-600 mt-1">
                           {creditCount} open credit account{creditCount > 1 ? 's' : ''} with ₦{Number(creditBalance || 0).toLocaleString('en-NG')} outstanding
                         </p>
-                        <Link href="/expenses/credit-management" onClick={() => setShowNotifications(false)} className="inline-block mt-2 text-xs font-semibold text-amber-700 underline hover:text-amber-900">
-                          View Credit Management →
+                        <Link href="/expenses/analysis" onClick={() => setShowNotifications(false)} className="inline-block mt-2 text-xs font-semibold text-amber-700 underline hover:text-amber-900">
+                          View Credit Details →
                         </Link>
                       </div>
                     </div>
@@ -294,11 +294,11 @@ const TopBar = ({ user, logout }) => {
 
               <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">
                 <Link
-                  href={creditCount > 0 ? "/expenses/credit-management" : "/stock/expiration-report"}
+                  href={creditCount > 0 ? "/expenses/analysis" : "/stock/expiration-report"}
                   onClick={() => setShowNotifications(false)}
                   className="block text-center text-sm font-semibold text-blue-600 transition hover:text-blue-700"
                 >
-                  {creditCount > 0 ? "Open Credit Management →" : "View Expiration Report →"}
+                  {creditCount > 0 ? "Open Expense Analysis →" : "View Expiration Report →"}
                 </Link>
               </div>
             </div>

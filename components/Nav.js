@@ -347,7 +347,6 @@ export default function Sidebar() {
                   { href: "/manage/promotions", label: "Product Promotions" },
                   { href: "/manage/promotions-management", label: "Campaign Promotions ", indent: false },
                   { href: "/manage/orders", label: "Orders" },
-                  { href: "/manage/hotel-reservations", label: "Hotel Reservations" },
                   { href: "/manage/customers", label: "Customers", indent: false },
                 ].filter(item => {
                   const permMap = {
@@ -358,7 +357,6 @@ export default function Sidebar() {
                     "/manage/promotions": "manage.promotions",
                     "/manage/promotions-management": "manage.customer-promotions",
                     "/manage/orders": "manage.orders",
-                    "/manage/hotel-reservations": "manage.orders",
                     "/manage/customers": "manage.customers",
                   };
                   return canAccess(permMap[item.href] || "manage");
@@ -408,12 +406,10 @@ export default function Sidebar() {
                       {renderSubMenu([
                         { href: "/manage/vendors", label: "Vendors", indent: true },
                         { href: "/manage/purchase-orders", label: "Payment Tracker", indent: true },
-                        { href: "/memo/salary", label: "Salary Memo", indent: true },
                       ].filter(item => {
                         const permMap = {
                           "/manage/vendors": "manage.vendors",
                           "/manage/purchase-orders": "manage.purchase-orders",
-                          "/memo/salary": "manage.purchase-orders",
                         };
                         return canAccess(permMap[item.href] || "manage");
                       }))}
@@ -597,9 +593,6 @@ export default function Sidebar() {
                   { href: "/expenses/expenses", label: "Expenses Entry" },
                   { href: "/expenses/analysis", label: "Expenses Analysis" },
                   { href: "/expenses/petty-cash", label: "Petty Cash" },
-                  { href: "/expenses/daily-cash", label: "Daily Cash" },
-                  { href: "/expenses/payment-tracker", label: "Payment Tracker" },
-                  { href: "/expenses/credit-management", label: "Credit Management" },
                   { href: "/expenses/tax-analysis", label: "Tax Analysis" },
                   {
                     href: "/expenses/tax-personal",
@@ -610,9 +603,6 @@ export default function Sidebar() {
                     "/expenses/expenses": "expenses.entry",
                     "/expenses/analysis": "expenses.analysis",
                     "/expenses/petty-cash": "expenses.entry",
-                    "/expenses/daily-cash": "expenses.entry",
-                    "/expenses/payment-tracker": "expenses.entry",
-                    "/expenses/credit-management": "expenses.analysis",
                     "/expenses/tax-analysis": "expenses.tax-analysis",
                     "/expenses/tax-personal": "expenses.tax-personal",
                   };
@@ -1133,27 +1123,6 @@ export default function Sidebar() {
                   <li onClick={closeMenu}>
                     <Link href="/expenses/petty-cash" className={`block px-8 py-3 text-sm transition-all ${pathname === "/expenses/petty-cash" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
                       Petty Cash
-                    </Link>
-                  </li>
-                  )}
-                  {canAccess("expenses.entry") && (
-                  <li onClick={closeMenu}>
-                    <Link href="/expenses/daily-cash" className={`block px-8 py-3 text-sm transition-all ${pathname === "/expenses/daily-cash" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
-                      Daily Cash
-                    </Link>
-                  </li>
-                  )}
-                  {canAccess("expenses.entry") && (
-                  <li onClick={closeMenu}>
-                    <Link href="/expenses/payment-tracker" className={`block px-8 py-3 text-sm transition-all ${pathname === "/expenses/payment-tracker" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
-                      Payment Tracker
-                    </Link>
-                  </li>
-                  )}
-                  {canAccess("expenses.analysis") && (
-                  <li onClick={closeMenu}>
-                    <Link href="/expenses/credit-management" className={`block px-8 py-3 text-sm transition-all ${pathname === "/expenses/credit-management" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
-                      Credit Management
                     </Link>
                   </li>
                   )}
