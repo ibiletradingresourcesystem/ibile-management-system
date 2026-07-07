@@ -21,7 +21,7 @@ function createRipple(event) {
   button.appendChild(circle);
 }
 
-export default function Login({ staffList, locations }) {
+export default function Login({ staffList, locations, businessName, poweredBy }) {
   const [name, setName] = useState("");
   const [location, setLocation] = useState(locations?.[0] || "");
   const [availableLocations, setAvailableLocations] = useState(locations || []);
@@ -268,7 +268,7 @@ export default function Login({ staffList, locations }) {
 
       {/* ===== FOOTER ===== */}
       <p className="mt-10 text-xs text-gray-400 text-center">
-        &copy; {new Date().getFullYear()} St Micheals &middot; Powered by <span className="font-medium text-gray-500">BizSuits</span> &middot; All rights reserved
+        &copy; {new Date().getFullYear()} {businessName} &middot; Powered by <span className="font-medium text-gray-500">{poweredBy}</span> &middot; All rights reserved
       </p>
     </div>
   );
@@ -310,6 +310,8 @@ export async function getServerSideProps() {
         assignedLocation: staffLocationMap[u.name] || "",
       })),
       locations,
+      businessName: store?.businessName || store?.name || "St Micheals",
+      poweredBy: store?.poweredBy || store?.providerName || store?.vendorName || "BizSuits",
     },
   };
 }
