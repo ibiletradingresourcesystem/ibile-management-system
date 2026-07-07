@@ -18,6 +18,22 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
+  // Fast path: if token has permissions cached and no refresh requested, skip DB
+  const wantRefresh = req.query.refresh === "1";
+  if (!wantRefresh && decoded.permissions) {
+    return res.status(200).json({
+      user: {
+        id: decoded.id,
+        email: decoded.email,
+        name: decoded.name,
+        role: decoded.role,
+        isActive: true,
+        permissions: normalizePermissions(decoded.permissions),
+      },
+    });
+  }
+
+  // Full DB check (refresh or legacy token without permissions)
   await connectToDatabase();
 
   const user = await User.findById(decoded.id).select("name email role permissions isActive").lean();

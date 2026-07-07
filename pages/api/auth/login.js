@@ -85,6 +85,7 @@ export default async function handler(req, res) {
         email: user.email,
         name: user.name,
         role: user.role,
+        permissions: normalizePermissions(user.permissions || []),
       },
       '24h'
     );
