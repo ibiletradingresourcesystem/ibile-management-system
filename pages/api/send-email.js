@@ -1,5 +1,7 @@
 import nodemailer from "nodemailer";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { connectToDatabase } from "@/lib/mongodb";
+import Store from "@/models/Store";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -11,6 +13,11 @@ export default async function handler(req, res) {
 
   if (req.method !== "POST")
     return res.status(405).json({ message: "Method not allowed" });
+
+  // Fetch business name from store
+  await connectToDatabase();
+  const store = await Store.findOne({}).lean();
+  const bizName = store?.businessName || store?.name || "Our Store";
 
   const { status, customer, to } = req.body;
 
@@ -31,43 +38,43 @@ export default async function handler(req, res) {
   switch (status.toLowerCase()) {
     case "pending":
     case "received":
-      subject = "Order Received - St's Micheals";
+      subject = `Order Received - ${bizName}`;
       header = "Your Order Has Been Received!";
       message = `We’ve received your order <strong>${customer.orderId}</strong> and our team is preparing it for shipment.`;
       color = "#1e3a8a";
       break;
     case "processing":
-      subject = "Order Processing - St's Micheals";
+      subject = `Order Processing - ${bizName}`;
       header = "Your Order Is Being Processed";
       message = `Your order <strong>${customer.orderId}</strong> is now being processed by our team.`;
       color = "#d97706";
       break;
     case "shipped":
-      subject = "Order Shipped - St's Micheals";
+      subject = `Order Shipped - ${bizName}`;
       header = "Good News! Your Order Is On The Way 🚚";
       message = `Your order <strong>${customer.orderId}</strong> has been shipped and is on its way to you.`;
       color = "#059669";
       break;
     case "delivered":
-      subject = "Order Delivered - St's Micheals";
+      subject = `Order Delivered - ${bizName}`;
       header = "Your Order Has Been Delivered 🎉";
       message = `We’re excited to let you know your order <strong>${customer.orderId}</strong> has been successfully delivered.`;
       color = "#1e40af";
       break;
     case "cancelled":
-      subject = "Order Cancelled - St's Micheals";
+      subject = `Order Cancelled - ${bizName}`;
       header = "Your Order Has Been Cancelled";
       message = `Your order <strong>${customer.orderId}</strong> has been cancelled. Please contact us if you need further assistance.`;
       color = "#dc2626";
       break;
     case "salary":
-      subject = "Salary Information - St's Micheals";
+      subject = `Salary Information - ${bizName}`;
       header = "Your Salary Report";
       message = `Here is your staff salary information for the current period.`;
       color = "#0369a1";
       break;
     default:
-      subject = "Order Update - St's Micheals";
+      subject = `Order Update - ${bizName}`;
       header = "Your Order Has Been Received!";
       message = `We’ve received your order <strong>${customer.orderId}</strong> and our team is preparing it for shipment.`;
       color = "#1e3a8a";
@@ -88,8 +95,8 @@ export default async function handler(req, res) {
     <div style="font-family: 'Segoe UI', sans-serif; background: #f9fafb; padding: 20px;">
       <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
         <div style="background: ${color}; color: white; padding: 20px; text-align: center;">
-          <img src="${process.env.LOGO_URL || 'https://via.placeholder.com/150'}" alt="St's Micheals Logo" style="max-width: 100px; margin-bottom: 10px;">
-          <h2 style="margin: 0;">St's Micheals</h2>
+          <img src="${process.env.LOGO_URL || 'https://via.placeholder.com/150'}" alt="${bizName} Logo" style="max-width: 100px; margin-bottom: 10px;">
+          <h2 style="margin: 0;">${bizName}</h2>
           <p style="margin: 0;">${header}</p>
         </div>
 
@@ -121,9 +128,9 @@ export default async function handler(req, res) {
 
           <p style="margin-top: 20px;"><strong>Total Salary:</strong> ₦${typeof customer.total === 'number' ? customer.total.toLocaleString() : customer.total}</p>
 
-          <p style="margin-top: 30px;">Thank you for your attention with <strong>St's Micheals</strong>!</p>
+          <p style="margin-top: 30px;">Thank you for your attention with <strong>${bizName}</strong>!</p>
 
-          <p style="font-size: 12px; color: #6b7280;">If you have any questions, reply to this email or contact us at mandmintegrityfashion@gmail.com.</p>
+          <p style="font-size: 12px; color: #6b7280;">If you have any questions, reply to this email or contact us at ${process.env.EMAIL_USER || ''}.</p>
         </div>
       </div>
     </div>
@@ -133,8 +140,8 @@ export default async function handler(req, res) {
     <div style="font-family: 'Segoe UI', sans-serif; background: #f9fafb; padding: 20px;">
       <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
         <div style="background: ${color}; color: white; padding: 20px; text-align: center;">
-          <img src="${process.env.LOGO_URL || 'https://via.placeholder.com/150'}" alt="St's Micheals Logo" style="max-width: 100px; margin-bottom: 10px;">
-          <h2 style="margin: 0;">St's Micheals</h2>
+          <img src="${process.env.LOGO_URL || 'https://via.placeholder.com/150'}" alt="${bizName} Logo" style="max-width: 100px; margin-bottom: 10px;">
+          <h2 style="margin: 0;">${bizName}</h2>
           <p style="margin: 0;">${header}</p>
         </div>
 
@@ -177,9 +184,9 @@ export default async function handler(req, res) {
             Phone: ${customer.shippingDetails?.phone || "N/A"}
           </p>
 
-          <p style="margin-top: 30px;">Thank you for shopping with <strong>St's Micheals</strong>!</p>
+          <p style="margin-top: 30px;">Thank you for shopping with <strong>${bizName}</strong>!</p>
 
-          <p style="font-size: 12px; color: #6b7280;">If you have any questions, reply to this email or contact us at StMicheals.food@gmail.com.</p>
+          <p style="font-size: 12px; color: #6b7280;">If you have any questions, reply to this email or contact us at ${process.env.EMAIL_USER || ''}.</p>
         </div>
       </div>
     </div>
@@ -188,7 +195,7 @@ export default async function handler(req, res) {
 
   try {
     await transporter.sendMail({
-      from: `"St's Micheals" <${process.env.EMAIL_USER}>`,
+      from: `"${bizName}" <${process.env.EMAIL_USER}>`,
       to: recipient,
       subject,
       html: htmlBody,

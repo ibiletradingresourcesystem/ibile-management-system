@@ -30,6 +30,11 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // Login mode: "pin" (staff keypad) or "email" (admin email+password)
+  const [loginMode, setLoginMode] = useState("pin");
+  const [emailLogin, setEmailLogin] = useState("");
+  const [emailPassword, setEmailPassword] = useState("");
+
   // Admin setup state
   const [showSetup, setShowSetup] = useState(false);
   const [setupStep, setSetupStep] = useState(1); // 1=email, 2=code+details
@@ -141,6 +146,28 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
     if (value === "clear") setPassword("");
     else if (value === "back") setPassword((p) => p.slice(0, -1));
     else if (password.length < 4) setPassword((p) => p + value);
+  };
+
+  // Email + password login handler
+  const handleEmailLogin = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (!emailLogin || !emailPassword) return setError("Email and password are required.");
+    setLoading(true);
+    try {
+      const res = await apiClient.post("/api/auth/login", {
+        email: emailLogin,
+        password: emailPassword,
+      });
+      await clearAllAppCaches();
+      localStorage.setItem("auth_token", res.data.token);
+      localStorage.setItem("user", JSON.stringify({ ...res.data.user, location: locations?.[0] || "" }));
+      router.push("/");
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Admin setup handlers
@@ -310,10 +337,33 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
               </div>
             ) : (
               <>
-            <h2 className="text-2xl font-bold text-center text-gray-900 mb-6">
-              Staff Login
+            <h2 className="text-2xl font-bold text-center text-gray-900 mb-2">
+              {loginMode === "pin" ? "Staff Login" : "Admin Login"}
             </h2>
 
+            {/* Mode Toggle */}
+            <div className="flex justify-center mb-5">
+              <button
+                type="button"
+                onClick={() => setLoginMode("pin")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-l-lg border transition ${
+                  loginMode === "pin" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                PIN Keypad
+              </button>
+              <button
+                type="button"
+                onClick={() => setLoginMode("email")}
+                className={`px-4 py-1.5 text-xs font-semibold rounded-r-lg border-t border-r border-b transition ${
+                  loginMode === "email" ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                }`}
+              >
+                Email &amp; Password
+              </button>
+            </div>
+
+          {loginMode === "pin" ? (
           <form onSubmit={handleLogin}>
             {/* USER */}
             <select
@@ -402,6 +452,36 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
               {loading ? "Logging in..." : "Log In"}
             </button>
           </form>
+          ) : (
+          <form onSubmit={handleEmailLogin}>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              value={emailLogin}
+              onChange={(e) => setEmailLogin(e.target.value)}
+              placeholder="admin@example.com"
+              className="form-input mb-3"
+              autoComplete="email"
+            />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password / PIN</label>
+            <input
+              type="password"
+              value={emailPassword}
+              onChange={(e) => setEmailPassword(e.target.value)}
+              placeholder="Enter your password"
+              className="form-input mb-5"
+              autoComplete="current-password"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 rounded-lg font-bold text-white text-lg
+                         bg-blue-600 hover:bg-blue-700 active:scale-95 transition"
+            >
+              {loading ? "Logging in..." : "Log In"}
+            </button>
+          </form>
+          )}
 
             {noAdmin && (
               <button
