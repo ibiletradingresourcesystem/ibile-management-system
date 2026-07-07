@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import readXlsxFile from "read-excel-file/browser";
 
 function formatPrice(val, currency = "₦") {
   const num = Number(String(val).replace(/[^0-9.]/g, ""));
@@ -65,6 +64,7 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
     }
 
     try {
+      const { default: readXlsxFile } = await import("read-excel-file/browser");
       const rows = await readXlsxFile(file);
 
       if (rows.length < 2) {
