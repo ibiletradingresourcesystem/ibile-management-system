@@ -16,9 +16,10 @@ export default async function handler(req, res) {
       await seedDefaultAccounts();
 
       const accounts = await Account.find()
-        .populate("parent", "code name")
         .sort({ code: 1 })
         .lean();
+
+      res.setHeader("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
       return res.status(200).json({ success: true, accounts });
     }
 

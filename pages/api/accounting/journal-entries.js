@@ -1,5 +1,4 @@
 import { mongooseConnect } from "@/lib/mongodb";
-import { ensureAccountingEntriesSynced } from "@/lib/accounting";
 import JournalEntry, { createJournalEntry } from "@/models/JournalEntry";
 import Account from "@/models/Account";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
@@ -13,9 +12,6 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === "GET") {
-      // Trigger sync in background - don't block page load
-      ensureAccountingEntriesSynced().catch(() => {});
-
       const { status, referenceType, from, to, limit = 100, skip = 0 } = req.query;
       const filter = {};
       if (status) filter.status = status;
@@ -35,6 +31,7 @@ export default async function handler(req, res) {
         JournalEntry.countDocuments(filter),
       ]);
 
+      res.setHeader("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
       return res.status(200).json({ success: true, entries, total });
     }
 

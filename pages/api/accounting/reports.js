@@ -1,5 +1,4 @@
 import { mongooseConnect } from "@/lib/mongodb";
-import { ensureAccountingEntriesSynced } from "@/lib/accounting";
 import JournalEntry from "@/models/JournalEntry";
 import Account from "@/models/Account";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
@@ -16,9 +15,6 @@ export default async function handler(req, res) {
   await mongooseConnect();
 
   try {
-    // Trigger sync in background - don't block page load
-    ensureAccountingEntriesSynced().catch(() => {});
-
     const { report, from, to, accountId } = req.query;
 
     const dateFilter = {};
