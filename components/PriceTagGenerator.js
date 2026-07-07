@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { X } from "lucide-react";
 
 function formatPrice(val, currency = "₦") {
   const num = Number(String(val).replace(/[^0-9.]/g, ""));
@@ -31,6 +32,13 @@ const TAG_SIZES = {
   wide: { width: "90mm", height: "42mm", label: "Wide (90×42mm)" },
 };
 
+// Print column layouts for A4 paper
+const PRINT_LAYOUTS = {
+  2: { cols: 2, label: "2 columns (Large tags)", tagWidth: 95 },
+  3: { cols: 3, label: "3 columns (Standard)", tagWidth: 63 },
+  4: { cols: 4, label: "4 columns (Compact)", tagWidth: 47 },
+};
+
 export default function PriceTagGenerator({ products: productsProp = [] }) {
   const safeProducts = Array.isArray(productsProp) ? productsProp : [];
   const [products, setProducts] = useState([]);
@@ -40,6 +48,8 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
   const [source, setSource] = useState("manual"); // manual | excel | database
   const [selectedDbProducts, setSelectedDbProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
+  const [printColumns, setPrintColumns] = useState(3);
   const fileInputRef = useRef(null);
   const previewRef = useRef(null);
 
@@ -133,16 +143,29 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
 
   const handlePrint = () => {
     if (!products.length) return alert("No products to print.");
-    window.print();
+    handlePrintPreview();
   };
 
-  const toggleDbProduct = (product) => {
+  const toggleDbProduct = useCallback((product) => {
     setSelectedDbProducts((prev) => {
       const exists = prev.find((p) => p._id === product._id);
       if (exists) return prev.filter((p) => p._id !== product._id);
       return [...prev, product];
     });
-  };
+  }, []);
+
+  const handlePrintPreview = useCallback(() => {
+    if (!products.length) {
+      alert("No products to print.");
+      return;
+    }
+    setPrintPreviewOpen(true);
+  }, [products.length]);
+
+  const handleConfirmPrint = useCallback(() => {
+    setPrintPreviewOpen(false);
+    setTimeout(() => window.print(), 100);
+  }, []);
 
   const filteredDbProducts = safeProducts.filter(
     (p) =>
@@ -236,38 +259,63 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
           )}
         </div>
 
-        {/* Database Product Picker */}
+        {/* Database Product Picker - Improved Layout with Search Outside */}
         {source === "database" && (
-          <div className="border rounded-lg p-4 bg-gray-50 max-h-60 overflow-y-auto">
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search products..."
-              className="w-full border rounded px-3 py-2 text-sm mb-3"
-            />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-              {filteredDbProducts.slice(0, 50).map((p) => {
-                const selected = selectedDbProducts.find((s) => s._id === p._id);
-                return (
-                  <label
-                    key={p._id}
-                    className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-sm ${
-                      selected ? "bg-blue-50 border-blue-300" : "hover:bg-gray-100"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!selected}
-                      onChange={() => toggleDbProduct(p)}
-                      className="rounded"
-                    />
-                    <span className="truncate">{p.name}</span>
-                    <span className="ml-auto text-xs text-gray-500">
-                      {currency}{Number(p.sellingPrice || p.price || 0).toLocaleString()}
-                    </span>
-                  </label>
-                );
-              })}
+          <div className="border rounded-lg bg-white overflow-hidden">
+            {/* Search Bar - Outside scrollable area */}
+            <div className="border-b p-4">
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by product name or barcode..."
+                className="w-full border rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+                autoFocus
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                {selectedDbProducts.length > 0 && `${selectedDbProducts.length} selected • `}
+                {filteredDbProducts.length} products found
+              </p>
+            </div>
+            
+            {/* Product List - Scrollable */}
+            <div className="max-h-96 overflow-y-auto">
+              {filteredDbProducts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 p-2">
+                  {filteredDbProducts.slice(0, 100).map((p) => {
+                    const selected = selectedDbProducts.find((s) => s._id === p._id);
+                    return (
+                      <label
+                        key={p._id}
+                        className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${ 
+                          selected 
+                            ? "bg-blue-50 border-blue-400 shadow-sm" 
+                            : "border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!selected}
+                          onChange={() => toggleDbProduct(p)}
+                          className="w-4 h-4 rounded cursor-pointer flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm text-gray-900 truncate">{p.name}</p>
+                          {p.barcode && (
+                            <p className="text-xs text-gray-500 truncate">SKU: {p.barcode}</p>
+                          )}
+                          <p className="text-sm font-semibold text-blue-600 mt-1">
+                            {currency}{Number(p.sellingPrice || p.price || 0).toLocaleString()}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-gray-500">
+                  <p className="text-sm">No products found</p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -337,69 +385,68 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
         )}
       </div>
 
-      {/* Tag Preview / Print Area */}
+      {/* Tag Preview / Print Area - Improved Design */}
       {allTags.length > 0 && (
-        <div
-          ref={previewRef}
-          className="print:m-0 print:p-0"
-          style={{ printColorAdjust: "exact" }}
-        >
-          <h3 className="text-sm font-semibold text-gray-500 mb-3 print:hidden">
-            Preview ({allTags.length} tags)
-          </h3>
-          <div
-            className="grid gap-2 print:gap-0"
-            style={{
-              gridTemplateColumns: `repeat(auto-fill, ${size.width})`,
-            }}
-          >
-            {allTags.map((tag, i) => {
-              const barcodeValue = buildBarcodeValue(tag, tag.idx);
-              return (
-                <article
-                  key={i}
-                  className="border border-gray-300 rounded bg-white flex flex-col justify-between overflow-hidden print:border print:rounded-none"
-                  style={{
-                    width: size.width,
-                    height: size.height,
-                    padding: "4px 6px",
-                    pageBreakInside: "avoid",
-                  }}
-                >
-                  <div>
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <span className="text-[8px] font-bold text-gray-700 uppercase tracking-wide">
-                        {brandName}
-                      </span>
-                    </div>
-                    <p
-                      className="text-[9px] text-gray-600 leading-tight truncate"
-                      title={tag.name}
-                    >
-                      {escapeHtml(tag.name)}
-                    </p>
-                    <p className="text-sm font-bold text-gray-900 mt-0.5">
-                      {formatPrice(tag.price, currency)}
-                    </p>
-                  </div>
-                  <div className="text-center">
-                    <svg
-                      className="tag-barcode w-full h-6"
-                      data-barcode={barcodeValue}
-                    />
-                    <p className="text-[7px] text-gray-500 font-mono">
-                      {barcodeValue}
-                    </p>
-                  </div>
-                </article>
-              );
-            })}
+        <>
+          {/* Screen Preview */}
+          <div className="print:hidden">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">
+                Preview ({allTags.length} tags)
+              </h3>
+              <button
+                onClick={handlePrintPreview}
+                className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+              >
+                🖨️ Review & Print
+              </button>
+            </div>
+
+            {/* On-screen preview grid */}
+            <div className="border rounded-lg p-4 bg-gray-50">
+              <div
+                className="grid gap-3 inline-grid"
+                style={{
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${size.width}, 1fr))`,
+                }}
+              >
+                {allTags.slice(0, 12).map((tag, i) => (
+                  <PriceTag key={i} tag={tag} currency={currency} brandName={brandName} size={size} tagIdx={tag.idx} />
+                ))}
+              </div>
+              {allTags.length > 12 && (
+                <p className="text-sm text-gray-600 mt-4 text-center">
+                  ... and {allTags.length - 12} more tags
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+
+          {/* Print Preview Modal */}
+          {printPreviewOpen && (
+            <PrintPreviewModal
+              tags={allTags}
+              currency={currency}
+              brandName={brandName}
+              columns={printColumns}
+              onColumnsChange={setPrintColumns}
+              onClose={() => setPrintPreviewOpen(false)}
+              onPrint={handleConfirmPrint}
+            />
+          )}
+
+          {/* Hidden print area - optimized for A4 paper */}
+          <PrintArea
+            tags={allTags}
+            currency={currency}
+            brandName={brandName}
+            columns={printColumns}
+          />
+        </>
       )}
 
       {/* Render barcodes with JsBarcode */}
-      <BarcodeRenderer dependencies={[allTags, tagSize]} />
+      <BarcodeRenderer dependencies={[allTags, tagSize, printColumns]} />
 
       {/* Print styles */}
       <style jsx global>{`
@@ -410,17 +457,221 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
           .print\\:hidden {
             display: none !important;
           }
-          [class*="print:m-0"] ,
-          [class*="print:m-0"] * {
+          .print-area {
             visibility: visible;
-          }
-          [class*="print:m-0"] {
             position: absolute;
             left: 0;
             top: 0;
+            width: 100%;
+          }
+          .print-area * {
+            visibility: visible;
           }
         }
       `}</style>
+    </div>
+  );
+}
+}
+
+// Individual Price Tag Component - Improved Design
+function PriceTag({ tag, currency, brandName, size, tagIdx }) {
+  const barcodeValue = buildBarcodeValue(tag, tagIdx);
+  return (
+    <article
+      className="border-2 border-gray-200 rounded-lg bg-white flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow print:border print:rounded-none print:shadow-none"
+      style={{
+        width: size.width,
+        height: size.height,
+        padding: "5px 6px",
+        pageBreakInside: "avoid",
+      }}
+    >
+      {/* Top section - Brand & Title */}
+      <div>
+        <div className="flex items-center gap-1 mb-1">
+          <span className="text-[7px] font-bold text-blue-700 uppercase tracking-wide bg-blue-50 px-1.5 py-0.5 rounded">
+            {brandName}
+          </span>
+        </div>
+        <p
+          className="text-[9px] text-gray-700 leading-tight font-medium truncate"
+          title={tag.name}
+        >
+          {escapeHtml(tag.name)}
+        </p>
+      </div>
+
+      {/* Middle section - Price */}
+      <div className="text-center my-1">
+        <p className="text-xs font-bold text-gray-900 leading-tight">
+          {formatPrice(tag.price, currency)}
+        </p>
+      </div>
+
+      {/* Bottom section - Barcode */}
+      <div className="text-center flex flex-col items-center justify-center">
+        <svg
+          className="tag-barcode w-full"
+          style={{ height: "16px", maxHeight: "16px" }}
+          data-barcode={barcodeValue}
+        />
+        <p className="text-[6px] text-gray-500 font-mono mt-0.5">
+          {barcodeValue}
+        </p>
+      </div>
+    </article>
+  );
+}
+
+// Print Preview Modal
+function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange, onClose, onPrint }) {
+  const rows = Math.ceil(tags.length / columns);
+  const tagsPerPage = columns * 3; // 3 rows per A4 page for standard layout
+  const pages = Math.ceil(tags.length / tagsPerPage);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 print:hidden">
+      <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="border-b p-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">Print Preview</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X size={24} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6 bg-gray-50">
+          {/* Column Selector */}
+          <div className="mb-6 bg-white p-4 rounded-lg border border-gray-200">
+            <p className="text-sm font-semibold text-gray-700 mb-3">Columns per A4 page:</p>
+            <div className="flex gap-2">
+              {[2, 3, 4].map((col) => (
+                <button
+                  key={col}
+                  onClick={() => onColumnsChange(col)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    columns === col
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                  }`}
+                >
+                  {PRINT_LAYOUTS[col].label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-600 mt-3">
+              📄 Total: <strong>{tags.length} tags</strong> across <strong>{pages} A4 page{pages > 1 ? "s" : ""}</strong>
+              ({tagsPerPage} tags per page)
+            </p>
+          </div>
+
+          {/* Page Preview */}
+          <div className="grid gap-6">
+            {Array.from({ length: pages }).map((_, pageNum) => {
+              const start = pageNum * tagsPerPage;
+              const end = Math.min(start + tagsPerPage, tags.length);
+              const pageTags = tags.slice(start, end);
+              
+              return (
+                <div
+                  key={pageNum}
+                  className="bg-white p-6 rounded-lg border-2 border-gray-300 shadow-sm"
+                  style={{
+                    width: "210mm",
+                    height: "297mm",
+                    margin: "0 auto",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${columns}, 1fr)`,
+                      gap: "10px",
+                      width: "100%",
+                    }}
+                  >
+                    {pageTags.map((tag, i) => (
+                      <PriceTag
+                        key={`${pageNum}-${i}`}
+                        tag={tag}
+                        currency={currency}
+                        brandName={brandName}
+                        size={TAG_SIZES.standard}
+                        tagIdx={tag.idx}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t p-4 bg-gray-50 flex gap-3 justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onPrint}
+            className="px-6 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+          >
+            🖨️ Print Now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Hidden Print Area - Optimized for A4 paper
+function PrintArea({ tags, currency, brandName, columns }) {
+  const tagsPerPage = columns * 3; // 3 rows per page
+  const pages = Math.ceil(tags.length / tagsPerPage);
+
+  return (
+    <div className="print-area hidden print:block" style={{ printColorAdjust: "exact" }}>
+      {Array.from({ length: pages }).map((_, pageNum) => {
+        const start = pageNum * tagsPerPage;
+        const end = Math.min(start + tagsPerPage, tags.length);
+        const pageTags = tags.slice(start, end);
+
+        return (
+          <div
+            key={pageNum}
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${columns}, 1fr)`,
+              gap: "0",
+              pageBreakAfter: pageNum < pages - 1 ? "always" : "avoid",
+              padding: "15mm",
+              minHeight: "297mm",
+            }}
+          >
+            {pageTags.map((tag, i) => (
+              <PriceTag
+                key={`${pageNum}-${i}`}
+                tag={tag}
+                currency={currency}
+                brandName={brandName}
+                size={TAG_SIZES.standard}
+                tagIdx={tag.idx}
+              />
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
