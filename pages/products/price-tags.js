@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import Layout from "@/components/Layout";
 import PriceTagGenerator from "@/components/PriceTagGenerator";
-import axios from "axios";
+import { apiClient } from "@/lib/api-client";
 
 export default function PriceTagsPage() {
   const [products, setProducts] = useState([]);
@@ -10,7 +10,7 @@ export default function PriceTagsPage() {
   useEffect(() => {
     async function loadProducts() {
       try {
-        const { data } = await axios.get("/api/products", {
+        const { data } = await apiClient.get("/api/products", {
           params: { limit: 500, fields: "name,sellingPrice,barcode,price" },
         });
         setProducts(data.products || data || []);

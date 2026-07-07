@@ -183,7 +183,7 @@ export default function Sidebar() {
       return true;
     }
     // Product form/edit pages should highlight "Product List"
-    if (href === "/manage/products" && pathname.startsWith("/products")) return true;
+    if (href === "/manage/products" && pathname.startsWith("/products") && pathname !== "/products/price-tags") return true;
     return false;
   };
 
