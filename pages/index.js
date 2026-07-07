@@ -15,6 +15,7 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
+  ClipboardList,
   List,
   Mail,
   Minus,
@@ -580,6 +581,11 @@ export default function Home() {
       label: "Purchase order",
       icon: ShoppingCart,
       onClick: () => router.push("/manage/purchase-orders"),
+    },
+    {
+      label: "Transactions",
+      icon: ClipboardList,
+      onClick: () => router.push("/reporting/transaction-report"),
     },
   ];
 

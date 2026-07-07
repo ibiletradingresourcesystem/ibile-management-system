@@ -169,6 +169,7 @@ export default function ExpenseAnalysisPage() {
   return (
     <Layout>
       <div className="page-container">
+        <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-start mb-6">
           <div>
@@ -429,6 +430,7 @@ export default function ExpenseAnalysisPage() {
             )}
           </div>
         ))}
+        </div>
       </div>
     </Layout>
   );

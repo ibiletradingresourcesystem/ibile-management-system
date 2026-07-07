@@ -173,6 +173,7 @@ export default function ExpensesPage() {
   return (
     <Layout>
       <div className="page-container">
+        <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
           <h1 className="page-title">Expense Management</h1>
@@ -343,6 +344,7 @@ export default function ExpensesPage() {
               </button>
             )}
           </div>
+        </div>
         </div>
       </div>
     </Layout>

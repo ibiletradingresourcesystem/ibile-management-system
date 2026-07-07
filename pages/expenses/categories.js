@@ -57,6 +57,7 @@ export default function CategoriesPage() {
   return (
     <Layout>
       <div className="page-container">
+        <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <h1 className="page-title">Expense Categories</h1>
           <p className="page-subtitle">Create and manage categories to organize your business spending.</p>
@@ -147,6 +148,7 @@ export default function CategoriesPage() {
               </table>
             </div>
           )}
+        </div>
         </div>
       </div>
     </Layout>
