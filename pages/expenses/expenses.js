@@ -227,7 +227,7 @@ export default function ExpensesPage() {
           </div>
 
           {/* Center: Recent Expenses */}
-          <div className="content-card overflow-hidden">
+          <div className="content-card">
             <h2 className="text-lg font-semibold text-green-700 mb-3 flex items-center gap-2">
               <RefreshCw className="w-4 h-4" /> Recent Expenses
             </h2>
@@ -247,7 +247,8 @@ export default function ExpensesPage() {
             ) : visibleExpenses.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No expenses found.</p>
             ) : (
-              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1" style={{ paddingBottom: "20px" }}>
+              <div className="relative">
+                <div className="space-y-3 max-h-[480px] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
                 {visibleExpenses.map(exp => (
                   <div key={exp._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingExpense === exp._id ? (
@@ -281,6 +282,9 @@ export default function ExpensesPage() {
                   </div>
                 ))}
               </div>
+              {/* gradient fade at bottom to show there's more */}
+              {visibleExpenses.length > 4 && <div className="h-4 bg-gradient-to-t from-white to-transparent -mt-4 relative z-10 pointer-events-none" />}
+              </div>
             )}
             {filteredExpenses.length > expenseLimit && (
               <button onClick={() => setExpenseLimit(l => l + 10)} className="mt-3 text-sm text-blue-600 hover:underline w-full text-center">
@@ -290,7 +294,7 @@ export default function ExpensesPage() {
           </div>
 
           {/* Right: Daily Cash Entries */}
-          <div className="content-card overflow-hidden">
+          <div className="content-card">
             <h2 className="text-lg font-semibold text-orange-700 mb-3 flex items-center gap-2">
               <RefreshCw className="w-4 h-4" /> Daily Cash Entries
             </h2>
@@ -300,7 +304,8 @@ export default function ExpensesPage() {
             ) : visibleCash.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No cash entries found.</p>
             ) : (
-              <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1" style={{ paddingBottom: "20px" }}>
+              <div className="relative">
+                <div className="space-y-3 max-h-[480px] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
                 {visibleCash.map(entry => (
                   <div key={entry._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingCash === entry._id ? (
@@ -338,6 +343,8 @@ export default function ExpensesPage() {
                     )}
                   </div>
                 ))}
+              </div>
+              {visibleCash.length > 4 && <div className="h-4 bg-gradient-to-t from-white to-transparent -mt-4 relative z-10 pointer-events-none" />}
               </div>
             )}
             {filteredCash.length > cashLimit && (

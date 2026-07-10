@@ -144,6 +144,7 @@ export default function PurchaseOrdersPage() {
   const selectedPaidTotal = useMemo(() => {
     return orders.filter((o) => selectedOrders.has(o._id)).reduce((s, o) => s + toNumber(o.paymentMade), 0);
   }, [orders, selectedOrders]);
+  const selectedBalance = selectedTotal - selectedPaidTotal;
 
   // Handlers
   async function handleQuickEntrySubmit(e) {
@@ -316,16 +317,6 @@ export default function PurchaseOrdersPage() {
             </div>
           </div>
 
-          {/* Selected Quick Check */}
-          {selectedOrders.size > 0 && (
-            <div className="content-card mb-4 flex flex-wrap items-center gap-4">
-              <span className="text-sm font-medium text-gray-700">{selectedOrders.size} selected</span>
-              <span className="text-sm">Total: <strong>{formatCurrency(selectedTotal)}</strong></span>
-              <span className="text-sm">Paid: <strong className="text-green-700">{formatCurrency(selectedPaidTotal)}</strong></span>
-              <button onClick={() => setSelectedOrders(new Set())} className="text-xs text-red-600 hover:underline ml-auto">Clear selection</button>
-            </div>
-          )}
-
           {/* Vendor Filter + Search */}
           <div className="content-card mb-4">
             <div className="flex flex-wrap gap-3 items-center">
@@ -423,6 +414,22 @@ export default function PurchaseOrdersPage() {
                 <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-gray-200 rounded text-sm disabled:opacity-50">Prev</button>
                 <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
                 <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-gray-200 rounded text-sm disabled:opacity-50">Next</button>
+              </div>
+            )}
+
+            {/* Floating Selected Summary Pill */}
+            {selectedOrders.size > 0 && (
+              <div className="flex justify-center mt-4">
+                <div className="inline-flex items-center gap-4 bg-white border-2 border-blue-200 rounded-full px-5 py-2.5 shadow-lg">
+                  <span className="text-sm font-bold text-blue-700">{selectedOrders.size} selected</span>
+                  <span className="text-xs text-gray-500">TOTAL</span>
+                  <span className="text-sm font-bold text-blue-700">{formatCurrency(selectedTotal)}</span>
+                  <span className="text-xs text-gray-500">PAID</span>
+                  <span className="text-sm font-bold text-green-600">{formatCurrency(selectedPaidTotal)}</span>
+                  <span className="text-xs text-gray-500">BALANCE</span>
+                  <span className="text-sm font-bold text-red-600">{formatCurrency(selectedBalance)}</span>
+                  <button onClick={() => setSelectedOrders(new Set())} className="text-xs text-gray-400 hover:text-red-600 ml-1 border border-gray-200 rounded-full px-2 py-0.5">Clear</button>
+                </div>
               </div>
             )}
           </div>

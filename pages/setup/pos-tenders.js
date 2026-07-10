@@ -26,6 +26,22 @@ export default function PosTenders() {
     classification: "Other",
   });
 
+  // Tab: tenders | memo
+  const [activeTab, setActiveTab] = useState("tenders");
+
+  // Memo settings
+  const [memoForm, setMemoForm] = useState({
+    directorName: "",
+    companyBankName: "",
+    companyBankBranch: "",
+    companyAccountName: "",
+    companyAccountNumber: "",
+    companyAddress: "",
+    companyRegNumber: "",
+  });
+  const [savingMemo, setSavingMemo] = useState(false);
+  const [memoSuccess, setMemoSuccess] = useState("");
+
   useEffect(() => {
     initializeAndFetch();
   }, []);
@@ -81,17 +97,27 @@ export default function PosTenders() {
 
   const fetchLocations = async () => {
     try {
-      // Fetch locations from Store API
       const res = await fetch("/api/setup/get");
       const data = await res.json();
       
       let locationsList = [];
-      
       if (data.store && data.store.locations) {
         locationsList = data.store.locations;
       }
-      
       setLocations(locationsList);
+
+      // Load memo settings from store
+      if (data.store) {
+        setMemoForm({
+          directorName: data.store.directorName || "",
+          companyBankName: data.store.companyBankName || "",
+          companyBankBranch: data.store.companyBankBranch || "",
+          companyAccountName: data.store.companyAccountName || "",
+          companyAccountNumber: data.store.companyAccountNumber || "",
+          companyAddress: data.store.companyAddress || "",
+          companyRegNumber: data.store.companyRegNumber || "",
+        });
+      }
     } catch (err) {
       console.error("Error fetching locations:", err);
     }
@@ -205,6 +231,29 @@ export default function PosTenders() {
     }
   };
 
+  const handleSaveMemo = async () => {
+    setSavingMemo(true);
+    setMemoSuccess("");
+    try {
+      const res = await fetch("/api/setup/memo-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+        body: JSON.stringify(memoForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMemoSuccess("Memo settings saved!");
+        setTimeout(() => setMemoSuccess(""), 3000);
+      } else {
+        setError(data.error || "Failed to save");
+      }
+    } catch (err) {
+      setError("Failed to save memo settings");
+    } finally {
+      setSavingMemo(false);
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -221,12 +270,19 @@ export default function PosTenders() {
         <div className="page-content">
           {/* Header */}
           <div className="page-header">
-            <h1 className="page-title">Tender Types</h1>
-            <button
-              onClick={handleAddTender}
-              className="btn-action-primary"
-            >
-              ADD TENDER TYPE
+            <h1 className="page-title">{activeTab === "tenders" ? "Tender Types" : "Memo Settings"}</h1>
+            {activeTab === "tenders" && (
+              <button onClick={handleAddTender} className="btn-action-primary">ADD TENDER TYPE</button>
+            )}
+          </div>
+
+          {/* Tabs */}
+          <div className="flex border-b mb-6">
+            <button onClick={() => setActiveTab("tenders")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "tenders" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+              Tender Types
+            </button>
+            <button onClick={() => setActiveTab("memo")} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${activeTab === "memo" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+              Memo / Transfer Settings
             </button>
           </div>
 
@@ -245,6 +301,7 @@ export default function PosTenders() {
           )}
 
           {/* Active Tender Types Section */}
+          {activeTab === "tenders" && (
           <div className="content-card">
             <h2 className="text-lg font-semibold text-gray-900 mb-2">Active Tender Types</h2>
             <p className="text-gray-600 text-sm mb-4">View, edit and delete your tender types.</p>
@@ -303,6 +360,68 @@ export default function PosTenders() {
               </table>
             </div>
           </div>
+          )}
+
+          {/* Memo Settings Tab */}
+          {activeTab === "memo" && (
+            <div className="content-card max-w-2xl">
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Memo / Transfer Instruction Settings</h2>
+              <p className="text-gray-600 text-sm mb-6">Configure director and company bank details used in payment transfer memos.</p>
+
+              {memoSuccess && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4">{memoSuccess}</div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="form-label">Director Name</label>
+                  <input value={memoForm.directorName} onChange={(e) => setMemoForm(f => ({ ...f, directorName: e.target.value }))} className="form-input" placeholder="e.g. Catherine Ashenuga Farrer" />
+                </div>
+
+                <div className="border-t pt-4">
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Company Bank Details</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="form-label">Bank Name</label>
+                      <input value={memoForm.companyBankName} onChange={(e) => setMemoForm(f => ({ ...f, companyBankName: e.target.value }))} className="form-input" placeholder="e.g. Access Bank" />
+                    </div>
+                    <div>
+                      <label className="form-label">Branch</label>
+                      <input value={memoForm.companyBankBranch} onChange={(e) => setMemoForm(f => ({ ...f, companyBankBranch: e.target.value }))} className="form-input" placeholder="e.g. Victoria Island" />
+                    </div>
+                    <div>
+                      <label className="form-label">Account Name</label>
+                      <input value={memoForm.companyAccountName} onChange={(e) => setMemoForm(f => ({ ...f, companyAccountName: e.target.value }))} className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Account Number</label>
+                      <input value={memoForm.companyAccountNumber} onChange={(e) => setMemoForm(f => ({ ...f, companyAccountNumber: e.target.value }))} className="form-input" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Company Info (for memo footer)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="form-label">Company Address</label>
+                      <input value={memoForm.companyAddress} onChange={(e) => setMemoForm(f => ({ ...f, companyAddress: e.target.value }))} className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Registration Number</label>
+                      <input value={memoForm.companyRegNumber} onChange={(e) => setMemoForm(f => ({ ...f, companyRegNumber: e.target.value }))} className="form-input" placeholder="e.g. RC 123456" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button onClick={handleSaveMemo} disabled={savingMemo} className="btn-action-primary px-8">
+                    {savingMemo ? "Saving..." : "Save Memo Settings"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

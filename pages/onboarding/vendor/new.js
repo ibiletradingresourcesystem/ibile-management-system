@@ -116,7 +116,7 @@ export default function VendorOnboardingForm() {
     <>
       <Head><title>Vendor Registration Form</title></Head>
       <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white py-8 px-4">
-        <div className="max-w-xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
             {storeLogo ? (
@@ -133,7 +133,9 @@ export default function VendorOnboardingForm() {
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border p-6 space-y-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left: Form (2/3 width on desktop) */}
+          <form onSubmit={handleSubmit} className="lg:col-span-2 bg-white rounded-xl shadow-sm border p-6 space-y-5">
             {/* Contact Info */}
             <div>
               <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Contact Information</h2>
@@ -225,21 +227,8 @@ export default function VendorOnboardingForm() {
               </div>
             </div>
 
-            {/* Terms & Conditions */}
-            <div className="bg-gray-50 border rounded-lg p-4">
-              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">Terms & Conditions</h2>
-              <div className="text-xs text-gray-600 space-y-1.5 mb-3 max-h-32 overflow-y-auto">
-                <p>By registering as a vendor, you agree to the following:</p>
-                <ol className="list-decimal pl-4 space-y-1">
-                  <li>All product prices provided are accurate and inclusive of applicable charges.</li>
-                  <li>Orders placed through this system are binding and must be fulfilled within the agreed timeframe.</li>
-                  <li>Payment will be processed according to agreed terms after delivery confirmation.</li>
-                  <li>Product quality must meet the standards discussed and agreed upon.</li>
-                  <li>Any changes to pricing or product availability must be communicated in advance.</li>
-                  <li>The business reserves the right to discontinue vendor relationships with reasonable notice.</li>
-                  <li>All information provided in this form is accurate and up to date.</li>
-                </ol>
-              </div>
+            {/* Terms acceptance checkbox — inline in form */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <label className="flex items-start gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -247,7 +236,7 @@ export default function VendorOnboardingForm() {
                   onChange={(e) => setForm(prev => ({ ...prev, termsAccepted: e.target.checked }))}
                   className="mt-0.5 rounded"
                 />
-                <span className="text-xs text-gray-700">I have read and agree to the terms and conditions above.</span>
+                <span className="text-xs text-gray-700">I have read and agree to the <strong>Terms & Conditions</strong> shown on the right.</span>
               </label>
             </div>
 
@@ -261,6 +250,27 @@ export default function VendorOnboardingForm() {
               {submitting ? "Registering..." : "Submit Registration"}
             </button>
           </form>
+
+          {/* Right: Terms & Conditions sidebar (1/3 width on desktop) */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-xl shadow-sm border p-5 sticky top-8">
+              <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 border-b pb-2">Terms & Conditions</h2>
+              <div className="text-xs text-gray-600 space-y-3 leading-relaxed">
+                <p className="font-medium text-gray-700">By registering as a vendor, you agree to the following:</p>
+                <ol className="list-decimal pl-4 space-y-2.5">
+                  <li><strong>Accurate Pricing:</strong> All product prices provided are accurate and inclusive of applicable charges.</li>
+                  <li><strong>Order Fulfillment:</strong> Orders placed through this system are binding and must be fulfilled within the agreed timeframe.</li>
+                  <li><strong>Payment Terms:</strong> Payment will be processed according to agreed terms after delivery confirmation.</li>
+                  <li><strong>Quality Standards:</strong> Product quality must meet the standards discussed and agreed upon.</li>
+                  <li><strong>Price Changes:</strong> Any changes to pricing or product availability must be communicated in advance.</li>
+                  <li><strong>Relationship:</strong> The business reserves the right to discontinue vendor relationships with reasonable notice.</li>
+                  <li><strong>Data Accuracy:</strong> All information provided in this form is accurate and up to date.</li>
+                  <li><strong>Confidentiality:</strong> Vendor shall not disclose pricing or business terms to unauthorized third parties.</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+          </div>
 
           <p className="text-center text-xs text-gray-400 mt-6">Powered by Ibile Management System</p>
         </div>

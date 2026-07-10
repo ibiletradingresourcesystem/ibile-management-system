@@ -534,13 +534,17 @@ export default function PettyCashTransactionPanel({
       {sendDialog && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
-            <h3 className="font-bold text-lg mb-2 text-green-700">✅ Order Submitted!</h3>
-            <p className="text-sm text-gray-600 mb-4">Send order details to <strong>{sendDialog.vendorName}</strong>?</p>
+            <h3 className="font-bold text-lg mb-2 text-gray-900">Send Order</h3>
+            <p className="text-sm text-gray-600 mb-4">Send order details to <strong>{sendDialog.vendorName}</strong></p>
+            <div className="bg-gray-50 rounded-lg p-3 mb-4 text-xs text-gray-700 whitespace-pre-line max-h-32 overflow-y-auto border">
+              {sendDialog.orderSummary}
+            </div>
             <div className="space-y-2">
-              {sendDialog.phone && (
+              {sendDialog.phone && sendDialog.phone.replace(/[^0-9]/g, "").length >= 10 && (
                 <button
                   onClick={() => {
-                    window.open(`https://wa.me/${sendDialog.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(sendDialog.orderSummary)}`, "_blank");
+                    const cleanPhone = sendDialog.phone.replace(/[^0-9]/g, "");
+                    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(sendDialog.orderSummary)}`, "_blank");
                     setSendDialog(null);
                   }}
                   className="w-full bg-green-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-green-700"
@@ -548,7 +552,7 @@ export default function PettyCashTransactionPanel({
                   Send via WhatsApp
                 </button>
               )}
-              {sendDialog.phone && (
+              {sendDialog.phone && sendDialog.phone.replace(/[^0-9]/g, "").length >= 10 && (
                 <button
                   onClick={() => {
                     window.open(`sms:${sendDialog.phone}?body=${encodeURIComponent(sendDialog.orderSummary)}`, "_blank");
@@ -571,10 +575,19 @@ export default function PettyCashTransactionPanel({
                 </button>
               )}
               <button
-                onClick={() => setSendDialog(null)}
+                onClick={() => {
+                  navigator.clipboard.writeText(sendDialog.orderSummary).then(() => alert("Order details copied!"));
+                  setSendDialog(null);
+                }}
                 className="w-full border border-gray-300 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
-                Skip / Close
+                Copy to Clipboard
+              </button>
+              <button
+                onClick={() => setSendDialog(null)}
+                className="w-full text-sm text-gray-400 hover:text-gray-600 py-1"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -702,14 +715,13 @@ export default function PettyCashTransactionPanel({
                         <button
                           onClick={() => {
                             const vendor = vendors.find(v => v._id === (tx.vendor?._id || tx.vendor));
-                            const msg = `Order from ${tx.location}:\n${tx.purpose}\nAmount: ${formatCurrency(tx.amount)}\nDate: ${formatDate(tx.requestDate)}`;
-                            if (vendor?.repPhone) {
-                              window.open(`https://wa.me/${vendor.repPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(msg)}`, "_blank");
-                            } else if (vendor?.email) {
-                              window.open(`mailto:${vendor.email}?subject=Order&body=${encodeURIComponent(msg)}`, "_blank");
-                            } else {
-                              navigator.clipboard.writeText(msg).then(() => alert("Order copied to clipboard!"));
-                            }
+                            const orderMsg = `Order from ${tx.location}:\n${tx.purpose}\nAmount: ${formatCurrency(tx.amount)}\nDate: ${formatDate(tx.requestDate)}`;
+                            setSendDialog({
+                              vendorName: vendor?.companyName || tx.vendorName || "Vendor",
+                              phone: vendor?.repPhone || "",
+                              email: vendor?.email || "",
+                              orderSummary: orderMsg,
+                            });
                           }}
                           className="bg-green-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-green-700"
                         >
