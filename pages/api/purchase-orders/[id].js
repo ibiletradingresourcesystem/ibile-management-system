@@ -55,7 +55,7 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const order = await PurchaseOrder.findById(id).populate("vendor", "companyName vendorRep repPhone").lean();
+      const order = await PurchaseOrder.findById(id).populate("vendor", "companyName vendorRep repPhone bankName accountName accountNumber").lean();
       if (!order) return res.status(404).json({ error: "Order not found" });
       return res.status(200).json({ success: true, order });
     } catch (err) {

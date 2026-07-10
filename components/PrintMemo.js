@@ -82,7 +82,7 @@ const PrintMemo = forwardRef(
             <div style={{ position: "absolute", top: "1rem", right: "-2rem" }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/image/LogoName.png"
+                src="/images/logoName.png"
                 alt="Ibile Mart Logo"
                 style={{ height: "9em", width: "auto" }}
               />
@@ -261,7 +261,7 @@ const PrintMemo = forwardRef(
             {/* Watermarks */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/image/LogoWaterMarkFull.png"
+              src="/images/LogoWaterMarkFull.png"
               alt="WatermarkLeft"
               style={{
                 position: "absolute",
@@ -275,7 +275,7 @@ const PrintMemo = forwardRef(
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/image/LogoWaterMark.png"
+              src="/images/LogoWaterMark.png"
               alt="WatermarkRight"
               style={{
                 position: "absolute",

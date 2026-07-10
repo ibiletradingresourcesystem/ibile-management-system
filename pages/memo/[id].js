@@ -50,13 +50,20 @@ export default function PaymentMemoPage() {
         setMemoDirectors(directors);
         setMemoAccounts(accounts);
         if (directors.length > 0) setSelectedDirector(directors[0]);
-        if (accounts.length > 0) setSelectedAccount(accounts[0].accountName);
+        if (accounts.length > 0) setSelectedAccount(accounts[0].accountNumber || accounts[0].accountName);
 
         // Pre-fill from vendor bank details
+        // Note: some vendors have accountName/accountNumber swapped in DB
+        const vendor = o.vendor || {};
+        const vAccountName = vendor.accountNumber || vendor.accountName || o.vendorName || "";
+        const vAccountNumber = vendor.accountName || vendor.accountNumber || "";
+        const vBankName = vendor.bankName || "";
+        // Detect if accountName looks like a number (likely swapped)
+        const nameIsNumeric = /^\d{8,}$/.test(String(vendor.accountName || "").trim());
         setForm({
-          accountName: o.vendor?.accountName || o.vendorName || "",
-          accountNumber: o.vendor?.accountNumber || "",
-          bankName: o.vendor?.bankName || "",
+          accountName: nameIsNumeric ? (vendor.accountNumber || o.vendorName || "") : (vendor.accountName || o.vendorName || ""),
+          accountNumber: nameIsNumeric ? (vendor.accountName || "") : (vendor.accountNumber || ""),
+          bankName: vBankName,
           amount: o.balance || o.grandTotal || 0,
         });
       } catch (err) {
@@ -118,7 +125,7 @@ export default function PaymentMemoPage() {
             >
               {memoAccounts.length > 0 ? (
                 memoAccounts.map((acc, i) => (
-                  <option key={i} value={acc.accountName}>{acc.accountName} ({acc.bankName})</option>
+                  <option key={i} value={acc.accountNumber || acc.accountName}>{acc.accountName} — {acc.bankName}</option>
                 ))
               ) : (
                 <>

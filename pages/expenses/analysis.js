@@ -143,7 +143,15 @@ export default function ExpenseAnalysisPage() {
       const cat = e.categoryName || "General";
       map[cat] = (map[cat] || 0) + Number(e.amount || 0);
     });
-    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+    const sorted = Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+    // Limit chart to top 8 categories, group rest as "Other"
+    if (sorted.length > 8) {
+      const top = sorted.slice(0, 8);
+      const otherTotal = sorted.slice(8).reduce((s, item) => s + item.value, 0);
+      if (otherTotal > 0) top.push({ name: "Other", value: otherTotal });
+      return top;
+    }
+    return sorted;
   }, [filteredExpenses]);
 
   // Cash summary from reports
