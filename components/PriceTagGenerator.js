@@ -472,7 +472,7 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
     </div>
   );
 }
-}
+
 
 // Individual Price Tag Component - Improved Design
 function PriceTag({ tag, currency, brandName, size, tagIdx }) {
