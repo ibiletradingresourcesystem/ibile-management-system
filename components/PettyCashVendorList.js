@@ -41,25 +41,57 @@ export default function PettyCashVendorList({
   }
 
   return (
-    <div className="space-y-2">
-      {vendors.map((vendor) => (
-        <details
-          key={vendor._id}
-          className="border rounded-lg bg-white overflow-hidden group"
-        >
-          <summary className="px-4 py-3 cursor-pointer flex items-center justify-between hover:bg-gray-50">
-            <div>
-              <p className="font-semibold text-sm">{vendor.companyName}</p>
-              <p className="text-xs text-gray-500">
-                {vendor.mainProduct || vendor.businessCategory || "General"}
-                {vendor.repPhone && ` • ${vendor.repPhone}`}
-              </p>
+    <div className="space-y-4">
+      {/* Generate New Vendor Onboarding Link */}
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <p className="text-sm font-semibold text-purple-800 mb-2">📨 Invite New Vendor</p>
+        <p className="text-xs text-purple-600 mb-3">
+          Add a vendor first, then use the onboarding link buttons below to send them a self-registration form.
+        </p>
+      </div>
+
+      {/* Vendor List */}
+      <div className="space-y-2">
+        {vendors.map((vendor) => (
+          <div
+            key={vendor._id}
+            className="border rounded-lg bg-white overflow-hidden"
+          >
+            {/* Vendor Header with Quick Actions */}
+            <div className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">{vendor.companyName}</p>
+                <p className="text-xs text-gray-500">
+                  {vendor.mainProduct || vendor.businessCategory || "General"}
+                  {vendor.repPhone && ` • ${vendor.repPhone}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                <button
+                  onClick={() => handleSendOnboardingLink(vendor, "copy")}
+                  disabled={linkLoading === vendor._id}
+                  className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-200 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {linkLoading === vendor._id ? "..." : "📋 Copy Link"}
+                </button>
+                {vendor.repPhone && (
+                  <button
+                    onClick={() => handleSendOnboardingLink(vendor, "whatsapp")}
+                    disabled={linkLoading === vendor._id}
+                    className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    📱 WhatsApp
+                  </button>
+                )}
+              </div>
             </div>
-            <span className="text-gray-400 text-xs group-open:rotate-90 transition-transform">
-              ▶
-            </span>
-          </summary>
-          <div className="px-4 pb-3 border-t bg-gray-50">
+
+            {/* Expandable Details */}
+            <details className="group">
+              <summary className="px-4 py-2 cursor-pointer text-xs text-blue-600 font-medium hover:bg-gray-50 border-t border-gray-100">
+                View details & actions <span className="group-open:rotate-90 inline-block transition-transform">▶</span>
+              </summary>
+              <div className="px-4 pb-3 border-t bg-gray-50">
             <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-gray-600">
               {vendor.vendorRep && (
                 <p>
@@ -111,22 +143,6 @@ export default function PettyCashVendorList({
                   Place Order
                 </button>
               )}
-              <button
-                onClick={() => handleSendOnboardingLink(vendor, "copy")}
-                disabled={linkLoading === vendor._id}
-                className="border border-purple-300 text-purple-700 px-3 py-1 rounded text-xs font-medium hover:bg-purple-50 disabled:opacity-50"
-              >
-                {linkLoading === vendor._id ? "..." : "📋 Copy Link"}
-              </button>
-              {vendor.repPhone && (
-                <button
-                  onClick={() => handleSendOnboardingLink(vendor, "whatsapp")}
-                  disabled={linkLoading === vendor._id}
-                  className="border border-green-300 text-green-700 px-3 py-1 rounded text-xs font-medium hover:bg-green-50 disabled:opacity-50"
-                >
-                  📱 WhatsApp
-                </button>
-              )}
               {onEdit && (
                 <button
                   onClick={() => onEdit(vendor)}
@@ -149,7 +165,9 @@ export default function PettyCashVendorList({
             </div>
           </div>
         </details>
+        </div>
       ))}
+      </div>
     </div>
   );
 }

@@ -240,7 +240,7 @@ export default function App({
           <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png" />
           <link rel="icon" type="image/png" sizes="16x16" href="/favicon/favicon-16x16.png" />
           <meta name="msapplication-TileColor" content="#000000" />
-          <title>St Michael’s Invetory app</title>
+          <title>Ibile Mart Management app</title>
           <meta name="description" content="Best products at the best prices!" />
           <link rel="icon" href="/favicon/favicon.ico" />
         </Head>

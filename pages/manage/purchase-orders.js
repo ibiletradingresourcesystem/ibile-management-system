@@ -7,7 +7,7 @@ import { apiClient } from "@/lib/api-client";
 import { showAlertDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
-import { Plus, X } from "lucide-react";
+import { Plus, X, RefreshCw } from "lucide-react";
 
 const STATUS_COLORS = {
   "Not Paid": "bg-red-100 text-red-700",
@@ -45,6 +45,9 @@ export default function PurchaseOrdersPage() {
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const entriesPerPage = 15;
+
+  // Sync stock orders
+  const [syncingStock, setSyncingStock] = useState(false);
 
   const toNumber = (v) => {
     const n = Number(String(v ?? 0).replace(/,/g, ""));
@@ -192,6 +195,20 @@ export default function PurchaseOrdersPage() {
     try { await apiClient.delete(`/api/purchase-orders/${id}`); fetchOrders(); } catch {}
   }
 
+  async function handleSyncStockOrders() {
+    setSyncingStock(true);
+    try {
+      const res = await apiClient.post("/api/purchase-orders/sync-stock-orders");
+      const msg = res.data?.message || `Synced ${res.data?.synced || 0} orders`;
+      await showAlertDialog({ title: "Sync Complete", message: msg, tone: "info", confirm: "OK" });
+      if (res.data?.synced > 0) fetchOrders();
+    } catch (err) {
+      await showAlertDialog({ title: "Sync Failed", message: err.response?.data?.error || "Failed to sync", tone: "danger" });
+    } finally {
+      setSyncingStock(false);
+    }
+  }
+
   if (loading) return <Layout><Loader /></Layout>;
 
   return (
@@ -205,7 +222,9 @@ export default function PurchaseOrdersPage() {
               <button onClick={() => setShowQuickEntry(true)} className="btn-action-primary flex items-center gap-2 text-sm">
                 <Plus size={16} /> Quick Entry
               </button>
-              <p className="text-xs text-gray-500">Orders placed from <Link href="/manage/vendors" className="text-blue-600 hover:underline">Vendor page</Link></p>
+              <button onClick={handleSyncStockOrders} disabled={syncingStock} className="border border-blue-600 text-blue-600 px-4 py-2 rounded text-sm font-medium hover:bg-blue-50 flex items-center gap-2 disabled:opacity-50">
+                <RefreshCw size={16} className={syncingStock ? "animate-spin" : ""} /> {syncingStock ? "Syncing..." : "Sync Stock Orders"}
+              </button>
             </div>
           </div>
 

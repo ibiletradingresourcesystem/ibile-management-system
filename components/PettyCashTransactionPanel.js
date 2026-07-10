@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
+import { apiClient } from "@/lib/api-client";
 
 function formatCurrency(val) {
   return `₦${Number(val || 0).toLocaleString("en-NG")}`;
@@ -78,11 +78,18 @@ export default function PettyCashTransactionPanel({
     quantity: 1,
     unitPrice: 0,
     amount: 0,
-    location: currentLocation,
+    location: currentLocation || "",
     requestDate: new Date().toISOString().split("T")[0],
     neededBy: "",
   });
   const [submitting, setSubmitting] = useState(false);
+
+  // Sync location when it becomes available
+  useEffect(() => {
+    if (currentLocation) {
+      setFormData((prev) => prev.location ? prev : { ...prev, location: currentLocation });
+    }
+  }, [currentLocation]);
 
   // Edit state
   const [editingId, setEditingId] = useState(null);
@@ -96,7 +103,7 @@ export default function PettyCashTransactionPanel({
       if (filterStatus) params.status = filterStatus;
       if (currentLocation) params.location = currentLocation;
 
-      const { data } = await axios.get("/api/petty-cash-transactions", { params });
+      const { data } = await apiClient.get("/api/petty-cash-transactions", { params });
       setTransactions(data.transactions || []);
     } catch (err) {
       console.error("Failed to load transactions:", err);
@@ -126,7 +133,7 @@ export default function PettyCashTransactionPanel({
     e.preventDefault();
     setSubmitting(true);
     try {
-      await axios.post("/api/petty-cash-transactions", formData);
+      await apiClient.post("/api/petty-cash-transactions", formData);
       setShowForm(false);
       setFormData({
         vendor: "",
@@ -150,7 +157,7 @@ export default function PettyCashTransactionPanel({
 
   const runAction = async (id, action, extra = {}) => {
     try {
-      await axios.put(`/api/petty-cash-transactions/${id}`, { action, ...extra });
+      await apiClient.put(`/api/petty-cash-transactions/${id}`, { action, ...extra });
       loadTransactions();
       onTransactionChange?.();
     } catch (err) {
@@ -176,7 +183,7 @@ export default function PettyCashTransactionPanel({
   const saveEdit = async () => {
     if (!editingId) return;
     try {
-      await axios.put(`/api/petty-cash-transactions/${editingId}`, {
+      await apiClient.put(`/api/petty-cash-transactions/${editingId}`, {
         action: "update-details",
         ...editForm,
       });
@@ -406,15 +413,26 @@ export default function PettyCashTransactionPanel({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-700">Needed By</label>
+                  <label className="text-xs font-medium text-gray-700">Location *</label>
                   <input
-                    name="neededBy"
-                    type="date"
-                    value={formData.neededBy}
+                    name="location"
+                    value={formData.location}
                     onChange={handleFormChange}
+                    required
+                    placeholder="e.g. Ibile 1"
                     className="w-full border rounded px-2 py-2 text-sm mt-1"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-700">Needed By</label>
+                <input
+                  name="neededBy"
+                  type="date"
+                  value={formData.neededBy}
+                  onChange={handleFormChange}
+                  className="w-full border rounded px-2 py-2 text-sm mt-1"
+                />
               </div>
             </div>
             <div className="flex gap-2 mt-5">

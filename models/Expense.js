@@ -10,9 +10,15 @@ const ExpenseSchema = new Schema(
       index: true,
     },
 
+    // Legacy field — old entries stored category as ObjectId here
+    category: {
+      type: Schema.Types.ObjectId,
+      ref: "ExpenseCategory",
+      index: true,
+    },
+
     categoryName: {
       type: String,
-      required: true,
       trim: true,
     },
 

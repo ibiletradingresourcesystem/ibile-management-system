@@ -405,18 +405,18 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
             {/* On-screen preview grid */}
             <div className="border rounded-lg p-4 bg-gray-50">
               <div
-                className="grid gap-3 inline-grid"
+                className="grid gap-3"
                 style={{
-                  gridTemplateColumns: `repeat(auto-fill, minmax(${size.width}, 1fr))`,
+                  gridTemplateColumns: `repeat(auto-fill, minmax(160px, 1fr))`,
                 }}
               >
-                {allTags.slice(0, 12).map((tag, i) => (
+                {allTags.slice(0, 16).map((tag, i) => (
                   <PriceTag key={i} tag={tag} currency={currency} brandName={brandName} size={size} tagIdx={tag.idx} />
                 ))}
               </div>
-              {allTags.length > 12 && (
+              {allTags.length > 16 && (
                 <p className="text-sm text-gray-600 mt-4 text-center">
-                  ... and {allTags.length - 12} more tags
+                  ... and {allTags.length - 16} more tags — click Review & Print to see all
                 </p>
               )}
             </div>
@@ -479,44 +479,53 @@ function PriceTag({ tag, currency, brandName, size, tagIdx }) {
   const barcodeValue = buildBarcodeValue(tag, tagIdx);
   return (
     <article
-      className="border-2 border-gray-200 rounded-lg bg-white flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow print:border print:rounded-none print:shadow-none"
+      className="border border-gray-400 bg-white flex flex-col justify-between overflow-hidden print:border print:border-gray-500"
       style={{
-        width: size.width,
-        height: size.height,
-        padding: "5px 6px",
+        width: "100%",
+        minHeight: size.height,
+        padding: "4px 6px",
         pageBreakInside: "avoid",
+        boxSizing: "border-box",
       }}
     >
-      {/* Top section - Brand & Title */}
-      <div>
-        <div className="flex items-center gap-1 mb-1">
-          <span className="text-[7px] font-bold text-blue-700 uppercase tracking-wide bg-blue-50 px-1.5 py-0.5 rounded">
-            {brandName}
-          </span>
-        </div>
-        <p
-          className="text-[9px] text-gray-700 leading-tight font-medium truncate"
-          title={tag.name}
-        >
-          {escapeHtml(tag.name)}
-        </p>
+      {/* Top section - Brand */}
+      <div className="border-b border-dashed border-gray-300 pb-1 mb-1">
+        <span className="text-[7px] font-extrabold text-gray-800 uppercase tracking-wider block text-center">
+          {brandName}
+        </span>
       </div>
 
-      {/* Middle section - Price */}
-      <div className="text-center my-1">
-        <p className="text-xs font-bold text-gray-900 leading-tight">
+      {/* Product Name - wraps */}
+      <p
+        className="text-[8px] text-gray-700 leading-snug font-medium text-center"
+        style={{
+          overflow: "hidden",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+          wordBreak: "break-word",
+          minHeight: "1.6em",
+        }}
+        title={tag.name}
+      >
+        {escapeHtml(tag.name)}
+      </p>
+
+      {/* Price */}
+      <div className="text-center my-1 border-y border-dashed border-gray-300 py-1">
+        <p className="text-sm font-extrabold text-gray-900 leading-none">
           {formatPrice(tag.price, currency)}
         </p>
       </div>
 
-      {/* Bottom section - Barcode */}
-      <div className="text-center flex flex-col items-center justify-center">
+      {/* Barcode */}
+      <div className="text-center flex flex-col items-center justify-end">
         <svg
-          className="tag-barcode w-full"
-          style={{ height: "16px", maxHeight: "16px" }}
+          className="tag-barcode"
+          style={{ width: "90%", height: "18px" }}
           data-barcode={barcodeValue}
         />
-        <p className="text-[6px] text-gray-500 font-mono mt-0.5">
+        <p className="text-[5px] text-gray-500 font-mono mt-0.5 leading-none">
           {barcodeValue}
         </p>
       </div>
@@ -602,15 +611,18 @@ function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange
                         return (
                           <div
                             key={`preview-${pageNum}-${i}`}
-                            className="border border-gray-200 rounded bg-white p-1 flex flex-col justify-between"
+                            className="border border-gray-300 bg-white p-1 flex flex-col justify-between"
                             style={{ minHeight: 0 }}
                           >
-                            <div>
-                              <span className="text-[6px] font-bold text-blue-700 uppercase">{brandName}</span>
-                              <p className="text-[7px] text-gray-700 truncate leading-tight">{tag.name}</p>
+                            <div className="border-b border-dashed border-gray-200 pb-0.5 mb-0.5">
+                              <span className="text-[5px] font-extrabold text-gray-800 uppercase tracking-wider block text-center">{brandName}</span>
                             </div>
-                            <p className="text-[9px] font-bold text-gray-900 text-center">{formatPrice(tag.price, currency)}</p>
-                            <p className="text-[5px] text-gray-400 text-center font-mono">{barcodeValue}</p>
+                            <p className="text-[6px] text-gray-700 text-center leading-tight" style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word" }}>{tag.name}</p>
+                            <p className="text-[8px] font-extrabold text-gray-900 text-center border-y border-dashed border-gray-200 py-0.5 my-0.5">{formatPrice(tag.price, currency)}</p>
+                            <div className="text-center">
+                              <svg className="tag-barcode" style={{ width: "80%", height: "10px", margin: "0 auto", display: "block" }} data-barcode={barcodeValue} />
+                              <p className="text-[4px] text-gray-400 font-mono">{barcodeValue}</p>
+                            </div>
                           </div>
                         );
                       })}
