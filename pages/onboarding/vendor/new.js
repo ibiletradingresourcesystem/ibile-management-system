@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Head from "next/head";
 
 export default function VendorOnboardingForm() {
@@ -14,10 +14,25 @@ export default function VendorOnboardingForm() {
     accountName: "",
     accountNumber: "",
     products: [{ productName: "", price: "" }],
+    termsAccepted: false,
   });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
+  const [storeLogo, setStoreLogo] = useState("");
+  const [businessName, setBusinessName] = useState("");
+
+  useEffect(() => {
+    fetch("/api/setup/get")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.store?.logo) setStoreLogo(data.store.logo);
+        if (data?.store?.companyName || data?.store?.storeName) {
+          setBusinessName(data.store.companyName || data.store.storeName);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -51,6 +66,7 @@ export default function VendorOnboardingForm() {
     setError("");
     if (!form.companyName.trim()) return setError("Company/Business name is required.");
     if (!form.repPhone.trim()) return setError("Phone number is required.");
+    if (!form.termsAccepted) return setError("You must accept the terms and conditions.");
 
     setSubmitting(true);
     try {
@@ -103,11 +119,18 @@ export default function VendorOnboardingForm() {
         <div className="max-w-xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <span className="text-2xl">🏪</span>
-            </div>
+            {storeLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={storeLogo} alt={businessName || "Business"} className="h-16 w-auto mx-auto mb-3 object-contain" />
+            ) : (
+              <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-2xl">🏪</span>
+              </div>
+            )}
             <h1 className="text-2xl font-bold text-gray-900">Vendor Registration</h1>
-            <p className="text-sm text-gray-500 mt-1">Fill in your details to register as a vendor</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {businessName ? `Register as a vendor for ${businessName}` : "Fill in your details to register as a vendor"}
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border p-6 space-y-5">
@@ -200,6 +223,32 @@ export default function VendorOnboardingForm() {
                   <input name="accountNumber" value={form.accountNumber} onChange={handleChange} className="w-full border rounded-lg px-3 py-2.5 text-sm mt-1" />
                 </div>
               </div>
+            </div>
+
+            {/* Terms & Conditions */}
+            <div className="bg-gray-50 border rounded-lg p-4">
+              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">Terms & Conditions</h2>
+              <div className="text-xs text-gray-600 space-y-1.5 mb-3 max-h-32 overflow-y-auto">
+                <p>By registering as a vendor, you agree to the following:</p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>All product prices provided are accurate and inclusive of applicable charges.</li>
+                  <li>Orders placed through this system are binding and must be fulfilled within the agreed timeframe.</li>
+                  <li>Payment will be processed according to agreed terms after delivery confirmation.</li>
+                  <li>Product quality must meet the standards discussed and agreed upon.</li>
+                  <li>Any changes to pricing or product availability must be communicated in advance.</li>
+                  <li>The business reserves the right to discontinue vendor relationships with reasonable notice.</li>
+                  <li>All information provided in this form is accurate and up to date.</li>
+                </ol>
+              </div>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.termsAccepted}
+                  onChange={(e) => setForm(prev => ({ ...prev, termsAccepted: e.target.checked }))}
+                  className="mt-0.5 rounded"
+                />
+                <span className="text-xs text-gray-700">I have read and agree to the terms and conditions above.</span>
+              </label>
             </div>
 
             {error && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}

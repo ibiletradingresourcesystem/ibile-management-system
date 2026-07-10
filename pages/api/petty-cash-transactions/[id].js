@@ -223,6 +223,20 @@ export default async function handler(req, res) {
       transaction.paidBy = null;
       transaction.paymentMethod = "";
       transaction.paymentReference = "";
+    } else if (action === "mark-received") {
+      // Mark the order as received — items delivered
+      if (transaction.status === "Cancelled" || transaction.status === "Rejected") {
+        return res.status(400).json({ error: "Cannot receive a cancelled order." });
+      }
+      transaction.receivedAt = new Date();
+      transaction.receivedBy = staffSnapshot;
+      // If not yet paid, mark as paid too since goods received
+      if (transaction.status !== "Paid") {
+        transaction.status = "Paid";
+        transaction.paidAt = new Date();
+        transaction.paidBy = staffSnapshot;
+        transaction.paymentMethod = paymentMethod || "cash";
+      }
     } else {
       return res.status(400).json({ error: "Unsupported action." });
     }

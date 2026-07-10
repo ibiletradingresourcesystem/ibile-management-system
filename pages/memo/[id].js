@@ -13,8 +13,9 @@ export default function PaymentMemoPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState("Main Account");
-  const [selectedDirector, setSelectedDirector] = useState("Director");
+  const [selectedAccount, setSelectedAccount] = useState("");
+  const [selectedDirector, setSelectedDirector] = useState("");
+  const [storeAccounts, setStoreAccounts] = useState([]);
   const [form, setForm] = useState({
     accountName: "",
     accountNumber: "",
@@ -27,9 +28,20 @@ export default function PaymentMemoPage() {
 
     async function fetchOrder() {
       try {
-        const { data } = await axios.get(`/api/purchase-orders/${id}`);
-        const o = data.order || data;
+        const [orderRes, setupRes] = await Promise.all([
+          axios.get(`/api/purchase-orders/${id}`),
+          fetch("/api/setup/get").then(r => r.ok ? r.json() : null).catch(() => null),
+        ]);
+        const o = orderRes.data?.order || orderRes.data;
         setOrder(o);
+
+        // Load store settings for director/account info
+        const store = setupRes?.store;
+        if (store?.directorName) setSelectedDirector(store.directorName);
+        if (store?.companyAccountName) {
+          setStoreAccounts([{ name: store.companyAccountName, number: store.companyAccountNumber, bank: store.companyBankName }]);
+          setSelectedAccount(store.companyAccountName);
+        }
 
         // Pre-fill from vendor bank details
         setForm({

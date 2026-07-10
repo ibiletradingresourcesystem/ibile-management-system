@@ -545,7 +545,7 @@ export default function PettyCashTransactionPanel({
                   }}
                   className="w-full bg-green-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-green-700"
                 >
-                  📱 Send via WhatsApp
+                  Send via WhatsApp
                 </button>
               )}
               {sendDialog.phone && (
@@ -556,7 +556,7 @@ export default function PettyCashTransactionPanel({
                   }}
                   className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700"
                 >
-                  💬 Send via SMS
+                  Send via SMS
                 </button>
               )}
               {sendDialog.email && (
@@ -567,7 +567,7 @@ export default function PettyCashTransactionPanel({
                   }}
                   className="w-full bg-purple-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-purple-700"
                 >
-                  📧 Send via Email
+                  Send via Email
                 </button>
               )}
               <button
@@ -700,10 +700,36 @@ export default function PettyCashTransactionPanel({
                     {tx.status === "Ordered" && (
                       <>
                         <button
+                          onClick={() => {
+                            const vendor = vendors.find(v => v._id === (tx.vendor?._id || tx.vendor));
+                            const msg = `Order from ${tx.location}:\n${tx.purpose}\nAmount: ${formatCurrency(tx.amount)}\nDate: ${formatDate(tx.requestDate)}`;
+                            if (vendor?.repPhone) {
+                              window.open(`https://wa.me/${vendor.repPhone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(msg)}`, "_blank");
+                            } else if (vendor?.email) {
+                              window.open(`mailto:${vendor.email}?subject=Order&body=${encodeURIComponent(msg)}`, "_blank");
+                            } else {
+                              navigator.clipboard.writeText(msg).then(() => alert("Order copied to clipboard!"));
+                            }
+                          }}
+                          className="bg-green-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-green-700"
+                        >
+                          Send to Vendor
+                        </button>
+                        <button
                           onClick={() => runAction(tx._id, "mark-paid")}
                           className="bg-emerald-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-emerald-700"
                         >
                           Mark Paid
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Mark "${tx.purpose}" as received? This will add the items to inventory.`)) {
+                              runAction(tx._id, "mark-received");
+                            }
+                          }}
+                          className="bg-blue-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-blue-700"
+                        >
+                          Receive
                         </button>
                         <button
                           onClick={() => startEditing(tx)}

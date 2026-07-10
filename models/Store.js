@@ -60,6 +60,15 @@ const StoreSchema = new mongoose.Schema(
     shippingBaseCost: { type: Number, default: 2000 },
     shippingRatePerKm: { type: Number, default: 100 },
     shippingFallbackCost: { type: Number, default: 2000 },
+
+    // Memo / Transfer Instruction fields
+    directorName: { type: String, default: "" },
+    companyBankName: { type: String, default: "" },
+    companyBankBranch: { type: String, default: "" },
+    companyAccountName: { type: String, default: "" },
+    companyAccountNumber: { type: String, default: "" },
+    companyAddress: { type: String, default: "" },
+    companyRegNumber: { type: String, default: "" },
   },
   { timestamps: true }
 );

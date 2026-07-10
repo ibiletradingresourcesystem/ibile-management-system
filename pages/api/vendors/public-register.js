@@ -43,6 +43,8 @@ export default async function handler(req, res) {
       vendorType: "petty-cash",
       products: sanitizedProducts,
       onboardingComplete: true,
+      termsAccepted: true,
+      termsAcceptedAt: new Date(),
     });
 
     return res.status(201).json({ success: true, vendor: { _id: vendor._id, companyName: vendor.companyName } });

@@ -97,21 +97,28 @@ export default function PettyCashVendorList({
                 </p>
               </div>
               <div className="flex items-center gap-2 ml-3 flex-shrink-0">
-                <button
-                  onClick={() => handleSendOnboardingLink(vendor, "copy")}
-                  disabled={linkLoading === vendor._id}
-                  className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-200 disabled:opacity-50 whitespace-nowrap"
-                >
-                  {linkLoading === vendor._id ? "..." : "📋 Copy Link"}
-                </button>
-                {vendor.repPhone && (
-                  <button
-                    onClick={() => handleSendOnboardingLink(vendor, "whatsapp")}
-                    disabled={linkLoading === vendor._id}
-                    className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50 whitespace-nowrap"
-                  >
-                    📱 WhatsApp
-                  </button>
+                {!vendor.onboardingComplete && (
+                  <>
+                    <button
+                      onClick={() => handleSendOnboardingLink(vendor, "copy")}
+                      disabled={linkLoading === vendor._id}
+                      className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-200 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      {linkLoading === vendor._id ? "..." : "📋 Copy Link"}
+                    </button>
+                    {vendor.repPhone && (
+                      <button
+                        onClick={() => handleSendOnboardingLink(vendor, "whatsapp")}
+                        disabled={linkLoading === vendor._id}
+                        className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        📱 WhatsApp
+                      </button>
+                    )}
+                  </>
+                )}
+                {vendor.onboardingComplete && (
+                  <span className="text-xs text-green-600 font-medium">✓ Registered</span>
                 )}
               </div>
             </div>
