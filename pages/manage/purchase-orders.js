@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState, useCallback, useMemo } from "react";
-import Link from "next/link";
 import Layout from "@/components/Layout";
 import { Loader } from "@/components/ui";
 import { apiClient } from "@/lib/api-client";
@@ -130,7 +129,7 @@ export default function PurchaseOrdersPage() {
     else if (tableFilter === "outstanding") list = outstandingOrders;
     else if (tableFilter === "paid") list = orders.filter((o) => ["paid", "partly paid", "credit"].includes((o.status || "").toLowerCase()));
     if (vendorFilter) list = list.filter((o) => o.vendorName === vendorFilter);
-    if (search) { const s = search.toLowerCase(); list = list.filter((o) => o.vendorName?.toLowerCase().includes(s) || o.orderRef?.toLowerCase().includes(s)); }
+    if (search) { const s = search.toLowerCase(); list = list.filter((o) => o.vendorName?.toLowerCase().includes(s) || o.orderRef?.toLowerCase().includes(s) || (o.products || []).some(p => (p.name || "").toLowerCase().includes(s))); }
     return [...list].sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
   }, [orders, tableFilter, overdueOrders, outstandingOrders, vendorFilter, search]);
 
@@ -335,7 +334,7 @@ export default function PurchaseOrdersPage() {
                 <option value="">All vendors</option>
                 {vendorNames.map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search vendor or ref..." className="form-input text-sm flex-1 min-w-[180px]" />
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search vendor, ref or product..." className="form-input text-sm flex-1 min-w-[180px]" />
             </div>
           </div>
 
@@ -394,9 +393,23 @@ export default function PurchaseOrdersPage() {
                     </td>
                     <td className="py-3 px-3 text-right whitespace-nowrap">{formatCurrency(toNumber(order.grandTotal) - toNumber(order.paymentMade))}</td>
                     <td className="py-3 px-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[order.status] || "bg-gray-100 text-gray-700"}`}>{order.status || "Not Paid"}</span></td>
-                    <td className="py-3 px-3 text-center"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${order.payBeforeSupply ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-500"}`}>{order.payBeforeSupply ? "Pre-Pay" : "Outstanding"}</span></td>
                     <td className="py-3 px-3 text-center">
-                      <Link href={`/memo/${order._id}`} className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full hover:bg-blue-200 font-medium">Memo</Link>
+                      <button
+                        onClick={async () => {
+                          setIsBusy(true);
+                          try {
+                            await apiClient.put(`/api/purchase-orders/${order._id}`, { action: "toggle-type", payBeforeSupply: !order.payBeforeSupply });
+                            fetchOrders();
+                          } catch {} finally { setIsBusy(false); }
+                        }}
+                        disabled={isBusy}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer hover:opacity-80 transition disabled:opacity-50 ${order.payBeforeSupply ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-500"}`}
+                      >
+                        {order.payBeforeSupply ? "Pre-Pay" : "Outstanding"}
+                      </button>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full hover:bg-blue-200 font-medium">Memo</a>
                     </td>
                   </tr>
                 ))}

@@ -97,6 +97,20 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, order });
       }
 
+      // Toggle payBeforeSupply (Pre-Pay / Outstanding)
+      if (action === "toggle-type") {
+        const { payBeforeSupply } = req.body;
+        order.payBeforeSupply = Boolean(payBeforeSupply);
+        order.status = derivePaymentStatus({
+          paymentMade: order.paymentMade,
+          grandTotal: order.grandTotal,
+          payBeforeSupply: order.payBeforeSupply,
+          receivedStatus: order.receivedStatus,
+        });
+        await order.save();
+        return res.status(200).json({ success: true, order });
+      }
+
       // Confirm received → auto-create stock movement
       if (action === "confirm-received") {
         if (order.receivedStatus === "Received") {

@@ -34,6 +34,7 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
   const [loginMode, setLoginMode] = useState("pin");
   const [emailLogin, setEmailLogin] = useState("");
   const [emailPassword, setEmailPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // Admin setup state
   const [showSetup, setShowSetup] = useState(false);
@@ -464,14 +465,24 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
               autoComplete="email"
             />
             <label className="block text-sm font-medium text-gray-700 mb-1">Password / PIN</label>
-            <input
-              type="password"
-              value={emailPassword}
-              onChange={(e) => setEmailPassword(e.target.value)}
-              placeholder="Enter your password"
-              className="form-input mb-5"
-              autoComplete="current-password"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="form-input mb-5 pr-12"
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600 text-xs font-medium select-none"
+                tabIndex={-1}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
             <button
               type="submit"
               disabled={loading}

@@ -40,18 +40,48 @@ export default function PettyCashVendorList({
     );
   }
 
+  const handleCopyBlankFormLink = async () => {
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}/onboarding/vendor/new`;
+    try {
+      await navigator.clipboard.writeText(link);
+      alert("Blank vendor registration form link copied!");
+    } catch {
+      prompt("Copy this link:", link);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {/* Generate New Vendor Onboarding Link */}
-      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-        <p className="text-sm font-semibold text-purple-800 mb-2">📨 Invite New Vendor</p>
-        <p className="text-xs text-purple-600 mb-3">
-          Add a vendor first, then use the onboarding link buttons below to send them a self-registration form.
-        </p>
+      {/* Blank Vendor Onboarding Link */}
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-purple-800">📨 Invite New Vendor</p>
+          <p className="text-xs text-purple-600 mt-1">Send a blank registration form to a new vendor to sign up directly.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleCopyBlankFormLink}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-purple-700"
+          >
+            📋 Copy Blank Form Link
+          </button>
+          <button
+            onClick={() => {
+              const baseUrl = window.location.origin;
+              const link = `${baseUrl}/onboarding/vendor/new`;
+              const msg = `Hi! Please register as a vendor by filling out this form: ${link}`;
+              window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
+            }}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-green-700"
+          >
+            📱 Send via WhatsApp
+          </button>
+        </div>
       </div>
 
-      {/* Vendor List */}
-      <div className="space-y-2">
+      {/* Vendor Grid - 2-3 per row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {vendors.map((vendor) => (
           <div
             key={vendor._id}
