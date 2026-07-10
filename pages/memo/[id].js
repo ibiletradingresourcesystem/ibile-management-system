@@ -15,7 +15,8 @@ export default function PaymentMemoPage() {
   const [downloading, setDownloading] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState("");
   const [selectedDirector, setSelectedDirector] = useState("");
-  const [storeAccounts, setStoreAccounts] = useState([]);
+  const [memoDirectors, setMemoDirectors] = useState([]);
+  const [memoAccounts, setMemoAccounts] = useState([]);
   const [form, setForm] = useState({
     accountName: "",
     accountNumber: "",
@@ -35,13 +36,21 @@ export default function PaymentMemoPage() {
         const o = orderRes.data?.order || orderRes.data;
         setOrder(o);
 
-        // Load store settings for director/account info
+        // Load store settings for directors and accounts
         const store = setupRes?.store;
-        if (store?.directorName) setSelectedDirector(store.directorName);
-        if (store?.companyAccountName) {
-          setStoreAccounts([{ name: store.companyAccountName, number: store.companyAccountNumber, bank: store.companyBankName }]);
-          setSelectedAccount(store.companyAccountName);
+        const directors = store?.memoDirectors || [];
+        const accounts = store?.memoAccounts || [];
+        // Add legacy single-value if present and not in list
+        if (store?.directorName && !directors.includes(store.directorName)) {
+          directors.unshift(store.directorName);
         }
+        if (store?.companyAccountName && !accounts.find(a => a.accountName === store.companyAccountName)) {
+          accounts.unshift({ accountName: store.companyAccountName, accountNumber: store.companyAccountNumber, bankName: store.companyBankName });
+        }
+        setMemoDirectors(directors);
+        setMemoAccounts(accounts);
+        if (directors.length > 0) setSelectedDirector(directors[0]);
+        if (accounts.length > 0) setSelectedAccount(accounts[0].accountName);
 
         // Pre-fill from vendor bank details
         setForm({
@@ -107,15 +116,30 @@ export default function PaymentMemoPage() {
               onChange={(e) => setSelectedAccount(e.target.value)}
               className="border rounded px-3 py-2 text-sm"
             >
-              <option value="Main Account">Main Account</option>
-              <option value="Savings Account">Savings Account</option>
+              {memoAccounts.length > 0 ? (
+                memoAccounts.map((acc, i) => (
+                  <option key={i} value={acc.accountName}>{acc.accountName} ({acc.bankName})</option>
+                ))
+              ) : (
+                <>
+                  <option value="Main Account">Main Account</option>
+                  <option value="Savings Account">Savings Account</option>
+                </>
+              )}
             </select>
-            <input
+            <select
               value={selectedDirector}
               onChange={(e) => setSelectedDirector(e.target.value)}
-              className="border rounded px-3 py-2 text-sm w-40"
-              placeholder="Director name"
-            />
+              className="border rounded px-3 py-2 text-sm"
+            >
+              {memoDirectors.length > 0 ? (
+                memoDirectors.map((name, i) => (
+                  <option key={i} value={name}>{name}</option>
+                ))
+              ) : (
+                <option value="Director">Director</option>
+              )}
+            </select>
             <button
               onClick={() => setEditing(!editing)}
               className={`px-3 py-2 rounded text-sm font-medium ${

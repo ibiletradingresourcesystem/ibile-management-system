@@ -3,6 +3,11 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes slideUp {
+  0% { transform: translate(-50%, 40px); opacity: 0; }
+  100% { transform: translate(-50%, 0); opacity: 1; }
+}
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@400;500;600;700&display=swap');
 
 /* Root Variables */

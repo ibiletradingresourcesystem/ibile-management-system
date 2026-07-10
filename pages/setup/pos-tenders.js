@@ -39,6 +39,8 @@ export default function PosTenders() {
     companyAddress: "",
     companyRegNumber: "",
   });
+  const [memoDirectors, setMemoDirectors] = useState([]);
+  const [memoAccounts, setMemoAccounts] = useState([]);
   const [savingMemo, setSavingMemo] = useState(false);
   const [memoSuccess, setMemoSuccess] = useState("");
 
@@ -117,6 +119,8 @@ export default function PosTenders() {
           companyAddress: data.store.companyAddress || "",
           companyRegNumber: data.store.companyRegNumber || "",
         });
+        setMemoDirectors(data.store.memoDirectors || []);
+        setMemoAccounts(data.store.memoAccounts || []);
       }
     } catch (err) {
       console.error("Error fetching locations:", err);
@@ -238,10 +242,12 @@ export default function PosTenders() {
       const res = await fetch("/api/setup/memo-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
-        body: JSON.stringify(memoForm),
+        body: JSON.stringify({ ...memoForm, memoDirectors, memoAccounts }),
       });
       const data = await res.json();
       if (data.success) {
+        if (data.memoDirectors) setMemoDirectors(data.memoDirectors);
+        if (data.memoAccounts) setMemoAccounts(data.memoAccounts);
         setMemoSuccess("Memo settings saved!");
         setTimeout(() => setMemoSuccess(""), 3000);
       } else {
@@ -252,6 +258,18 @@ export default function PosTenders() {
     } finally {
       setSavingMemo(false);
     }
+  };
+
+  const addDirector = () => {
+    if (!memoForm.directorName.trim()) return;
+    setMemoDirectors(prev => [...prev, memoForm.directorName.trim()]);
+    setMemoForm(f => ({ ...f, directorName: "" }));
+  };
+
+  const addAccount = () => {
+    if (!memoForm.companyAccountName.trim()) return;
+    setMemoAccounts(prev => [...prev, { accountName: memoForm.companyAccountName, accountNumber: memoForm.companyAccountNumber, bankName: memoForm.companyBankName }]);
+    setMemoForm(f => ({ ...f, companyAccountName: "", companyAccountNumber: "", companyBankName: "" }));
   };
 
   if (loading) {
@@ -364,61 +382,113 @@ export default function PosTenders() {
 
           {/* Memo Settings Tab */}
           {activeTab === "memo" && (
-            <div className="content-card max-w-2xl">
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">Memo / Transfer Instruction Settings</h2>
-              <p className="text-gray-600 text-sm mb-6">Configure director and company bank details used in payment transfer memos.</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left: Add Form */}
+              <div className="content-card">
+                <h2 className="text-lg font-semibold text-gray-900 mb-2">Add Memo Details</h2>
+                <p className="text-gray-600 text-sm mb-6">Add directors and company accounts for payment transfer memos.</p>
 
-              {memoSuccess && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4">{memoSuccess}</div>
-              )}
+                {memoSuccess && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-4">{memoSuccess}</div>
+                )}
 
+                <div className="space-y-4">
+                  {/* Director Input */}
+                  <div>
+                    <label className="form-label">Director Name</label>
+                    <div className="flex gap-2">
+                      <input value={memoForm.directorName} onChange={(e) => setMemoForm(f => ({ ...f, directorName: e.target.value }))} className="form-input flex-1" placeholder="e.g. Catherine Farrer" />
+                      <button type="button" onClick={addDirector} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700">Add</button>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <p className="text-sm font-semibold text-gray-700 mb-3">Company Account</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="form-label">Bank Name</label>
+                        <input value={memoForm.companyBankName} onChange={(e) => setMemoForm(f => ({ ...f, companyBankName: e.target.value }))} className="form-input" placeholder="e.g. Access Bank" />
+                      </div>
+                      <div>
+                        <label className="form-label">Account Name</label>
+                        <input value={memoForm.companyAccountName} onChange={(e) => setMemoForm(f => ({ ...f, companyAccountName: e.target.value }))} className="form-input" />
+                      </div>
+                      <div>
+                        <label className="form-label">Account Number</label>
+                        <input value={memoForm.companyAccountNumber} onChange={(e) => setMemoForm(f => ({ ...f, companyAccountNumber: e.target.value }))} className="form-input" />
+                      </div>
+                    </div>
+                    <button type="button" onClick={addAccount} className="mt-3 bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700">Add Account</button>
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <p className="text-sm font-semibold text-gray-700 mb-3">Company Info (memo footer)</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="form-label">Company Address</label>
+                        <input value={memoForm.companyAddress} onChange={(e) => setMemoForm(f => ({ ...f, companyAddress: e.target.value }))} className="form-input" />
+                      </div>
+                      <div>
+                        <label className="form-label">Registration Number</label>
+                        <input value={memoForm.companyRegNumber} onChange={(e) => setMemoForm(f => ({ ...f, companyRegNumber: e.target.value }))} className="form-input" placeholder="e.g. RC 123456" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <button onClick={handleSaveMemo} disabled={savingMemo} className="btn-action-primary px-8">
+                      {savingMemo ? "Saving..." : "Save All Settings"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Saved Directors & Accounts */}
               <div className="space-y-4">
-                <div>
-                  <label className="form-label">Director Name</label>
-                  <input value={memoForm.directorName} onChange={(e) => setMemoForm(f => ({ ...f, directorName: e.target.value }))} className="form-input" placeholder="e.g. Catherine Ashenuga Farrer" />
+                {/* Saved Directors */}
+                <div className="content-card">
+                  <h3 className="text-base font-semibold text-gray-900 mb-3">Saved Directors ({memoDirectors.length})</h3>
+                  {memoDirectors.length === 0 ? (
+                    <p className="text-sm text-gray-400 italic">No directors added yet</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {memoDirectors.map((name, i) => (
+                        <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2.5 border">
+                          <span className="text-sm font-medium text-gray-800">{name}</span>
+                          <button onClick={() => { setMemoDirectors(prev => prev.filter((_, j) => j !== i)); }} className="text-red-500 hover:text-red-700 text-xs font-medium">Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                <div className="border-t pt-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Company Bank Details</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="form-label">Bank Name</label>
-                      <input value={memoForm.companyBankName} onChange={(e) => setMemoForm(f => ({ ...f, companyBankName: e.target.value }))} className="form-input" placeholder="e.g. Access Bank" />
+                {/* Saved Accounts */}
+                <div className="content-card">
+                  <h3 className="text-base font-semibold text-gray-900 mb-3">Saved Accounts ({memoAccounts.length})</h3>
+                  {memoAccounts.length === 0 ? (
+                    <p className="text-sm text-gray-400 italic">No accounts added yet</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {memoAccounts.map((acc, i) => (
+                        <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2.5 border">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{acc.accountName}</p>
+                            <p className="text-xs text-gray-500">{acc.bankName} — {acc.accountNumber}</p>
+                          </div>
+                          <button onClick={() => { setMemoAccounts(prev => prev.filter((_, j) => j !== i)); }} className="text-red-500 hover:text-red-700 text-xs font-medium">Remove</button>
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <label className="form-label">Branch</label>
-                      <input value={memoForm.companyBankBranch} onChange={(e) => setMemoForm(f => ({ ...f, companyBankBranch: e.target.value }))} className="form-input" placeholder="e.g. Victoria Island" />
-                    </div>
-                    <div>
-                      <label className="form-label">Account Name</label>
-                      <input value={memoForm.companyAccountName} onChange={(e) => setMemoForm(f => ({ ...f, companyAccountName: e.target.value }))} className="form-input" />
-                    </div>
-                    <div>
-                      <label className="form-label">Account Number</label>
-                      <input value={memoForm.companyAccountNumber} onChange={(e) => setMemoForm(f => ({ ...f, companyAccountNumber: e.target.value }))} className="form-input" />
-                    </div>
+                  )}
+                </div>
+
+                {memoForm.companyAddress && (
+                  <div className="content-card">
+                    <h3 className="text-base font-semibold text-gray-900 mb-2">Company Details</h3>
+                    <p className="text-sm text-gray-600">{memoForm.companyAddress}</p>
+                    {memoForm.companyRegNumber && <p className="text-xs text-gray-500 mt-1">Reg: {memoForm.companyRegNumber}</p>}
                   </div>
-                </div>
-
-                <div className="border-t pt-4">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Company Info (for memo footer)</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="sm:col-span-2">
-                      <label className="form-label">Company Address</label>
-                      <input value={memoForm.companyAddress} onChange={(e) => setMemoForm(f => ({ ...f, companyAddress: e.target.value }))} className="form-input" />
-                    </div>
-                    <div>
-                      <label className="form-label">Registration Number</label>
-                      <input value={memoForm.companyRegNumber} onChange={(e) => setMemoForm(f => ({ ...f, companyRegNumber: e.target.value }))} className="form-input" placeholder="e.g. RC 123456" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button onClick={handleSaveMemo} disabled={savingMemo} className="btn-action-primary px-8">
-                    {savingMemo ? "Saving..." : "Save Memo Settings"}
-                  </button>
-                </div>
+                )}
               </div>
             </div>
           )}

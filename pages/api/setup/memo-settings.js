@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   await mongooseConnect();
 
   try {
-    const { directorName, companyBankName, companyBankBranch, companyAccountName, companyAccountNumber, companyAddress, companyRegNumber } = req.body;
+    const { directorName, companyBankName, companyBankBranch, companyAccountName, companyAccountNumber, companyAddress, companyRegNumber, memoDirectors, memoAccounts } = req.body;
 
     const store = await Store.findOne({});
     if (!store) {
@@ -30,10 +30,17 @@ export default async function handler(req, res) {
     if (companyAccountNumber !== undefined) store.companyAccountNumber = companyAccountNumber;
     if (companyAddress !== undefined) store.companyAddress = companyAddress;
     if (companyRegNumber !== undefined) store.companyRegNumber = companyRegNumber;
+    if (Array.isArray(memoDirectors)) store.memoDirectors = memoDirectors.filter(Boolean);
+    if (Array.isArray(memoAccounts)) store.memoAccounts = memoAccounts.filter(a => a?.accountName);
 
     await store.save();
 
-    return res.status(200).json({ success: true, message: "Memo settings saved" });
+    return res.status(200).json({
+      success: true,
+      message: "Memo settings saved",
+      memoDirectors: store.memoDirectors || [],
+      memoAccounts: store.memoAccounts || [],
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

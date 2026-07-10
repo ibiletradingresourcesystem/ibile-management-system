@@ -69,6 +69,13 @@ const StoreSchema = new mongoose.Schema(
     companyAccountNumber: { type: String, default: "" },
     companyAddress: { type: String, default: "" },
     companyRegNumber: { type: String, default: "" },
+    // Multiple directors and accounts for memo dropdowns
+    memoDirectors: [{ type: String }],
+    memoAccounts: [{
+      accountName: { type: String },
+      accountNumber: { type: String },
+      bankName: { type: String },
+    }],
   },
   { timestamps: true }
 );

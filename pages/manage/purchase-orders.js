@@ -28,6 +28,16 @@ export default function PurchaseOrdersPage() {
   const [search, setSearch] = useState("");
   const [selectedOrders, setSelectedOrders] = useState(new Set());
 
+  // Stable toggle handler — avoids glitch from inline Set creation
+  const toggleCheck = (id) => {
+    setSelectedOrders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   // Quick Entry
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [quickForm, setQuickForm] = useState({
@@ -139,9 +149,11 @@ export default function PurchaseOrdersPage() {
 
   // Quick check total for selected
   const selectedTotal = useMemo(() => {
+    if (selectedOrders.size === 0) return 0;
     return orders.filter((o) => selectedOrders.has(o._id)).reduce((s, o) => s + toNumber(o.grandTotal), 0);
   }, [orders, selectedOrders]);
   const selectedPaidTotal = useMemo(() => {
+    if (selectedOrders.size === 0) return 0;
     return orders.filter((o) => selectedOrders.has(o._id)).reduce((s, o) => s + toNumber(o.paymentMade), 0);
   }, [orders, selectedOrders]);
   const selectedBalance = selectedTotal - selectedPaidTotal;
@@ -335,8 +347,8 @@ export default function PurchaseOrdersPage() {
               <thead>
                 <tr className="border-b border-gray-200 text-gray-600 text-xs uppercase">
                   <th className="py-3 px-2 w-8">
-                    <input type="checkbox" checked={selectedOrders.size === paginatedOrders.length && paginatedOrders.length > 0}
-                      onChange={(e) => { if (e.target.checked) setSelectedOrders(new Set(paginatedOrders.map(o => o._id))); else setSelectedOrders(new Set()); }} />
+                    <input type="checkbox" checked={paginatedOrders.length > 0 && paginatedOrders.every(o => selectedOrders.has(o._id))}
+                      onChange={(e) => { setSelectedOrders((prev) => { const next = new Set(prev); paginatedOrders.forEach(o => { if (e.target.checked) next.add(o._id); else next.delete(o._id); }); return next; }); }} />
                   </th>
                   <th className="py-3 px-3 text-left">Date</th>
                   <th className="py-3 px-3 text-left">Vendor</th>
@@ -356,7 +368,7 @@ export default function PurchaseOrdersPage() {
                   <tr key={order._id ?? idx} className="hover:bg-gray-50 transition">
                     <td className="py-3 px-2">
                       <input type="checkbox" checked={selectedOrders.has(order._id)}
-                        onChange={(e) => { const n = new Set(selectedOrders); if (e.target.checked) n.add(order._id); else n.delete(order._id); setSelectedOrders(n); }} />
+                        onChange={() => toggleCheck(order._id)} />
                     </td>
                     <td className="py-3 px-3 text-gray-700 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"}</td>
                     <td className="py-3 px-3 font-medium text-gray-800">{order.vendorName || "—"}</td>
@@ -417,19 +429,18 @@ export default function PurchaseOrdersPage() {
               </div>
             )}
 
-            {/* Floating Selected Summary Pill */}
+            {/* Floating Selected Summary Pill — fixed at bottom of screen */}
             {selectedOrders.size > 0 && (
-              <div className="flex justify-center mt-4">
-                <div className="inline-flex items-center gap-4 bg-white border-2 border-blue-200 rounded-full px-5 py-2.5 shadow-lg">
-                  <span className="text-sm font-bold text-blue-700">{selectedOrders.size} selected</span>
-                  <span className="text-xs text-gray-500">TOTAL</span>
-                  <span className="text-sm font-bold text-blue-700">{formatCurrency(selectedTotal)}</span>
-                  <span className="text-xs text-gray-500">PAID</span>
-                  <span className="text-sm font-bold text-green-600">{formatCurrency(selectedPaidTotal)}</span>
-                  <span className="text-xs text-gray-500">BALANCE</span>
-                  <span className="text-sm font-bold text-red-600">{formatCurrency(selectedBalance)}</span>
-                  <button onClick={() => setSelectedOrders(new Set())} className="text-xs text-gray-400 hover:text-red-600 ml-1 border border-gray-200 rounded-full px-2 py-0.5">Clear</button>
+              <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 bg-white border border-blue-200 rounded-2xl shadow-2xl px-4 sm:px-5 py-3 flex flex-wrap items-center gap-3 sm:gap-5 w-[calc(100vw-1rem)] sm:w-auto max-w-[95vw]" style={{ animation: 'slideUp 0.3s ease-out' }}>
+                <div className="text-sm font-medium text-gray-600">
+                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{selectedOrders.size}</span>{" "}selected
                 </div>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <div className="text-center"><div className="text-xs text-gray-400 uppercase">Total</div><div className="font-bold text-blue-700">{formatCurrency(selectedTotal)}</div></div>
+                  <div className="text-center"><div className="text-xs text-gray-400 uppercase">Paid</div><div className="font-bold text-green-600">{formatCurrency(selectedPaidTotal)}</div></div>
+                  <div className="text-center"><div className="text-xs text-gray-400 uppercase">Balance</div><div className="font-bold text-red-600">{formatCurrency(selectedBalance)}</div></div>
+                </div>
+                <button onClick={() => setSelectedOrders(new Set())} className="text-xs bg-gray-100 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full px-3 py-1 border border-gray-200 transition">Clear</button>
               </div>
             )}
           </div>
