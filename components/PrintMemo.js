@@ -9,9 +9,10 @@ const PrintMemo = forwardRef(
     ref
   ) => {
     const memoRef = useRef();
-    const companyName = order?.supplier || "Unknown";
+    const companyName = order?.vendorName || order?.supplier || "Unknown";
     const today = new Date().toISOString().split("T")[0];
-    const activeDirector = selectedDirector || "Catherine Ashenuga Farrer";
+    const activeDirector = selectedDirector || "Director";
+    const accountLabel = selectedAccount || "Main Account";
 
     useImperativeHandle(ref, () => ({
       generatePDF: async () => {
@@ -32,7 +33,7 @@ const PrintMemo = forwardRef(
 
         pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
         pdf.save(
-          `Transfer Instruction ${today} (From 9143 to ${companyName}).pdf`
+          `Transfer Instruction ${today} (From ${accountLabel} to ${companyName}).pdf`
         );
         onDownloading(false);
       },
