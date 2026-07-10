@@ -140,7 +140,7 @@ export default function ExpenseAnalysisPage() {
   const expensesByCategory = useMemo(() => {
     const map = {};
     filteredExpenses.forEach(e => {
-      const cat = e.categoryName || "Uncategorized";
+      const cat = e.categoryName || "General";
       map[cat] = (map[cat] || 0) + Number(e.amount || 0);
     });
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);

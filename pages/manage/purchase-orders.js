@@ -32,7 +32,7 @@ export default function PurchaseOrdersPage() {
   // Quick Entry
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [quickForm, setQuickForm] = useState({
-    vendor: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "",
+    vendor: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "stock-purchase",
   });
   const [savingQuick, setSavingQuick] = useState(false);
 
@@ -67,7 +67,8 @@ export default function PurchaseOrdersPage() {
   async function fetchVendors() {
     try {
       const res = await apiClient.get("/api/vendors?active=true");
-      setVendors(Array.isArray(res.data?.vendors || res.data) ? res.data.vendors || res.data : []);
+      const data = res.data?.vendors || res.data;
+      setVendors(Array.isArray(data) ? data : []);
     } catch {}
   }
 
@@ -151,12 +152,13 @@ export default function PurchaseOrdersPage() {
       const vendor = vendors.find((v) => v._id === quickForm.vendor);
       await apiClient.post("/api/purchase-orders", {
         vendor: quickForm.vendor, vendorName: vendor?.companyName || "", contact: vendor?.repPhone || "",
-        reason: "Quick Entry", notes: quickForm.notes, payBeforeSupply: true, date: quickForm.paymentDate,
-        products: quickForm.products ? quickForm.products.split(",").map((p) => ({ name: p.trim(), quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) })) : [{ name: "Payment Entry", quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) }],
+        reason: quickForm.purpose || "Quick Entry", notes: quickForm.notes, payBeforeSupply: true, date: quickForm.paymentDate,
+        purpose: quickForm.purpose,
+        products: quickForm.products ? quickForm.products.split(",").map((p) => ({ name: p.trim(), quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) })) : [{ name: quickForm.purpose === "stock-purchase" ? "Stock Purchase" : "Payment Entry", quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) }],
         grandTotal: Number(quickForm.amount), paymentMade: Number(quickForm.amount), paymentDate: quickForm.paymentDate,
       });
       setShowQuickEntry(false);
-      setQuickForm({ vendor: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "" });
+      setQuickForm({ vendor: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "stock-purchase" });
       fetchOrders();
     } catch (err) {
       await showAlertDialog({ title: "Quick entry failed", message: err.response?.data?.error || "Failed", tone: "danger" });
@@ -233,12 +235,15 @@ export default function PurchaseOrdersPage() {
                 </div>
               )}
 
-              {creditOrders.length > 0 && (
-                <div className="content-card border-l-4 border-blue-500">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="font-semibold text-blue-700">💳 {creditOrders.length} Credit Order{creditOrders.length > 1 ? "s" : ""}</p>
-                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">{formatCurrency(totalCreditValue)}</span>
-                  </div>
+              {/* Credit Section - Always show */}
+              <div className="content-card border-l-4 border-blue-500">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="font-semibold text-blue-700">💳 Credit Orders</p>
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">
+                    {creditOrders.length > 0 ? formatCurrency(totalCreditValue) : "₦0.00"}
+                  </span>
+                </div>
+                {creditOrders.length > 0 ? (
                   <div className="space-y-2">
                     {creditOrders.map((o, i) => (
                       <div key={o._id ?? i} className="flex flex-wrap items-center justify-between text-xs bg-gray-50 px-3 py-2 rounded-lg border">
@@ -251,15 +256,20 @@ export default function PurchaseOrdersPage() {
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-gray-500">No credit orders yet</p>
+                    <button onClick={() => setShowQuickEntry(true)} className="text-xs text-blue-600 hover:underline mt-2">+ Add Entry</button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Right: Stats */}
             <div className="w-full lg:w-1/2 flex flex-col gap-4">
               <div className="bg-emerald-600 text-white p-5 rounded-2xl shadow-lg text-center relative">
                 <select value={paidFilter} onChange={(e) => { setPaidFilter(e.target.value); setTableFilter("paid"); }}
-                  className="absolute top-2 right-2 text-[10px] bg-white/20 text-white border-0 rounded-full px-2 py-0.5 appearance-none cursor-pointer">
+                  className="absolute top-3 right-3 text-xs bg-white/20 text-white border border-white/30 rounded-lg px-3 py-1.5 appearance-none cursor-pointer backdrop-blur-sm">
                   <option value="tillDate" className="text-gray-900">Till Date</option>
                   <option value="thisWeek" className="text-gray-900">This Week</option>
                   <option value="lastWeek" className="text-gray-900">Last Week</option>
@@ -396,6 +406,17 @@ export default function PurchaseOrdersPage() {
               <div><label className="form-label">Vendor *</label>
                 <select value={quickForm.vendor} onChange={(e) => { const v = vendors.find(v => v._id === e.target.value); setQuickForm({ ...quickForm, vendor: e.target.value, products: v?.mainProduct || "" }); }} className="form-select" required>
                   <option value="">Select vendor</option>{vendors.map(v => <option key={v._id} value={v._id}>{v.companyName}</option>)}
+                </select></div>
+              <div><label className="form-label">Purpose *</label>
+                <select value={quickForm.purpose} onChange={(e) => setQuickForm({ ...quickForm, purpose: e.target.value })} className="form-select" required>
+                  <option value="stock-purchase">Stock Purchase</option>
+                  <option value="maintenance">Maintenance</option>
+                  <option value="services">Services</option>
+                  <option value="season-greetings">Season Greetings / Packages</option>
+                  <option value="dues">Dues / Levies</option>
+                  <option value="utilities">Utilities</option>
+                  <option value="logistics">Logistics / Delivery</option>
+                  <option value="other-expense">Other Expense</option>
                 </select></div>
               <div><label className="form-label">Amount *</label><input type="number" value={quickForm.amount} onChange={(e) => setQuickForm({ ...quickForm, amount: e.target.value })} className="form-input" required /></div>
               <div><label className="form-label">Payment Date</label><input type="date" value={quickForm.paymentDate} onChange={(e) => setQuickForm({ ...quickForm, paymentDate: e.target.value })} className="form-input" /></div>

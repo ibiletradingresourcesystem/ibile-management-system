@@ -15,10 +15,15 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const { active, vendorType } = req.query;
+      const { active, vendorType, includePettyCash } = req.query;
       const filter = {};
       if (active === "true") filter.isActive = true;
-      if (vendorType) filter.vendorType = vendorType;
+      if (vendorType) {
+        filter.vendorType = vendorType;
+      } else if (includePettyCash !== "true") {
+        // By default, exclude petty-cash vendors from main vendor list
+        filter.vendorType = { $ne: "petty-cash" };
+      }
       const vendors = await Vendor.find(filter).populate("products.product", "name costPrice salePriceIncTax packType qtyPerPack barcode").sort({ companyName: 1 }).lean();
       return res.status(200).json({ success: true, vendors });
     } catch (err) {
@@ -28,7 +33,7 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     try {
-      const { companyName, vendorRep, repPhone, email, address, mainProduct, bankName, accountName, accountNumber, products, vendorType, businessCategory } = req.body;
+      const { companyName, vendorRep, repPhone, email, address, mainProduct, bankName, accountName, accountNumber, products, vendorType, businessCategory, paymentTermDays } = req.body;
 
       if (!companyName) {
         return res.status(400).json({ error: "Company name is required" });
@@ -52,6 +57,7 @@ export default async function handler(req, res) {
         accountName: sanitizePlainText(accountName),
         accountNumber: sanitizePlainText(accountNumber),
         vendorType: vendorType || "stock",
+        paymentTermDays: Number(paymentTermDays) || 14,
         products: sanitizedProducts,
       });
 

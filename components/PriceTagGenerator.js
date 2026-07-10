@@ -32,11 +32,11 @@ const TAG_SIZES = {
   wide: { width: "90mm", height: "42mm", label: "Wide (90×42mm)" },
 };
 
-// Print column layouts for A4 paper
+// Print column layouts for A4 paper (A4 = 210mm x 297mm, margins ~15mm each side = 180mm x 267mm usable)
 const PRINT_LAYOUTS = {
-  2: { cols: 2, label: "2 columns (Large tags)", tagWidth: 95 },
-  3: { cols: 3, label: "3 columns (Standard)", tagWidth: 63 },
-  4: { cols: 4, label: "4 columns (Compact)", tagWidth: 47 },
+  2: { cols: 2, label: "2 columns (Large)", rows: 5, tagWidth: "85mm", tagHeight: "50mm" },
+  3: { cols: 3, label: "3 columns", rows: 6, tagWidth: "56mm", tagHeight: "42mm" },
+  4: { cols: 4, label: "4 columns (Compact)", rows: 7, tagWidth: "42mm", tagHeight: "35mm" },
 };
 
 export default function PriceTagGenerator({ products: productsProp = [] }) {
@@ -526,8 +526,8 @@ function PriceTag({ tag, currency, brandName, size, tagIdx }) {
 
 // Print Preview Modal
 function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange, onClose, onPrint }) {
-  const rows = Math.ceil(tags.length / columns);
-  const tagsPerPage = columns * 3; // 3 rows per A4 page for standard layout
+  const layout = PRINT_LAYOUTS[columns];
+  const tagsPerPage = layout.cols * layout.rows;
   const pages = Math.ceil(tags.length / tagsPerPage);
 
   return (
@@ -548,7 +548,7 @@ function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange
         <div className="flex-1 overflow-auto p-6 bg-gray-50">
           {/* Column Selector */}
           <div className="mb-6 bg-white p-4 rounded-lg border border-gray-200">
-            <p className="text-sm font-semibold text-gray-700 mb-3">Columns per A4 page:</p>
+            <p className="text-sm font-semibold text-gray-700 mb-3">Tags per row on A4 paper:</p>
             <div className="flex gap-2">
               {[2, 3, 4].map((col) => (
                 <button
@@ -565,53 +565,63 @@ function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange
               ))}
             </div>
             <p className="text-xs text-gray-600 mt-3">
-              📄 Total: <strong>{tags.length} tags</strong> across <strong>{pages} A4 page{pages > 1 ? "s" : ""}</strong>
-              ({tagsPerPage} tags per page)
+              📄 <strong>{tags.length} tags</strong> → <strong>{tagsPerPage} per A4 page</strong> ({layout.cols} cols × {layout.rows} rows) → <strong>{pages} page{pages > 1 ? "s" : ""}</strong>
             </p>
           </div>
 
           {/* Page Preview */}
-          <div className="grid gap-6">
-            {Array.from({ length: pages }).map((_, pageNum) => {
+          <div className="space-y-6">
+            {Array.from({ length: Math.min(pages, 3) }).map((_, pageNum) => {
               const start = pageNum * tagsPerPage;
               const end = Math.min(start + tagsPerPage, tags.length);
               const pageTags = tags.slice(start, end);
               
               return (
-                <div
-                  key={pageNum}
-                  className="bg-white p-6 rounded-lg border-2 border-gray-300 shadow-sm"
-                  style={{
-                    width: "210mm",
-                    height: "297mm",
-                    margin: "0 auto",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
+                <div key={pageNum} className="relative">
+                  <p className="text-xs text-gray-500 mb-2 font-medium">Page {pageNum + 1} of {pages}</p>
                   <div
+                    className="bg-white rounded-lg border-2 border-gray-300 shadow-sm overflow-hidden"
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: `repeat(${columns}, 1fr)`,
-                      gap: "10px",
-                      width: "100%",
+                      aspectRatio: "210 / 297",
+                      maxHeight: "500px",
+                      padding: "12px",
                     }}
                   >
-                    {pageTags.map((tag, i) => (
-                      <PriceTag
-                        key={`${pageNum}-${i}`}
-                        tag={tag}
-                        currency={currency}
-                        brandName={brandName}
-                        size={TAG_SIZES.standard}
-                        tagIdx={tag.idx}
-                      />
-                    ))}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: `repeat(${layout.cols}, 1fr)`,
+                        gap: "4px",
+                        width: "100%",
+                        height: "100%",
+                        alignContent: "start",
+                      }}
+                    >
+                      {pageTags.map((tag, i) => {
+                        const barcodeValue = buildBarcodeValue(tag, tag.idx);
+                        return (
+                          <div
+                            key={`preview-${pageNum}-${i}`}
+                            className="border border-gray-200 rounded bg-white p-1 flex flex-col justify-between"
+                            style={{ minHeight: 0 }}
+                          >
+                            <div>
+                              <span className="text-[6px] font-bold text-blue-700 uppercase">{brandName}</span>
+                              <p className="text-[7px] text-gray-700 truncate leading-tight">{tag.name}</p>
+                            </div>
+                            <p className="text-[9px] font-bold text-gray-900 text-center">{formatPrice(tag.price, currency)}</p>
+                            <p className="text-[5px] text-gray-400 text-center font-mono">{barcodeValue}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               );
             })}
+            {pages > 3 && (
+              <p className="text-sm text-center text-gray-500">... and {pages - 3} more page{pages - 3 > 1 ? "s" : ""}</p>
+            )}
           </div>
         </div>
 
@@ -637,7 +647,8 @@ function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange
 
 // Hidden Print Area - Optimized for A4 paper
 function PrintArea({ tags, currency, brandName, columns }) {
-  const tagsPerPage = columns * 3; // 3 rows per page
+  const layout = PRINT_LAYOUTS[columns];
+  const tagsPerPage = layout.cols * layout.rows;
   const pages = Math.ceil(tags.length / tagsPerPage);
 
   return (
@@ -652,20 +663,21 @@ function PrintArea({ tags, currency, brandName, columns }) {
             key={pageNum}
             style={{
               display: "grid",
-              gridTemplateColumns: `repeat(${columns}, 1fr)`,
-              gap: "0",
+              gridTemplateColumns: `repeat(${layout.cols}, 1fr)`,
+              gap: "4px",
               pageBreakAfter: pageNum < pages - 1 ? "always" : "avoid",
-              padding: "15mm",
+              padding: "10mm 12mm",
               minHeight: "297mm",
+              alignContent: "start",
             }}
           >
             {pageTags.map((tag, i) => (
               <PriceTag
-                key={`${pageNum}-${i}`}
+                key={`print-${pageNum}-${i}`}
                 tag={tag}
                 currency={currency}
                 brandName={brandName}
-                size={TAG_SIZES.standard}
+                size={{ width: layout.tagWidth, height: layout.tagHeight }}
                 tagIdx={tag.idx}
               />
             ))}

@@ -214,7 +214,9 @@ export default function ExpensesPage() {
               {cashSaving ? "Saving..." : "Save"}
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-2">Cash received from POS or manual entry for today&apos;s operations.</p>
+          <p className="text-xs text-gray-400 mt-2">
+            💡 Cash is also added automatically from POS End-of-Day close and Close-of-Work reports. Manual entry is for additional cash or corrections.
+          </p>
         </div>
 
         {/* Main Grid: Form + Recent Expenses + Daily Cash */}
@@ -245,7 +247,7 @@ export default function ExpensesPage() {
             ) : visibleExpenses.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No expenses found.</p>
             ) : (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto">
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pb-4">
                 {visibleExpenses.map(exp => (
                   <div key={exp._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingExpense === exp._id ? (
@@ -298,7 +300,7 @@ export default function ExpensesPage() {
             ) : visibleCash.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No cash entries found.</p>
             ) : (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto">
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pb-4">
                 {visibleCash.map(entry => (
                   <div key={entry._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingCash === entry._id ? (

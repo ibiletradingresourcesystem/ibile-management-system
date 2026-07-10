@@ -41,8 +41,12 @@ const VendorSchema = new Schema(
     },
     vendorType: {
       type: String,
-      enum: ["stock", "petty-cash"],
+      enum: ["stock", "wholesale", "petty-cash"],
       default: "stock",
+    },
+    paymentTermDays: {
+      type: Number,
+      default: 14,
     },
     businessCategory: {
       type: String,
