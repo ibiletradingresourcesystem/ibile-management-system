@@ -11,6 +11,7 @@ export default function PettyCashPage() {
   const [editingVendor, setEditingVendor] = useState(null);
   const [loading, setLoading] = useState(false);
   const [userLocation, setUserLocation] = useState("");
+  const [orderVendor, setOrderVendor] = useState(null); // vendor to pre-fill order form
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -120,6 +121,8 @@ export default function PettyCashPage() {
               vendors={vendors}
               currentLocation={userLocation}
               onTransactionChange={loadVendors}
+              prefillVendor={orderVendor}
+              onPrefillConsumed={() => setOrderVendor(null)}
             />
           )}
 
@@ -136,6 +139,7 @@ export default function PettyCashPage() {
                   }}
                   onDelete={handleDeleteVendor}
                   onPlaceOrder={(v) => {
+                    setOrderVendor(v);
                     setTab("transactions");
                   }}
                 />

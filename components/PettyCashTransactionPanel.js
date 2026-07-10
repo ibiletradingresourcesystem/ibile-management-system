@@ -62,6 +62,8 @@ export default function PettyCashTransactionPanel({
   vendors = [],
   currentLocation = "",
   onTransactionChange,
+  prefillVendor = null,
+  onPrefillConsumed,
 }) {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -73,16 +75,16 @@ export default function PettyCashTransactionPanel({
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     vendor: "",
-    purpose: "",
+    items: [], // [{productName, quantity, unitPrice, amount}]
     description: "",
-    quantity: 1,
-    unitPrice: 0,
-    amount: 0,
     location: currentLocation || "",
     requestDate: new Date().toISOString().split("T")[0],
     neededBy: "",
   });
   const [submitting, setSubmitting] = useState(false);
+
+  // Send to vendor dialog
+  const [sendDialog, setSendDialog] = useState(null); // { vendorName, phone, email, orderSummary }
 
   // Sync location when it becomes available
   useEffect(() => {
@@ -90,6 +92,28 @@ export default function PettyCashTransactionPanel({
       setFormData((prev) => prev.location ? prev : { ...prev, location: currentLocation });
     }
   }, [currentLocation]);
+
+  // Auto-open form when prefillVendor is set
+  useEffect(() => {
+    if (prefillVendor) {
+      const vendorProducts = (prefillVendor.products || []).map(p => ({
+        productName: p.productName || p.name || "",
+        quantity: 1,
+        unitPrice: Number(p.price) || 0,
+        amount: Number(p.price) || 0,
+      }));
+      setFormData({
+        vendor: prefillVendor._id,
+        items: vendorProducts.length > 0 ? vendorProducts : [{ productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
+        description: "",
+        location: currentLocation || "",
+        requestDate: new Date().toISOString().split("T")[0],
+        neededBy: "",
+      });
+      setShowForm(true);
+      onPrefillConsumed?.();
+    }
+  }, [prefillVendor]);
 
   // Edit state
   const [editingId, setEditingId] = useState(null);
@@ -118,36 +142,83 @@ export default function PettyCashTransactionPanel({
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleItemChange = (index, field, value) => {
     setFormData((prev) => {
-      const updated = { ...prev, [name]: value };
-      if (name === "quantity" || name === "unitPrice") {
-        const qty = Number(name === "quantity" ? value : prev.quantity) || 0;
-        const price = Number(name === "unitPrice" ? value : prev.unitPrice) || 0;
-        updated.amount = qty * price;
+      const items = [...prev.items];
+      items[index] = { ...items[index], [field]: field === "productName" ? value : Number(value) || 0 };
+      if (field === "quantity" || field === "unitPrice") {
+        const qty = field === "quantity" ? (Number(value) || 0) : items[index].quantity;
+        const price = field === "unitPrice" ? (Number(value) || 0) : items[index].unitPrice;
+        items[index].amount = qty * price;
       }
-      return updated;
+      return { ...prev, items };
     });
   };
 
+  const addItem = () => {
+    setFormData((prev) => ({
+      ...prev,
+      items: [...prev.items, { productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
+    }));
+  };
+
+  const removeItem = (index) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
+  };
+
+  const orderTotal = formData.items.reduce((s, item) => s + (item.amount || 0), 0);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const validItems = formData.items.filter(it => it.productName?.trim() && it.amount > 0);
+    if (!validItems.length) return alert("Add at least one item with a name and price");
     setSubmitting(true);
     try {
-      await apiClient.post("/api/petty-cash-transactions", formData);
+      // Submit each item as a separate transaction (or as one combined)
+      const purpose = validItems.map(it => `${it.productName} x${it.quantity}`).join(", ");
+      await apiClient.post("/api/petty-cash-transactions", {
+        vendor: formData.vendor,
+        purpose,
+        description: formData.description,
+        quantity: 1,
+        unitPrice: orderTotal,
+        amount: orderTotal,
+        location: formData.location,
+        requestDate: formData.requestDate,
+        neededBy: formData.neededBy || undefined,
+      });
+
+      // Get vendor info for send dialog
+      const vendor = vendors.find(v => v._id === formData.vendor);
+      const orderSummary = validItems.map(it => `${it.productName} × ${it.quantity} = ₦${it.amount.toLocaleString()}`).join("\n");
+
       setShowForm(false);
       setFormData({
         vendor: "",
-        purpose: "",
+        items: [{ productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
         description: "",
-        quantity: 1,
-        unitPrice: 0,
-        amount: 0,
         location: currentLocation,
         requestDate: new Date().toISOString().split("T")[0],
         neededBy: "",
       });
       loadTransactions();
       onTransactionChange?.();
+
+      // Show send dialog
+      if (vendor) {
+        setSendDialog({
+          vendorName: vendor.companyName,
+          phone: vendor.repPhone || "",
+          email: vendor.email || "",
+          orderSummary: `Order for ${vendor.companyName}:\n${orderSummary}\n\nTotal: ₦${orderTotal.toLocaleString()}\nDate: ${formData.requestDate}`,
+        });
+      }
     } catch (err) {
       alert(err.response?.data?.error || "Failed to create order");
     } finally {
@@ -278,7 +349,15 @@ export default function PettyCashTransactionPanel({
           <option value="Cancelled">Cancelled</option>
         </select>
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            setFormData(prev => ({
+              ...prev,
+              vendor: "",
+              items: [{ productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
+              description: "",
+            }));
+            setShowForm(true);
+          }}
           className="ml-auto bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-blue-700"
         >
           + New Order
@@ -317,141 +396,188 @@ export default function PettyCashTransactionPanel({
         </button>
       </div>
 
-      {/* Order Form Modal */}
+      {/* Order Form Modal - Refactored */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <form
             onSubmit={handleSubmit}
-            className="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-2xl"
+            className="bg-white rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl"
           >
             <h3 className="font-bold text-lg mb-4">New Petty Cash Order</h3>
-            <div className="space-y-3">
+            <div className="space-y-4">
+              {/* Vendor Selection */}
               <div>
-                <label className="text-sm font-medium text-gray-700">Vendor</label>
+                <label className="text-sm font-medium text-gray-700">Vendor *</label>
                 <select
                   name="vendor"
                   value={formData.vendor}
-                  onChange={handleFormChange}
+                  onChange={(e) => {
+                    const vendorId = e.target.value;
+                    const v = vendors.find(x => x._id === vendorId);
+                    const vendorProducts = (v?.products || []).map(p => ({
+                      productName: p.productName || p.name || "",
+                      quantity: 1,
+                      unitPrice: Number(p.price) || 0,
+                      amount: Number(p.price) || 0,
+                    }));
+                    setFormData(prev => ({
+                      ...prev,
+                      vendor: vendorId,
+                      items: vendorProducts.length > 0 ? vendorProducts : prev.items,
+                    }));
+                  }}
                   required
                   className="w-full border rounded px-3 py-2 text-sm mt-1"
                 >
                   <option value="">Select vendor...</option>
                   {vendors.map((v) => (
-                    <option key={v._id} value={v._id}>
-                      {v.companyName}
-                    </option>
+                    <option key={v._id} value={v._id}>{v.companyName}</option>
                   ))}
                 </select>
               </div>
+
+              {/* Order Items */}
               <div>
-                <label className="text-sm font-medium text-gray-700">Purpose</label>
-                <input
-                  name="purpose"
-                  value={formData.purpose}
-                  onChange={handleFormChange}
-                  required
-                  className="w-full border rounded px-3 py-2 text-sm mt-1"
-                  placeholder="What is this order for?"
-                />
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-bold text-gray-700">Order Items</label>
+                  <button type="button" onClick={addItem} className="text-xs text-blue-600 font-medium hover:underline">+ Add Item</button>
+                </div>
+                <div className="space-y-2">
+                  {formData.items.map((item, i) => (
+                    <div key={i} className="flex gap-2 items-start p-2 bg-gray-50 rounded-lg border">
+                      <div className="flex-1">
+                        <input
+                          value={item.productName}
+                          onChange={(e) => handleItemChange(i, "productName", e.target.value)}
+                          placeholder="Product/Item name"
+                          className="w-full border rounded px-2 py-1.5 text-sm"
+                          required
+                        />
+                      </div>
+                      <div className="w-16">
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(e) => handleItemChange(i, "quantity", e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm text-center"
+                          placeholder="Qty"
+                        />
+                      </div>
+                      <div className="w-24">
+                        <input
+                          type="number"
+                          min="0"
+                          value={item.unitPrice}
+                          onChange={(e) => handleItemChange(i, "unitPrice", e.target.value)}
+                          className="w-full border rounded px-2 py-1.5 text-sm"
+                          placeholder="Price"
+                        />
+                      </div>
+                      <div className="w-20 text-right">
+                        <span className="text-sm font-semibold text-gray-700">₦{(item.amount || 0).toLocaleString()}</span>
+                      </div>
+                      {formData.items.length > 1 && (
+                        <button type="button" onClick={() => removeItem(i)} className="text-red-500 text-lg leading-none mt-1">×</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end mt-2">
+                  <span className="text-sm font-bold text-gray-900 bg-blue-50 px-3 py-1 rounded">
+                    Total: ₦{orderTotal.toLocaleString()}
+                  </span>
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="text-xs font-medium text-gray-700">Qty</label>
-                  <input
-                    name="quantity"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={formData.quantity}
-                    onChange={handleFormChange}
-                    className="w-full border rounded px-2 py-2 text-sm mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-700">Unit Price</label>
-                  <input
-                    name="unitPrice"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.unitPrice}
-                    onChange={handleFormChange}
-                    className="w-full border rounded px-2 py-2 text-sm mt-1"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-700">Total</label>
-                  <input
-                    name="amount"
-                    type="number"
-                    value={formData.amount}
-                    readOnly
-                    className="w-full border rounded px-2 py-2 text-sm mt-1 bg-gray-50"
-                  />
-                </div>
-              </div>
+
+              {/* Description */}
               <div>
-                <label className="text-sm font-medium text-gray-700">Description</label>
+                <label className="text-sm font-medium text-gray-700">Notes / Description</label>
                 <textarea
                   name="description"
                   value={formData.description}
                   onChange={handleFormChange}
                   className="w-full border rounded px-3 py-2 text-sm mt-1"
                   rows={2}
+                  placeholder="Any additional notes..."
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+
+              {/* Date & Location */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-700">Order Date</label>
-                  <input
-                    name="requestDate"
-                    type="date"
-                    value={formData.requestDate}
-                    onChange={handleFormChange}
-                    required
-                    className="w-full border rounded px-2 py-2 text-sm mt-1"
-                  />
+                  <label className="text-xs font-medium text-gray-700">Order Date *</label>
+                  <input name="requestDate" type="date" value={formData.requestDate} onChange={handleFormChange} required className="w-full border rounded px-2 py-2 text-sm mt-1" />
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-700">Location *</label>
-                  <input
-                    name="location"
-                    value={formData.location}
-                    onChange={handleFormChange}
-                    required
-                    placeholder="e.g. Ibile 1"
-                    className="w-full border rounded px-2 py-2 text-sm mt-1"
-                  />
+                  <input name="location" value={formData.location} onChange={handleFormChange} required placeholder="e.g. Ibile 1" className="w-full border rounded px-2 py-2 text-sm mt-1" />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-700">Needed By</label>
-                <input
-                  name="neededBy"
-                  type="date"
-                  value={formData.neededBy}
-                  onChange={handleFormChange}
-                  className="w-full border rounded px-2 py-2 text-sm mt-1"
-                />
+                <input name="neededBy" type="date" value={formData.neededBy} onChange={handleFormChange} className="w-full border rounded px-2 py-2 text-sm mt-1" />
               </div>
             </div>
+
             <div className="flex gap-2 mt-5">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="flex-1 border rounded py-2 text-sm font-medium hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex-1 bg-blue-600 text-white rounded py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                {submitting ? "Submitting..." : "Submit Order"}
+              <button type="button" onClick={() => setShowForm(false)} className="flex-1 border rounded py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
+              <button type="submit" disabled={submitting} className="flex-1 bg-blue-600 text-white rounded py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                {submitting ? "Submitting..." : `Submit Order (₦${orderTotal.toLocaleString()})`}
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Send to Vendor Dialog */}
+      {sendDialog && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-lg mb-2 text-green-700">✅ Order Submitted!</h3>
+            <p className="text-sm text-gray-600 mb-4">Send order details to <strong>{sendDialog.vendorName}</strong>?</p>
+            <div className="space-y-2">
+              {sendDialog.phone && (
+                <button
+                  onClick={() => {
+                    window.open(`https://wa.me/${sendDialog.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(sendDialog.orderSummary)}`, "_blank");
+                    setSendDialog(null);
+                  }}
+                  className="w-full bg-green-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-green-700"
+                >
+                  📱 Send via WhatsApp
+                </button>
+              )}
+              {sendDialog.phone && (
+                <button
+                  onClick={() => {
+                    window.open(`sms:${sendDialog.phone}?body=${encodeURIComponent(sendDialog.orderSummary)}`, "_blank");
+                    setSendDialog(null);
+                  }}
+                  className="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700"
+                >
+                  💬 Send via SMS
+                </button>
+              )}
+              {sendDialog.email && (
+                <button
+                  onClick={() => {
+                    window.open(`mailto:${sendDialog.email}?subject=New Order&body=${encodeURIComponent(sendDialog.orderSummary)}`, "_blank");
+                    setSendDialog(null);
+                  }}
+                  className="w-full bg-purple-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-purple-700"
+                >
+                  📧 Send via Email
+                </button>
+              )}
+              <button
+                onClick={() => setSendDialog(null)}
+                className="w-full border border-gray-300 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Skip / Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -134,7 +134,8 @@ export default function App({
   pageProps,
 }) {
   const router = useRouter();
-  const showLayout = !router.pathname.includes('/login') && !router.pathname.includes('/register');
+  const noLayoutPaths = ['/login', '/register', '/memo/', '/onboarding/'];
+  const showLayout = !noLayoutPaths.some(p => router.pathname.includes(p));
 
   installGlobalApiFetchWrapper();
   installAxiosAuthInterceptor();
