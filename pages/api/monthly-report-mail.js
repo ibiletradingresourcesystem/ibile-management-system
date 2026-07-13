@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import { createMailTransport, getMailEnvValue, getMailFromAddress } from "@/lib/mail";
 import { aggregateProductSales } from "@/lib/product-sales-report";
 import { buildLocationCache, resolveLocationName } from "@/lib/serverLocationHelper";
+import { generateMonthlyReportInsight, buildMonthlyReportAIHtml } from "@/lib/ai/monthlyReportAI";
 
 function isDerivedChildProduct(product) {
   return product?.isChildProduct && product?.packType !== "pack";
@@ -661,6 +662,44 @@ export default async function handler(req, res) {
         year: "numeric",
       });
 
+    // =====================
+    // AI EXECUTIVE INSIGHTS
+    // =====================
+    let aiInsightHtml = "";
+    try {
+      const aiMetrics = {
+        reportPeriod: reportMonthLabel,
+        totalSales,
+        totalTransactions: totalTransactionCount,
+        totalItemsSold,
+        totalExpenses,
+        totalCOGS: totalCogsMonth,
+        grossProfit: grossProfitMonth,
+        netProfit: netProfitMonth,
+        grossMargin: totalSales > 0 ? Math.round((grossProfitMonth / totalSales) * 100) : 0,
+        netMargin: totalSales > 0 ? Math.round((netProfitMonth / totalSales) * 100) : 0,
+        stockValue: totalStockValue,
+        creditIssued: creditIssuedTotal,
+        creditRecovered: creditRecoveredThisMonth,
+        outstandingCredit,
+        locationsCount: allLocations.length,
+        lowStockCount: lowStockProducts.length,
+        expiringSoonCount: expiringSoonProducts.length,
+        topProducts: productSalesSummary.slice(0, 5).map(p => ({ name: p.name, units: p.unitsSold, revenue: Math.round(p.totalSales) })),
+      };
+
+      console.log("[Monthly Mail] Generating AI executive insights...");
+      const aiInsight = await generateMonthlyReportInsight(aiMetrics);
+      aiInsightHtml = buildMonthlyReportAIHtml(aiInsight);
+      if (aiInsight) {
+        console.log(`[Monthly Mail] AI insight generated (cached: ${aiInsight.cached}, health: ${aiInsight.healthScore})`);
+      } else {
+        console.log("[Monthly Mail] AI insight unavailable, continuing without AI section");
+      }
+    } catch (aiErr) {
+      console.error("[Monthly Mail] AI insight generation error (non-fatal):", aiErr.message);
+    }
+
     const mailHtml = `
       <div style="font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; max-width: 900px; margin: 0 auto;">
         
@@ -706,6 +745,8 @@ export default async function handler(req, res) {
             </div>
           </div>
         </div>
+
+        ${aiInsightHtml}
 
         <!-- TENDER BREAKDOWN BY LOCATION -->
         <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #8b5cf6;">

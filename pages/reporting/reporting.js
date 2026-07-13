@@ -19,6 +19,7 @@ import { formatCurrency } from "@/lib/format";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import AIBusinessInsight from "@/components/AIBusinessInsight";
+import MonthlyReportAISummary from "@/components/MonthlyReportAISummary";
 
 ChartJS.register(
   BarElement,
@@ -553,6 +554,11 @@ export default function Reporting() {
               period={timeRange === "Today" ? "today" : timeRange === "Yesterday" ? "yesterday" : timeRange.includes("7") ? "week" : timeRange.includes("30") || timeRange.includes("month") ? "month" : timeRange.includes("year") ? "year" : "month"}
               location={location !== "All" ? location : undefined}
             />
+          </div>
+
+          {/* Monthly Report AI Summary */}
+          <div className="mt-6">
+            <MonthlyReportAISummary isAdmin={true} />
           </div>
       </div>
       </div>
