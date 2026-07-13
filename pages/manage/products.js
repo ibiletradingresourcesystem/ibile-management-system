@@ -464,6 +464,9 @@ export default function Products() {
       );
       setAllProducts((prev) => prev.map((p) => (p._id === _id ? { ...p, ...saved } : p)));
 
+      // Invalidate IndexedDB cache so next load fetches fresh data
+      await clearCache("products_cache");
+
       // close edit mode & highlight the updated product
       setEditIndex(null);
       setHighlightedId(_id);
