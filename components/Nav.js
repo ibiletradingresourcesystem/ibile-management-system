@@ -12,6 +12,7 @@ import {
   faBars,
   faTimes,
   faBook,
+  faRobot,
 } from "@fortawesome/free-solid-svg-icons";
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
@@ -671,6 +672,7 @@ export default function Sidebar() {
             </li>
             )}
             {canAccess("support") && renderMenuItem("/support", faHeadset, "Support")}
+            {canAccess("support") && renderMenuItem("/support/ai-business-assistant", faRobot, "AI Assistant")}
           </ul>
         </nav>
       </aside>

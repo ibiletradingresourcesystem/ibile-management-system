@@ -23,6 +23,7 @@ import {
   PackagePlus,
   RefreshCw,
   ShoppingCart,
+  Sparkles,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -568,6 +569,11 @@ export default function Home() {
 
   const dashboardHeading = storeInfo?.name || selectedUser;
   const quickActions = [
+    {
+      label: "AI Assistant",
+      icon: Sparkles,
+      onClick: () => router.push("/support/ai-business-assistant"),
+    },
     {
       label: "Add products",
       icon: PackagePlus,
