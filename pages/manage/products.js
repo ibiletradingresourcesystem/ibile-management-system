@@ -891,7 +891,7 @@ export default function Products() {
                                 className="block text-[9px] text-purple-600 hover:text-purple-800 mt-0.5"
                                 title={`AI suggests ${formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)} — ${aiPriceMap[String(p._id)].reason || ""}`}
                               >
-                                ✨ Apply AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
+                                Apply AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
                               </button>
                             )}
                           </div>
@@ -900,7 +900,7 @@ export default function Products() {
                             {formatCurrency(p.salePriceIncTax)}
                             {aiPriceMap[String(p._id)] && Math.abs(Number(aiPriceMap[String(p._id)].recommendedPrice) - Number(p.salePriceIncTax)) > 1 && (
                               <span className="block text-[9px] text-purple-500 font-normal" title={aiPriceMap[String(p._id)].reason || "AI recommendation"}>
-                                ✨ AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
+                                 AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
                               </span>
                             )}
                           </div>
