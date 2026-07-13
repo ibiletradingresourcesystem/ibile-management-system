@@ -381,7 +381,7 @@ export default function Home() {
       return d.toDateString() === dayBefore.toDateString();
     }
     if (selectedPeriod === "week") {
-      // prev period of "This Week" = Last Week (Sun–Sat)
+      // prev period of "This Week" = Last Week (Sunâ€“Sat)
       const thisWeekStart = new Date(now);
       thisWeekStart.setDate(now.getDate() - now.getDay());
       thisWeekStart.setHours(0, 0, 0, 0);
@@ -390,7 +390,7 @@ export default function Home() {
       return d >= lastWeekStart && d < thisWeekStart;
     }
     if (selectedPeriod === "lastWeek") {
-      // prev period of "Last Week" = week before last (Sun–Sat)
+      // prev period of "Last Week" = week before last (Sunâ€“Sat)
       const thisWeekStart = new Date(now);
       thisWeekStart.setDate(now.getDate() - now.getDay());
       thisWeekStart.setHours(0, 0, 0, 0);
