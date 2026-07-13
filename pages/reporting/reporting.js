@@ -18,6 +18,7 @@ import Layout from "@/components/Layout";
 import { formatCurrency } from "@/lib/format";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
+import AIBusinessInsight from "@/components/AIBusinessInsight";
 
 ChartJS.register(
   BarElement,
@@ -545,6 +546,14 @@ export default function Reporting() {
             );
           })()}
         </div>
+
+          {/* AI Business Intelligence */}
+          <div className="mt-6">
+            <AIBusinessInsight
+              period={timeRange === "Today" ? "today" : timeRange === "Yesterday" ? "yesterday" : timeRange.includes("7") ? "week" : timeRange.includes("30") || timeRange.includes("month") ? "month" : timeRange.includes("year") ? "year" : "month"}
+              location={location !== "All" ? location : undefined}
+            />
+          </div>
       </div>
       </div>
     </Layout>
