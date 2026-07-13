@@ -96,7 +96,7 @@ const AIRecommendationSchema = new Schema(
 
     /** AI provider metadata */
     provider: { type: String, default: "google" },
-    model: { type: String, default: "gemini-1.5-flash" },
+    model: { type: String, default: "gemini-2.0-flash" },
     executionTimeMs: { type: Number, default: 0 },
 
     /** When this was generated */

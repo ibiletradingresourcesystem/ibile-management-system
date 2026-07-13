@@ -95,7 +95,7 @@ const AIInsightSchema = new Schema(
     /** AI model used */
     model: {
       type: String,
-      default: "gemini-1.5-flash",
+      default: "gemini-2.0-flash",
     },
 
     /** When the insight was generated */
