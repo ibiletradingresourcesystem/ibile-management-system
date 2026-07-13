@@ -11,6 +11,7 @@ import useProgress from "@/lib/useProgress";
 import { getCachedSetup } from "@/lib/setupCache";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { aggregateProductSales } from "@/lib/product-sales-report";
+import AIDecisionCenter from "@/components/AIDecisionCenter";
 import {
   ArrowRight,
   ChevronDown,
@@ -996,6 +997,11 @@ export default function Home() {
                   meta: formatCurrency(expense.amount),
                 }))}
               />
+            </section>
+
+            {/* AI Decision Center */}
+            <section className="mt-6">
+              <AIDecisionCenter isAdmin={(() => { try { return JSON.parse(localStorage.getItem("user") || "{}").role === "admin"; } catch { return false; } })()} />
             </section>
           </>
         )}
