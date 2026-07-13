@@ -14,6 +14,7 @@ import {
   calculateProfit,
   calculateSalePriceIncTax,
 } from "@/lib/pricing";
+import AIPriceSuggestion from "@/components/AIPriceSuggestion";
 
 function toDateInputValue(v) {
   if (!v) return "";
@@ -734,6 +735,13 @@ export default function ProductForm(props) {
           value={salePriceIncTax}
           setValue={setSalePriceIncTax}
         />
+        {props._id && (
+          <AIPriceSuggestion
+            productId={props._id}
+            currentPrice={salePriceIncTax}
+            onApplyPrice={(price) => setSalePriceIncTax(String(price))}
+          />
+        )}
         <InputField
           label="Expiry Date (optional)"
           type="date"

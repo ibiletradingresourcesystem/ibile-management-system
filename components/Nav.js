@@ -671,8 +671,30 @@ export default function Sidebar() {
               </a>
             </li>
             )}
-            {canAccess("support") && renderMenuItem("/support", faHeadset, "Support")}
-            {canAccess("support") && renderMenuItem("/support/ai-business-assistant", faRobot, "AI Assistant")}
+            {canAccess("support") && (
+            <li className={pathname.startsWith("/support") ? activeLink : baseLink}>
+              <div
+                className="flex flex-col items-center justify-center cursor-pointer"
+                onClick={() => toggleMenu("support")}
+              >
+                <FontAwesomeIcon icon={faHeadset} className="w-6 h-6" />
+                <span className="text-xs">Support</span>
+                <FontAwesomeIcon icon={faChevronRight} className={`w-3 h-3 mt-1 transition-transform duration-300 ${openMenu === "support" ? "rotate-90" : ""}`} />
+              </div>
+              <ul
+                className={`fixed top-12 md:top-16 left-20 w-56 h-[calc(100vh-3rem)] md:h-[calc(100vh-4rem)] bg-white border-r border-gray-200 overflow-y-auto shadow-2xl transition-all duration-300 ease-in-out z-40 ${openMenu === "support" ? "translate-x-0 opacity-100 visible" : "translate-x-4 opacity-0 invisible"}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-4 py-3 border-b border-gray-200 sticky top-0 bg-white">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Support</p>
+                </div>
+                {renderSubMenu([
+                  { href: "/support", label: "Help & Tickets" },
+                  { href: "/support/ai-business-assistant", label: "AI Business Assistant" },
+                ])}
+              </ul>
+            </li>
+            )}
           </ul>
         </nav>
       </aside>
@@ -1207,12 +1229,20 @@ export default function Sidebar() {
 
             {/* Support */}
             {canAccess("support") && (
+            <>
             <li onClick={closeMenu}>
               <Link href="/support" className={`block ${pathname === "/support" ? mobileActiveLink : mobileBaseLink}`}>
                 <FontAwesomeIcon icon={faHeadset} className="w-5 h-5" />
-                <span>Support</span>
+                <span>Help & Tickets</span>
               </Link>
             </li>
+            <li onClick={closeMenu}>
+              <Link href="/support/ai-business-assistant" className={`block ${pathname === "/support/ai-business-assistant" ? mobileActiveLink : mobileBaseLink}`}>
+                <FontAwesomeIcon icon={faRobot} className="w-5 h-5" />
+                <span>AI Business Assistant</span>
+              </Link>
+            </li>
+            </>
             )}
           </ul>
         </nav>
