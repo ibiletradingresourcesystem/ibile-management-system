@@ -58,7 +58,7 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
     if (source === "database" && selectedDbProducts.length > 0) {
       const tags = selectedDbProducts.map((p, i) => ({
         name: p.name || p.productName || "",
-        price: p.sellingPrice || p.price || 0,
+        price: p.salePriceIncTax || p.sellingPrice || p.price || 0,
         barcode: p.barcode || "",
         copies: 1,
       }));
@@ -304,7 +304,7 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
                             <p className="text-xs text-gray-500 truncate">SKU: {p.barcode}</p>
                           )}
                           <p className="text-sm font-semibold text-blue-600 mt-1">
-                            {currency}{Number(p.sellingPrice || p.price || 0).toLocaleString()}
+                            {currency}{Number(p.salePriceIncTax || p.sellingPrice || p.price || 0).toLocaleString()}
                           </p>
                         </div>
                       </label>
