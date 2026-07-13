@@ -123,6 +123,9 @@ export default function Products() {
   const [isApplyingChanges, setIsApplyingChanges] = useState(false);
   const [savingProductId, setSavingProductId] = useState(null);
   const [isOpeningAddProduct, setIsOpeningAddProduct] = useState(false);
+
+  // AI pricing recommendations cache (loaded once)
+  const [aiPriceMap, setAiPriceMap] = useState({});
   const [selectedCategory, setSelectedCategory] = useState(
     typeof window !== "undefined" ? sessionStorage.getItem("products:categoryFilter") || "all" : "all"
   );
@@ -242,6 +245,19 @@ export default function Products() {
     setFilteredProducts(filtered);
     setIsInitializing(false);
   }, [cachedProducts, productsLoading, searchTerm, selectedCategory, selectedLocation, categoryMap]);
+
+  // Load cached AI pricing recommendations (once, non-blocking)
+  useEffect(() => {
+    apiClient.get("/api/ai/recommendations?type=pricing&limit=100")
+      .then(res => {
+        const map = {};
+        (res.data?.recommendations || []).forEach(r => {
+          if (r.entityId && r.data?.recommendedPrice) map[String(r.entityId)] = r.data;
+        });
+        setAiPriceMap(map);
+      })
+      .catch(() => {});
+  }, []);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -858,17 +874,36 @@ export default function Products() {
 
                       <td className="p-2 text-gray-900 font-semibold text-xs md:text-sm">
                         {editIndex === realIndex ? (
-                          <input
-                            name="salePriceIncTax"
-                            value={editableProduct.salePriceIncTax || ""}
-                            onChange={handleChange}
-                            onClick={(e) => e.stopPropagation()}
-                            onWheel={(e) => e.currentTarget.blur()}
-                            type="number"
-                            className="w-16 md:w-20 border p-1 rounded text-xs"
-                          />
+                          <div>
+                            <input
+                              name="salePriceIncTax"
+                              value={editableProduct.salePriceIncTax || ""}
+                              onChange={handleChange}
+                              onClick={(e) => e.stopPropagation()}
+                              onWheel={(e) => e.currentTarget.blur()}
+                              type="number"
+                              className="w-16 md:w-20 border p-1 rounded text-xs"
+                            />
+                            {aiPriceMap[String(p._id)] && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleChange({ target: { name: "salePriceIncTax", value: String(aiPriceMap[String(p._id)].recommendedPrice) } }); }}
+                                className="block text-[9px] text-purple-600 hover:text-purple-800 mt-0.5"
+                                title={`AI suggests ${formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)} — ${aiPriceMap[String(p._id)].reason || ""}`}
+                              >
+                                ✨ Apply AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
+                              </button>
+                            )}
+                          </div>
                         ) : (
-                          formatCurrency(p.salePriceIncTax)
+                          <div>
+                            {formatCurrency(p.salePriceIncTax)}
+                            {aiPriceMap[String(p._id)] && Math.abs(Number(aiPriceMap[String(p._id)].recommendedPrice) - Number(p.salePriceIncTax)) > 1 && (
+                              <span className="block text-[9px] text-purple-500 font-normal" title={aiPriceMap[String(p._id)].reason || "AI recommendation"}>
+                                ✨ AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
 

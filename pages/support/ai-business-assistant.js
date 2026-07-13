@@ -176,7 +176,7 @@ function ChatSection() {
     apiClient.get("/api/ai/chat").then(res => setSuggestions(res.data?.suggestions || [])).catch(() => {});
   }, []);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [messages]);
 
   const sendMessage = useCallback(async (text) => {
     const userMsg = text || input.trim();
@@ -201,15 +201,15 @@ function ChatSection() {
   }, [input, messages]);
 
   return (
-    <div className="content-card" style={{ minHeight: "500px", display: "flex", flexDirection: "column" }}>
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b">
+    <div className="content-card" style={{ height: "560px", display: "flex", flexDirection: "column" }}>
+      <div className="flex items-center gap-2 mb-4 pb-3 border-b flex-shrink-0">
         <Sparkles size={18} className="text-purple-600" />
         <h3 className="text-base font-bold text-gray-800">AI Business Chat</h3>
         <span className="text-xs text-gray-400 ml-auto">Ask anything about your business</span>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-3 mb-4" style={{ maxHeight: "400px" }}>
+      <div className="flex-1 overflow-y-auto space-y-3 mb-4">
         {messages.length === 0 && (
           <div className="text-center py-8">
             <Sparkles size={32} className="text-purple-200 mx-auto mb-3" />
@@ -244,7 +244,7 @@ function ChatSection() {
       </div>
 
       {/* Input */}
-      <div className="flex gap-2 pt-3 border-t">
+      <div className="flex gap-2 pt-3 border-t flex-shrink-0">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
