@@ -43,6 +43,7 @@ import {
   faSprayCanSparkles,
   faWheatAwn,
   faWineBottle,
+  faStore,
 } from "@fortawesome/free-solid-svg-icons";
 import Loader from "@/components/Loader";
 import { getCachedCategories, invalidateCategoriesCache } from "@/lib/categoriesCache";
@@ -64,6 +65,7 @@ const ICON_OPTIONS = [
   { value: "smokes", label: "Smokes", icon: faSmoking },
   { value: "games-toys", label: "Games & Toys", icon: faGamepad },
   { value: "fashion", label: "Fashion", icon: faShirt },
+  { value: "ibilemart-trading-operations", label: "IbileMart Trading Operations", icon: faStore },
   { value: "seasonal-events", label: "Seasonal & Events", icon: faCalendarDays },
   { value: "electronic-electrical", label: "Electronic & Electrical", icon: faPlug },
   { value: "wine-spirits", label: "Wine & Spirits", icon: faWineBottle },
