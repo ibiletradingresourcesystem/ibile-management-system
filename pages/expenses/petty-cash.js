@@ -11,11 +11,18 @@ export default function PettyCashPage() {
   const [editingVendor, setEditingVendor] = useState(null);
   const [loading, setLoading] = useState(false);
   const [userLocation, setUserLocation] = useState("");
+  const [locations, setLocations] = useState([]);
   const [orderVendor, setOrderVendor] = useState(null); // vendor to pre-fill order form
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
     setUserLocation(user.location || "");
+
+    // Fetch store locations for the location dropdown
+    apiClient.get("/api/setup/setup").then(({ data }) => {
+      const storeLocations = data?.store?.locations || data?.locations || [];
+      setLocations(storeLocations.filter((loc) => loc.isActive !== false));
+    }).catch(() => {});
   }, []);
 
   const loadVendors = useCallback(async () => {
@@ -120,6 +127,7 @@ export default function PettyCashPage() {
             <PettyCashTransactionPanel
               vendors={vendors}
               currentLocation={userLocation}
+              locations={locations}
               onTransactionChange={loadVendors}
               prefillVendor={orderVendor}
               onPrefillConsumed={() => setOrderVendor(null)}

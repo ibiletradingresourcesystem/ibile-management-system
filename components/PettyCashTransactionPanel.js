@@ -61,6 +61,7 @@ function escapeCsvValue(val) {
 export default function PettyCashTransactionPanel({
   vendors = [],
   currentLocation = "",
+  locations = [],
   onTransactionChange,
   prefillVendor = null,
   onPrefillConsumed,
@@ -511,7 +512,16 @@ export default function PettyCashTransactionPanel({
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-700">Location *</label>
-                  <input name="location" value={formData.location} onChange={handleFormChange} required placeholder="e.g. Ibile 1" className="w-full border rounded px-2 py-2 text-sm mt-1" />
+                  {locations.length > 0 ? (
+                    <select name="location" value={formData.location} onChange={handleFormChange} required className="w-full border rounded px-2 py-2 text-sm mt-1">
+                      <option value="">Select location</option>
+                      {locations.map((loc) => (
+                        <option key={loc._id || loc.name} value={loc.name}>{loc.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input name="location" value={formData.location} onChange={handleFormChange} required placeholder="e.g. Ibile 1" className="w-full border rounded px-2 py-2 text-sm mt-1" />
+                  )}
                 </div>
               </div>
               <div>
