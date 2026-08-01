@@ -516,7 +516,9 @@ export default function PettyCashTransactionPanel({
                     <select name="location" value={formData.location} onChange={handleFormChange} required className="w-full border rounded px-2 py-2 text-sm mt-1">
                       <option value="">Select location</option>
                       {locations.map((loc) => (
-                        <option key={loc._id || loc.name} value={loc.name}>{loc.name}</option>
+                        <option key={loc._id || loc.name} value={loc.name}>
+                          {loc.name}{loc.code ? ` (${loc.code})` : ""}
+                        </option>
                       ))}
                     </select>
                   ) : (

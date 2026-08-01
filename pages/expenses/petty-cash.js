@@ -20,9 +20,12 @@ export default function PettyCashPage() {
 
     // Fetch store locations for the location dropdown
     apiClient.get("/api/setup/setup").then(({ data }) => {
-      const storeLocations = data?.store?.locations || data?.locations || [];
+      const store = data?.store || data;
+      const storeLocations = Array.isArray(store?.locations) ? store.locations : [];
       setLocations(storeLocations.filter((loc) => loc.isActive !== false));
-    }).catch(() => {});
+    }).catch((err) => {
+      console.error("Failed to load locations:", err);
+    });
   }, []);
 
   const loadVendors = useCallback(async () => {
