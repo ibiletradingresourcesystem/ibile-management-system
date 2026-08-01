@@ -96,9 +96,8 @@ export default async function handler(req, res) {
     const products = await Product.find({
       isArchived: { $ne: true },
       isStockManaged: true,
-      productType: { $ne: "room" },
     })
-      .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice productType roomStatus currentBooking locations")
+      .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice locations")
       .sort({ name: 1 })
       .lean();
 

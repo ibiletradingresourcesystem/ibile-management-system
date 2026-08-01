@@ -73,10 +73,6 @@ function isDerivedChild(product) {
   return product?.isChildProduct && product?.packType !== "pack";
 }
 
-function isRoomProduct(product) {
-  return String(product?.productType || "").trim().toLowerCase() === "room";
-}
-
 function getProductId(product) {
   return String(product?._id || product?.id || "");
 }
@@ -136,7 +132,7 @@ function downloadCsv(filename, rows) {
 }
 
 function matchesStockState(product, stockFilter) {
-  if (isRoomProduct(product) || isDerivedChild(product)) {
+  if (isDerivedChild(product)) {
     return false;
   }
 
@@ -329,10 +325,6 @@ export default function StockManagement() {
         return [item];
       }
 
-      if (isRoomProduct(item)) {
-        return [];
-      }
-
       const productLocations = getProductLocationTokens(item);
 
       if (normalizedLocationFilter === "unassigned") {
@@ -371,7 +363,7 @@ export default function StockManagement() {
   }, [locationScopedItems]);
 
   const parentProducts = useMemo(
-    () => locationScopedItems.filter((product) => !isDerivedChild(product) && !isRoomProduct(product)),
+    () => locationScopedItems.filter((product) => !isDerivedChild(product)),
     [locationScopedItems]
   );
 

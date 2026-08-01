@@ -31,7 +31,7 @@ const ICON_OPTIONS = [
   { value: "box", label: "Box", icon: faBoxOpen },
   { value: "drink", label: "Drink", icon: faMugHot },
   { value: "food", label: "Food", icon: faUtensils },
-  { value: "bed", label: "Bed/Room", icon: faBed },
+  { value: "bed", label: "Bed", icon: faBed },
   { value: "lounge", label: "Lounge", icon: faCouch },
   { value: "furniture", label: "Furniture", icon: faChair },
   { value: "tag", label: "General", icon: faTags },

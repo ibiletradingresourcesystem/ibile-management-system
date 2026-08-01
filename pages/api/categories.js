@@ -9,13 +9,7 @@ let categoriesCache = null;
 let categoriesCacheTime = 0;
 const CACHE_TTL = 60 * 1000; // 1 minute
 
-function isRoomCategory(name = "") {
-  const normalized = String(name).trim().toLowerCase();
-  return normalized === "room" || normalized === "rooms";
-}
-
 function resolveStockManaged(name, requestedValue) {
-  if (isRoomCategory(name)) return false;
   if (typeof requestedValue === "boolean") return requestedValue;
   return true;
 }

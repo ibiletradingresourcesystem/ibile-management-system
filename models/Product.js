@@ -94,6 +94,11 @@ const ProductSchema = new Schema(
        LOCATION ASSIGNMENT
     ===================== */
     locations: [{ type: String }],
+
+    /* =====================
+       WEB / STOREFRONT VISIBILITY
+    ===================== */
+    showOnWeb: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

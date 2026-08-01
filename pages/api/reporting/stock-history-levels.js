@@ -220,7 +220,6 @@ export default async function handler(req, res) {
       Product.find({
         isArchived: { $ne: true },
         isStockManaged: true,
-        productType: { $ne: "room" },
       })
         .select("name barcode category costPrice salePriceIncTax isChildProduct parentProduct packType qtyPerPack")
         .sort({ name: 1 })

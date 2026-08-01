@@ -11,15 +11,6 @@ import {
   sanitizeStringArray,
 } from "@/lib/textSanitizers";
 
-const ROOM_PRODUCT_TYPE = "room";
-const STANDARD_PRODUCT_TYPE = "standard";
-const ROOM_STATUS_AVAILABLE = "available";
-const ROOM_STATUS_RESERVED = "reserved";
-const ROOM_STATUS_OCCUPIED = "occupied";
-
-let lastRoomSyncAt = 0;
-const ROOM_SYNC_INTERVAL_MS = 10 * 60 * 1000;
-
 /**
  * Derive child product quantities from their parent in-place.
  * Child qty = parent.qty × qtyPerPack (always computed, never independent).
@@ -82,117 +73,20 @@ async function markExpiredProducts() {
   );
 }
 
-async function syncRoomCategoryProductFlags(force = false) {
-  const now = Date.now();
-  if (!force && now - lastRoomSyncAt < ROOM_SYNC_INTERVAL_MS) return;
-
-  const roomCategories = await Category.find({
-    name: { $in: [/^room$/i, /^rooms$/i] },
-  })
-    .select("_id")
-    .lean();
-  const roomCategoryIds = roomCategories.map((c) => String(c._id));
-
-  await Product.updateMany(
-    {
-      $or: [
-        { category: { $in: roomCategoryIds } },
-        { category: { $in: ["room", "rooms", "Room", "Rooms"] } },
-      ],
-    },
-    {
-      $set: {
-        productType: ROOM_PRODUCT_TYPE,
-        isStockManaged: false,
-        quantity: 0,
-      },
-    }
-  );
-  lastRoomSyncAt = now;
-}
-
-function isRoomName(value = "") {
-  const normalized = String(value).trim().toLowerCase();
-  return normalized === "room" || normalized === "rooms";
-}
-
-function normalizeProductType(value) {
-  return String(value || STANDARD_PRODUCT_TYPE).trim().toLowerCase() === ROOM_PRODUCT_TYPE
-    ? ROOM_PRODUCT_TYPE
-    : STANDARD_PRODUCT_TYPE;
-}
-
-function normalizeRoomStatus(value) {
-  const normalized = String(value || ROOM_STATUS_AVAILABLE).trim().toLowerCase();
-  if (normalized === ROOM_STATUS_RESERVED) return ROOM_STATUS_RESERVED;
-  if (normalized === ROOM_STATUS_OCCUPIED) return ROOM_STATUS_OCCUPIED;
-  return ROOM_STATUS_AVAILABLE;
-}
-
-async function resolveProductTypeFromCategory(categoryIdOrName, requestedType) {
-  const normalizedRequestedType = normalizeProductType(requestedType);
-  if (normalizedRequestedType === ROOM_PRODUCT_TYPE) return ROOM_PRODUCT_TYPE;
-
-  if (!categoryIdOrName) {
-    return normalizedRequestedType;
-  }
-
-  if (isRoomName(categoryIdOrName)) return ROOM_PRODUCT_TYPE;
-
-  try {
-    const category = await Category.findById(categoryIdOrName).select("name").lean();
-    if (category && isRoomName(category.name)) return ROOM_PRODUCT_TYPE;
-  } catch {
-    // Category lookup can fail for non-ObjectId values like "Top Level"
-  }
-
-  return normalizedRequestedType;
-}
-
-async function resolveStockManagedFromCategory(categoryIdOrName, requestedValue, productType) {
-  if (productType === ROOM_PRODUCT_TYPE) return false;
-
+async function resolveStockManagedFromCategory(categoryIdOrName, requestedValue) {
   if (!categoryIdOrName) {
     return typeof requestedValue === "boolean" ? requestedValue : true;
   }
-  if (isRoomName(categoryIdOrName)) return false;
 
   try {
-    const category = await Category.findById(categoryIdOrName).select("name isStockManaged").lean();
+    const category = await Category.findById(categoryIdOrName).select("isStockManaged").lean();
     if (!category) return typeof requestedValue === "boolean" ? requestedValue : true;
-    if (isRoomName(category.name)) return false;
     if (typeof requestedValue === "boolean") return requestedValue;
     if (typeof category.isStockManaged === "boolean") return category.isStockManaged;
   } catch {
     // Category lookup can fail for non-ObjectId values like "Top Level"
   }
   return typeof requestedValue === "boolean" ? requestedValue : true;
-}
-
-function applyRoomProductDefaults(payload = {}) {
-  const nextPayload = { ...payload };
-
-  if (normalizeProductType(nextPayload.productType) === ROOM_PRODUCT_TYPE) {
-    nextPayload.productType = ROOM_PRODUCT_TYPE;
-    nextPayload.roomStatus = normalizeRoomStatus(nextPayload.roomStatus);
-    nextPayload.isStockManaged = false;
-    nextPayload.quantity = 0;
-    nextPayload.minStock = 0;
-    nextPayload.packType = "unit";
-    nextPayload.qtyPerPack = 1;
-    nextPayload.childSalePrice = undefined;
-
-    if (nextPayload.roomStatus === ROOM_STATUS_AVAILABLE) {
-      nextPayload.currentBooking = null;
-    }
-
-    return nextPayload;
-  }
-
-  nextPayload.productType = STANDARD_PRODUCT_TYPE;
-  nextPayload.roomStatus = ROOM_STATUS_AVAILABLE;
-  nextPayload.currentBooking = null;
-  return nextPayload;
 }
 
 function sanitizeProductPayload(payload = {}) {
@@ -248,10 +142,6 @@ export default async function handler(req, res) {
         excludeChild,
       } = req.query;
 
-      if (!id && !search) {
-        await syncRoomCategoryProductFlags();
-      }
-
       // Skip maintenance tasks for minimal/fast queries
       if (!minimal) {
         await disableExpiredPromotions();
@@ -301,9 +191,8 @@ export default async function handler(req, res) {
       // Minimal mode for stock management - only essential fields
       if (minimal === "true") {
         filter.isStockManaged = true;
-        filter.productType = { $ne: ROOM_PRODUCT_TYPE };
         const products = await Product.find(filter)
-          .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice productType roomStatus currentBooking locations")
+          .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice locations showOnWeb")
           .sort({ name: 1 })
           .lean();
         await deriveChildQuantities(products);
@@ -314,7 +203,7 @@ export default async function handler(req, res) {
       // Names-only mode for dropdowns - returns all products without pagination
       if (req.query.names === "true") {
         const products = await Product.find(filter)
-          .select("name costPrice salePriceIncTax packType qtyPerPack barcode productType roomStatus")
+          .select("name costPrice salePriceIncTax packType qtyPerPack barcode")
           .sort({ name: 1 })
           .lean();
         res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
@@ -356,17 +245,10 @@ export default async function handler(req, res) {
       body.archivedAt = null;
       body.archivedReason = "";
 
-      body.productType = await resolveProductTypeFromCategory(
-        body.category,
-        body.productType
-      );
-
       body.isStockManaged = await resolveStockManagedFromCategory(
         body.category,
-        body.isStockManaged,
-        body.productType
+        body.isStockManaged
       );
-      Object.assign(body, applyRoomProductDefaults(body));
       if (!body.isStockManaged) body.quantity = 0;
 
       if (body.expiryDate) {
@@ -491,15 +373,6 @@ export default async function handler(req, res) {
 
       const updateData = sanitizeProductPayload(req.body);
 
-      updateData.productType = await resolveProductTypeFromCategory(
-        Object.prototype.hasOwnProperty.call(updateData, "category")
-          ? updateData.category
-          : existingProduct.category,
-        Object.prototype.hasOwnProperty.call(updateData, "productType")
-          ? updateData.productType
-          : existingProduct.productType
-      );
-
       if (restore) {
         updateData.isArchived = false;
         updateData.archivedAt = null;
@@ -510,8 +383,7 @@ export default async function handler(req, res) {
 
       if (
         Object.prototype.hasOwnProperty.call(updateData, "category") ||
-        Object.prototype.hasOwnProperty.call(updateData, "isStockManaged") ||
-        Object.prototype.hasOwnProperty.call(updateData, "productType")
+        Object.prototype.hasOwnProperty.call(updateData, "isStockManaged")
       ) {
         updateData.isStockManaged = await resolveStockManagedFromCategory(
           Object.prototype.hasOwnProperty.call(updateData, "category")
@@ -519,10 +391,8 @@ export default async function handler(req, res) {
             : existingProduct.category,
           Object.prototype.hasOwnProperty.call(updateData, "isStockManaged")
             ? updateData.isStockManaged
-            : existingProduct.isStockManaged,
-          updateData.productType
+            : existingProduct.isStockManaged
         );
-        Object.assign(updateData, applyRoomProductDefaults(updateData));
         if (!updateData.isStockManaged) updateData.quantity = 0;
       }
 

@@ -106,7 +106,7 @@ const KNOWLEDGE_BASE = [
   {
     keywords: ["location items", "assign product location", "product not showing", "missing product till", "visible location", "pos product missing"],
     question: "Why is a product missing from a location or Till?",
-    answer: "A product can be active in the admin app but still not appear where staff expect it. Check these items first:\n1. Confirm the product is not archived.\n2. Confirm it is assigned to the correct location in **Setup** → **Location Items** or the product's location settings.\n3. Confirm the product category is correct and not a non-sale/room category.\n4. Confirm the barcode or product name is saved correctly.\n5. Refresh the Till after changes.\n\nLocation assignment controls visibility. Physical stock quantity is still controlled by stock movements and sales.",
+    answer: "A product can be active in the admin app but still not appear where staff expect it. Check these items first:\n1. Confirm the product is not archived.\n2. Confirm it is assigned to the correct location in **Setup** → **Location Items** or the product's location settings.\n3. Confirm the product category is correct.\n4. Confirm the barcode or product name is saved correctly.\n5. Refresh the Till after changes.\n\nLocation assignment controls visibility. Physical stock quantity is still controlled by stock movements and sales.",
   },
   {
     keywords: ["assign location items", "setup location items", "product visibility", "location product setup", "location assignment"],
@@ -288,11 +288,6 @@ const KNOWLEDGE_BASE = [
     question: "What happens if the Till goes offline?",
     answer: "The system supports offline POS queueing, so temporary internet loss should not mean lost sales. Transactions created while offline can be held locally and synced when the connection returns. If staff believe a sale may have been queued, avoid ringing it twice immediately. First confirm whether the transaction appears as held, completed, or synced after connectivity is restored, then escalate to support if the count still looks wrong.",
   },
-  {
-    keywords: ["hotel", "reservation", "room booking", "guest", "hotel reservations"],
-    question: "How do hotel reservations work?",
-    answer: "Use **Manage** → **Hotel Reservations** to work with guest bookings.\n1. Open the reservation list and select the booking.\n2. Review guest details, booking dates, room details, and status.\n3. Update the booking or send guest communication from the reservation workflow when needed.\n4. Raise a support ticket with the guest name, room, dates, and status if the reservation behaves unexpectedly.\n\nThis gives support enough context to trace room or reservation issues quickly.",
-  },
 ];
 
 const SECTION_DEFINITIONS = [
@@ -303,7 +298,6 @@ const SECTION_DEFINITIONS = [
   { key: "accounting", label: "Accounting", keywords: ["accounting", "profit and loss", "balance sheet", "trial balance", "general ledger", "journal", "chart of accounts", "sync accounting"] },
   { key: "users", label: "Users & Setup", keywords: ["user", "permission", "role", "location", "receipt", "hero promo", "setup", "access", "admin email", "theme", "color"] },
   { key: "orders", label: "Orders & Customers", keywords: ["order", "customer", "promotion", "campaign", "fulfilment"] },
-  { key: "hotel", label: "Hotel", keywords: ["hotel", "reservation", "room", "guest"] },
   { key: "support", label: "Support", keywords: ["support", "ticket", "help"] },
 ];
 
