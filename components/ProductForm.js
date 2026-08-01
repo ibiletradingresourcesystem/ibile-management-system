@@ -38,16 +38,6 @@ function normalizeVendorIds(values = []) {
     .filter(Boolean);
 }
 
-const STANDARD_PRODUCT_TYPE = "standard";
-const ROOM_PRODUCT_TYPE = "room";
-
-function formatRoomBookingDate(value) {
-  if (!value) return "Not set";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Not set";
-  return parsed.toLocaleDateString();
-}
-
 export default function ProductForm(props) {
   const router = useRouter();
   const { isAdmin } = useAuth();

@@ -15,28 +15,6 @@ const ProductSchema = new Schema(
 
     barcode: { type: String },
     category: { type: String, default: "Top Level" },
-      productType: {
-         type: String,
-         enum: ["standard", "room"],
-         default: "standard",
-         index: true,
-      },
-      roomStatus: {
-         type: String,
-         enum: ["available", "reserved", "occupied"],
-         default: "available",
-         index: true,
-      },
-      currentBooking: {
-         guestName: { type: String, default: "" },
-         guestPhone: { type: String, default: "" },
-         checkInAt: { type: Date, default: null },
-         checkOutAt: { type: Date, default: null },
-         notes: { type: String, default: "" },
-         sourceTransactionId: { type: String, default: "" },
-         sourceTransactionStatus: { type: String, default: "" },
-         updatedAt: { type: Date, default: null },
-      },
 
     images: [
       {

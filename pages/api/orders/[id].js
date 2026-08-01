@@ -1,6 +1,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import Order from "@/models/Order";
+import Customer from "@/models/Customer";
 import Transaction from "@/models/Transactions";
 import mongoose from "mongoose";
 import { authMiddleware, isAdmin, isStaff } from "@/lib/auth-middleware";

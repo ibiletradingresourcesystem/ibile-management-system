@@ -163,13 +163,14 @@ export default async function handler(req, res) {
       for (const tx of transactions) {
         if (Array.isArray(tx.tenderPayments) && tx.tenderPayments.length > 0) {
           for (const payment of tx.tenderPayments) {
-            const tender =
-              payment?.tenderName || payment?.tenderType || tx.tenderType || "CASH";
+            const tender = (
+              payment?.tenderName || payment?.tenderType || tx.tenderType || "CASH"
+            ).trim().toUpperCase();
             const current = tenderBreakdown.get(tender) || 0;
             tenderBreakdown.set(tender, current + safeNumber(payment?.amount, 0));
           }
         } else {
-          const tender = tx.tenderType || "CASH";
+          const tender = (tx.tenderType || "CASH").trim().toUpperCase();
           const current = tenderBreakdown.get(tender) || 0;
           tenderBreakdown.set(tender, current + safeNumber(tx.amountPaid || tx.total, 0));
         }
