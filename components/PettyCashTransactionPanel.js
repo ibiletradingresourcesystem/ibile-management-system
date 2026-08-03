@@ -33,6 +33,8 @@ function getStatusBadgeClass(status) {
       return "bg-yellow-100 text-yellow-800";
     case "Approved":
       return "bg-green-100 text-green-800";
+    case "Received":
+      return "bg-cyan-100 text-cyan-800";
     case "Paid":
       return "bg-emerald-100 text-emerald-800";
     case "Cancelled":
@@ -76,7 +78,7 @@ export default function PettyCashTransactionPanel({
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     vendor: "",
-    items: [], // [{productName, quantity, unitPrice, amount}]
+    products: [], // [{productName, costPrice, quantity}]
     description: "",
     location: currentLocation || "",
     requestDate: new Date().toISOString().split("T")[0],
@@ -100,12 +102,11 @@ export default function PettyCashTransactionPanel({
       const vendorProducts = (prefillVendor.products || []).map(p => ({
         productName: p.productName || p.name || "",
         quantity: 1,
-        unitPrice: Number(p.price) || 0,
-        amount: Number(p.price) || 0,
+        costPrice: Number(p.price) || 0,
       }));
       setFormData({
         vendor: prefillVendor._id,
-        items: vendorProducts.length > 0 ? vendorProducts : [{ productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
+        products: vendorProducts.length > 0 ? vendorProducts : [{ productName: "", quantity: 1, costPrice: 0 }],
         description: "",
         location: currentLocation || "",
         requestDate: new Date().toISOString().split("T")[0],
@@ -148,41 +149,39 @@ export default function PettyCashTransactionPanel({
 
   const handleItemChange = (index, field, value) => {
     setFormData((prev) => {
-      const items = [...prev.items];
-      items[index] = { ...items[index], [field]: field === "productName" ? value : Number(value) || 0 };
-      if (field === "quantity" || field === "unitPrice") {
-        const qty = field === "quantity" ? (Number(value) || 0) : items[index].quantity;
-        const price = field === "unitPrice" ? (Number(value) || 0) : items[index].unitPrice;
-        items[index].amount = qty * price;
-      }
-      return { ...prev, items };
+      const products = [...prev.products];
+      products[index] = { ...products[index], [field]: field === "productName" ? value : Number(value) || 0 };
+      return { ...prev, products };
     });
   };
 
   const addItem = () => {
     setFormData((prev) => ({
       ...prev,
-      items: [...prev.items, { productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
+      products: [...prev.products, { productName: "", quantity: 1, costPrice: 0 }],
     }));
   };
 
   const removeItem = (index) => {
     setFormData((prev) => ({
       ...prev,
-      items: prev.items.filter((_, i) => i !== index),
+      products: prev.products.filter((_, i) => i !== index),
     }));
   };
 
-  const orderTotal = formData.items.reduce((s, item) => s + (item.amount || 0), 0);
+  const calculateOrderAmount = () => {
+    return formData.products.reduce((s, product) => s + (Number(product.costPrice || 0) * Number(product.quantity || 1)), 0);
+  };
+
+  const orderTotal = calculateOrderAmount();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validItems = formData.items.filter(it => it.productName?.trim() && it.amount > 0);
-    if (!validItems.length) return alert("Add at least one item with a name and price");
+    const validProducts = formData.products.filter(p => p.productName?.trim() && p.costPrice > 0 && p.quantity > 0);
+    if (!validProducts.length) return alert("Add at least one product with name, cost price, and quantity");
     setSubmitting(true);
     try {
-      // Submit each item as a separate transaction (or as one combined)
-      const purpose = validItems.map(it => `${it.productName} x${it.quantity}`).join(", ");
+      const purpose = validProducts.map(p => `${p.productName} x${p.quantity}`).join(", ");
       await apiClient.post("/api/petty-cash-transactions", {
         vendor: formData.vendor,
         purpose,
@@ -193,16 +192,17 @@ export default function PettyCashTransactionPanel({
         location: formData.location,
         requestDate: formData.requestDate,
         neededBy: formData.neededBy || undefined,
+        products: validProducts, // Send products array
       });
 
       // Get vendor info for send dialog
       const vendor = vendors.find(v => v._id === formData.vendor);
-      const orderSummary = validItems.map(it => `${it.productName} × ${it.quantity} = ₦${it.amount.toLocaleString()}`).join("\n");
+      const orderSummary = validProducts.map(p => `${p.productName} × ${p.quantity} @ ₦${p.costPrice.toLocaleString()} = ₦${(p.costPrice * p.quantity).toLocaleString()}`).join("\n");
 
       setShowForm(false);
       setFormData({
         vendor: "",
-        items: [{ productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
+        products: [{ productName: "", quantity: 1, costPrice: 0 }],
         description: "",
         location: currentLocation,
         requestDate: new Date().toISOString().split("T")[0],
@@ -346,6 +346,7 @@ export default function PettyCashTransactionPanel({
         >
           <option value="">All Status</option>
           <option value="Ordered">Ordered</option>
+          <option value="Received">Received</option>
           <option value="Paid">Paid</option>
           <option value="Cancelled">Cancelled</option>
         </select>
@@ -354,7 +355,7 @@ export default function PettyCashTransactionPanel({
             setFormData(prev => ({
               ...prev,
               vendor: "",
-              items: [{ productName: "", quantity: 1, unitPrice: 0, amount: 0 }],
+              products: [{ productName: "", quantity: 1, costPrice: 0 }],
               description: "",
             }));
             setShowForm(true);
@@ -418,13 +419,12 @@ export default function PettyCashTransactionPanel({
                     const vendorProducts = (v?.products || []).map(p => ({
                       productName: p.productName || p.name || "",
                       quantity: 1,
-                      unitPrice: Number(p.price) || 0,
-                      amount: Number(p.price) || 0,
+                      costPrice: Number(p.price) || 0,
                     }));
                     setFormData(prev => ({
                       ...prev,
                       vendor: vendorId,
-                      items: vendorProducts.length > 0 ? vendorProducts : prev.items,
+                      products: vendorProducts.length > 0 ? vendorProducts : prev.products,
                     }));
                   }}
                   required
@@ -440,17 +440,17 @@ export default function PettyCashTransactionPanel({
               {/* Order Items */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-bold text-gray-700">Order Items</label>
-                  <button type="button" onClick={addItem} className="text-xs text-blue-600 font-medium hover:underline">+ Add Item</button>
+                  <label className="text-sm font-bold text-gray-700">Products to Order</label>
+                  <button type="button" onClick={addItem} className="text-xs text-blue-600 font-medium hover:underline">+ Add Product</button>
                 </div>
                 <div className="space-y-2">
-                  {formData.items.map((item, i) => (
+                  {formData.products.map((product, i) => (
                     <div key={i} className="flex gap-2 items-start p-2 bg-gray-50 rounded-lg border">
                       <div className="flex-1">
                         <input
-                          value={item.productName}
+                          value={product.productName}
                           onChange={(e) => handleItemChange(i, "productName", e.target.value)}
-                          placeholder="Product/Item name"
+                          placeholder="Product name"
                           className="w-full border rounded px-2 py-1.5 text-sm"
                           required
                         />
@@ -459,7 +459,8 @@ export default function PettyCashTransactionPanel({
                         <input
                           type="number"
                           min="1"
-                          value={item.quantity}
+                          step="0.01"
+                          value={product.quantity}
                           onChange={(e) => handleItemChange(i, "quantity", e.target.value)}
                           className="w-full border rounded px-2 py-1.5 text-sm text-center"
                           placeholder="Qty"
@@ -469,16 +470,17 @@ export default function PettyCashTransactionPanel({
                         <input
                           type="number"
                           min="0"
-                          value={item.unitPrice}
-                          onChange={(e) => handleItemChange(i, "unitPrice", e.target.value)}
+                          step="0.01"
+                          value={product.costPrice}
+                          onChange={(e) => handleItemChange(i, "costPrice", e.target.value)}
                           className="w-full border rounded px-2 py-1.5 text-sm"
-                          placeholder="Price"
+                          placeholder="Cost Price"
                         />
                       </div>
-                      <div className="w-20 text-right">
-                        <span className="text-sm font-semibold text-gray-700">₦{(item.amount || 0).toLocaleString()}</span>
+                      <div className="w-24 text-right">
+                        <span className="text-sm font-semibold text-gray-700">₦{(Number(product.costPrice || 0) * Number(product.quantity || 1)).toLocaleString()}</span>
                       </div>
-                      {formData.items.length > 1 && (
+                      {formData.products.length > 1 && (
                         <button type="button" onClick={() => removeItem(i)} className="text-red-500 text-lg leading-none mt-1">×</button>
                       )}
                     </div>
@@ -740,20 +742,20 @@ export default function PettyCashTransactionPanel({
                           Send to Vendor
                         </button>
                         <button
-                          onClick={() => runAction(tx._id, "mark-paid")}
-                          className="bg-emerald-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-emerald-700"
-                        >
-                          Mark Paid
-                        </button>
-                        <button
                           onClick={() => {
-                            if (confirm(`Mark "${tx.purpose}" as received? This will add the items to inventory.`)) {
+                            if (confirm(`Mark items from "${tx.purpose}" as received? This will add the items to inventory.`)) {
                               runAction(tx._id, "mark-received");
                             }
                           }}
                           className="bg-blue-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-blue-700"
                         >
-                          Receive
+                          Receive Items
+                        </button>
+                        <button
+                          onClick={() => runAction(tx._id, "mark-paid")}
+                          className="bg-emerald-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-emerald-700"
+                        >
+                          Mark as Paid
                         </button>
                         <button
                           onClick={() => startEditing(tx)}
@@ -772,6 +774,23 @@ export default function PettyCashTransactionPanel({
                         </button>
                       </>
                     )}
+                    {tx.status === "Received" && (
+                      <>
+                        <span className="text-xs text-green-600 font-medium px-2.5 py-1 bg-green-50 rounded">
+                          ✓ Received on {formatDate(tx.receivedAt)} by {tx.receivedBy?.name || "Unknown"}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Mark payment for "${tx.purpose}" as complete?`)) {
+                              runAction(tx._id, "mark-paid", { paymentMethod: "cash" });
+                            }
+                          }}
+                          className="bg-emerald-600 text-white px-2.5 py-1 rounded text-xs font-medium hover:bg-emerald-700"
+                        >
+                          Mark as Paid
+                        </button>
+                      </>
+                    )}
                     {(tx.status === "Cancelled" || tx.status === "Rejected") && (
                       <button
                         onClick={() => runAction(tx._id, "reopen")}
@@ -781,6 +800,26 @@ export default function PettyCashTransactionPanel({
                       </button>
                     )}
                   </div>
+
+                  {/* Display Products */}
+                  {tx.products && tx.products.length > 0 && (
+                    <div className="mt-3 pt-2 border-t">
+                      <p className="text-xs font-semibold text-gray-600 mb-1">Products:</p>
+                      <div className="space-y-1">
+                        {tx.products.map((product, idx) => (
+                          <div key={idx} className="text-xs text-gray-600">
+                            <span className="font-medium">{product.productName}</span>
+                            {" - "}
+                            <span>Qty: {product.quantity}</span>
+                            {" @ "}
+                            <span>₦{product.costPrice?.toLocaleString() || 0}</span>
+                            {" = "}
+                            <span className="font-semibold">₦{(product.costPrice * product.quantity)?.toLocaleString() || 0}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Approval History */}
                   {tx.approvalHistory?.length > 0 && (

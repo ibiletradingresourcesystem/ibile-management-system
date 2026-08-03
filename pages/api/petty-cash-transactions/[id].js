@@ -4,6 +4,7 @@ import {
   buildApprovalHistoryEntry,
   buildStaffSnapshot,
   syncPettyCashExpense,
+  updateInventoryFromPettyCashReceive,
 } from "@/lib/petty-cash-transactions";
 import PettyCashTransaction from "@/models/PettyCashTransaction";
 import Vendor from "@/models/Vendor";
@@ -203,6 +204,8 @@ export default async function handler(req, res) {
         });
       }
 
+      // Can be marked paid from Ordered, Received, or Approved status
+      const fromStatusBeforePaid = transaction.status;
       transaction.status = "Paid";
       transaction.paidAt = parseDate(paidAt, new Date()) || new Date();
       transaction.paidBy = staffSnapshot;
@@ -210,32 +213,24 @@ export default async function handler(req, res) {
         paymentMethod || transaction.paymentMethod || "transfer";
       transaction.paymentReference =
         paymentReference || transaction.paymentReference || "";
-    } else if (action === "cancel") {
-      if (transaction.status === "Paid") {
-        return res.status(400).json({
-          error: "Paid orders cannot be cancelled directly.",
-        });
-      }
-      transaction.status = "Cancelled";
-    } else if (action === "reopen") {
-      transaction.status = "Ordered";
-      transaction.paidAt = null;
-      transaction.paidBy = null;
-      transaction.paymentMethod = "";
-      transaction.paymentReference = "";
     } else if (action === "mark-received") {
-      // Mark the order as received — items delivered
+      // Mark the order as received — items delivered but not yet paid
       if (transaction.status === "Cancelled" || transaction.status === "Rejected") {
         return res.status(400).json({ error: "Cannot receive a cancelled order." });
       }
+
+      transaction.status = "Received";
       transaction.receivedAt = new Date();
       transaction.receivedBy = staffSnapshot;
-      // If not yet paid, mark as paid too since goods received
-      if (transaction.status !== "Paid") {
-        transaction.status = "Paid";
-        transaction.paidAt = new Date();
-        transaction.paidBy = staffSnapshot;
-        transaction.paymentMethod = paymentMethod || "cash";
+
+      // Update inventory: add products to stock
+      try {
+        await updateInventoryFromPettyCashReceive(transaction);
+      } catch (error) {
+        console.error("Failed to update inventory:", error);
+        return res.status(500).json({
+          error: "Items received but failed to update inventory: " + error.message,
+        });
       }
     } else {
       return res.status(400).json({ error: "Unsupported action." });

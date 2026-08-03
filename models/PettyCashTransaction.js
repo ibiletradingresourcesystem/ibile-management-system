@@ -25,6 +25,20 @@ const approvalHistorySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const productLineItemSchema = new mongoose.Schema(
+  {
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      required: true,
+    },
+    productName: { type: String, required: true, trim: true },
+    costPrice: { type: Number, required: true, min: 0, default: 0 },
+    quantity: { type: Number, required: true, min: 0.01, default: 1 },
+  },
+  { _id: false }
+);
+
 const pettyCashTransactionSchema = new mongoose.Schema(
   {
     vendor: {
@@ -49,6 +63,7 @@ const pettyCashTransactionSchema = new mongoose.Schema(
         "Pending Approval",
         "Approved",
         "Rejected",
+        "Received",
         "Paid",
         "Cancelled",
       ],
@@ -58,10 +73,13 @@ const pettyCashTransactionSchema = new mongoose.Schema(
     requestedBy: { type: staffSnapshotSchema, default: null },
     approvedAt: { type: Date, default: null },
     approvedBy: { type: staffSnapshotSchema, default: null },
+    receivedAt: { type: Date, default: null },
+    receivedBy: { type: staffSnapshotSchema, default: null },
     paidAt: { type: Date, default: null },
     paidBy: { type: staffSnapshotSchema, default: null },
     paymentMethod: { type: String, trim: true, default: "" },
     paymentReference: { type: String, trim: true, default: "" },
+    products: { type: [productLineItemSchema], default: [] },
     expense: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Expense",

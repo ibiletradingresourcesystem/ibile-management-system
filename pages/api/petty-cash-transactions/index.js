@@ -3,6 +3,7 @@ import { authMiddleware } from "@/lib/auth-middleware";
 import {
   buildApprovalHistoryEntry,
   buildStaffSnapshot,
+  processProductsFromPettyCash,
 } from "@/lib/petty-cash-transactions";
 import PettyCashTransaction from "@/models/PettyCashTransaction";
 import Vendor from "@/models/Vendor";
@@ -79,6 +80,7 @@ export default async function handler(req, res) {
         location,
         requestDate,
         neededBy,
+        products = [],
       } = req.body || {};
 
       const normalizedOrder = normalizeOrderValues({
@@ -115,6 +117,12 @@ export default async function handler(req, res) {
         email: req.user.email || "",
       };
 
+      // Process products: create if they don't exist
+      const processedProducts = await processProductsFromPettyCash(
+        products,
+        vendor._id
+      );
+
       const transaction = await PettyCashTransaction.create({
         vendor: vendor._id,
         vendorName: vendor.companyName,
@@ -129,6 +137,7 @@ export default async function handler(req, res) {
         neededBy: parseDate(neededBy, null),
         status: "Ordered",
         requestedBy: staffSnapshot,
+        products: processedProducts,
         approvalHistory: [
           buildApprovalHistoryEntry({
             action: "ordered",
