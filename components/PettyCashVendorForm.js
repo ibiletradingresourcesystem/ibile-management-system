@@ -71,6 +71,25 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
     }
   };
 
+  const handleCancel = () => {
+    // Reset form completely when canceling
+    setForm({
+      companyName: "",
+      vendorRep: "",
+      repPhone: "",
+      email: "",
+      address: "",
+      mainProduct: "",
+      businessCategory: "",
+      bankName: "",
+      accountName: "",
+      accountNumber: "",
+      products: [],
+    });
+    // Call the parent's onCancel handler
+    if (onCancel) onCancel();
+  };
+
   return (
     <form onSubmit={handleSubmit} className="bg-white rounded-xl border p-5 space-y-4">
       <h3 className="font-bold text-base">
@@ -248,8 +267,8 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
         {onCancel && (
           <button
             type="button"
-            onClick={onCancel}
-            className="flex-1 border rounded py-2 text-sm font-medium hover:bg-gray-50"
+            onClick={handleCancel}
+            className="flex-1 border rounded py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
           >
             Cancel
           </button>
