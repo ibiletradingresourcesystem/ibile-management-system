@@ -7,13 +7,12 @@ import PettyCashVendorList from "@/components/PettyCashVendorList";
 
 export default function PettyCashPage() {
   const [vendors, setVendors] = useState([]);
-  const [tab, setTab] = useState("transactions"); // transactions | vendors | addVendor | productSync
+  const [tab, setTab] = useState("transactions"); // transactions | vendors | addVendor
   const [editingVendor, setEditingVendor] = useState(null);
   const [loading, setLoading] = useState(false);
   const [userLocation, setUserLocation] = useState("");
   const [locations, setLocations] = useState([]);
   const [orderVendor, setOrderVendor] = useState(null); // vendor to pre-fill order form
-  const [syncProducts, setSyncProducts] = useState(false);
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -112,16 +111,6 @@ export default function PettyCashPage() {
               Vendor Directory ({vendors.length})
             </button>
             <button
-              onClick={() => setTab("productSync")}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                tab === "productSync"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
-              Manage Products
-            </button>
-            <button
               onClick={() => {
                 setEditingVendor(null);
                 setTab("addVendor");
@@ -178,35 +167,6 @@ export default function PettyCashPage() {
                 setTab("vendors");
               }}
             />
-          )}
-
-          {tab === "productSync" && (
-            <div className="bg-white rounded-lg border p-6">
-              <h2 className="text-lg font-bold mb-4">Product Management from Orders</h2>
-              <p className="text-sm text-gray-600 mb-4">
-                Products are automatically created when you create petty cash orders. 
-                This page shows you the status of products linked to your orders.
-              </p>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <p className="text-sm text-blue-900">
-                  <strong>How it works:</strong>
-                </p>
-                <ul className="text-sm text-blue-800 mt-2 space-y-1 ml-4 list-disc">
-                  <li>When you create a petty cash order with products, they are automatically created in the main product list</li>
-                  <li>When you mark items as "Received", the quantities are added to your inventory</li>
-                  <li>The products are linked to the vendor for easy reordering</li>
-                  <li>Products appear with a default 25% markup from the cost price</li>
-                </ul>
-              </div>
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <p className="text-sm text-green-900 font-medium">
-                  ✓ Products from petty cash orders are now being automatically created and tracked in your inventory.
-                </p>
-                <p className="text-xs text-green-800 mt-2">
-                  Go to Orders & Transactions tab to create new petty cash orders with products.
-                </p>
-              </div>
-            </div>
           )}
         </div>
       </div>

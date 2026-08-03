@@ -181,40 +181,66 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
 
       {/* Products */}
       <div className="border-t pt-3">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-semibold text-gray-500">PRODUCTS / SERVICES</p>
           <button
             type="button"
             onClick={addProduct}
-            className="text-xs text-blue-600 font-medium hover:underline"
+            className="text-xs text-blue-600 font-medium hover:underline px-2 py-1 rounded hover:bg-blue-50"
           >
             + Add Product
           </button>
         </div>
-        {form.products.map((p, i) => (
-          <div key={i} className="flex gap-2 items-center mb-2">
-            <input
-              value={p.productName || ""}
-              onChange={(e) => handleProductChange(i, "productName", e.target.value)}
-              placeholder="Product name"
-              className="flex-1 border rounded px-2 py-1.5 text-sm"
-            />
-            <input
-              type="number"
-              value={p.price || 0}
-              onChange={(e) => handleProductChange(i, "price", Number(e.target.value))}
-              placeholder="Price"
-              className="w-24 border rounded px-2 py-1.5 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => removeProduct(i)}
-              className="text-red-500 text-sm px-2 hover:bg-red-50 rounded"
-            >
-              ×
-            </button>
+        {form.products.length === 0 ? (
+          <p className="text-xs text-gray-400 py-3 text-center italic">No products added yet</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left px-2 py-2 text-xs font-semibold text-gray-600">Product Name</th>
+                  <th className="text-right px-2 py-2 text-xs font-semibold text-gray-600">Cost Price</th>
+                  <th className="text-center px-2 py-2 text-xs font-semibold text-gray-600">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {form.products.map((p, i) => (
+                  <tr key={i} className="border-b hover:bg-gray-50">
+                    <td className="px-2 py-2">
+                      <input
+                        value={p.productName || ""}
+                        onChange={(e) => handleProductChange(i, "productName", e.target.value)}
+                        placeholder="e.g. Soap, Paper, Pen"
+                        className="w-full border rounded px-2 py-1.5 text-xs"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={p.price || 0}
+                        onChange={(e) => handleProductChange(i, "price", Number(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-full border rounded px-2 py-1.5 text-xs text-right"
+                      />
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <button
+                        type="button"
+                        onClick={() => removeProduct(i)}
+                        className="inline-flex items-center justify-center w-7 h-7 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete product"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ))}
+        )}
       </div>
 
       {/* Actions */}
