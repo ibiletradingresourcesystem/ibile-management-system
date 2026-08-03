@@ -154,7 +154,7 @@ export default async function handler(req, res) {
         if (archived === "false") idFilter.isArchived = false;
         if (archived !== "true" && archived !== "false") idFilter.isArchived = { $ne: true };
 
-        const product = await Product.findOne({ _id: id, ...idFilter });
+        const product = await Product.findOne({ _id: id, ...idFilter }).populate('vendors', 'companyName');
         if (!product) {
           return res.status(404).json({
             success: false,
@@ -219,6 +219,7 @@ export default async function handler(req, res) {
       const [products, total] = await Promise.all([
         Product.find(filter)
           .select('+expiryDate')
+          .populate('vendors', 'companyName')
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
