@@ -163,6 +163,10 @@ export default function PettyCashPage() {
               editingVendor={editingVendor}
               onSubmit={editingVendor ? handleUpdateVendor : handleAddVendor}
               onCancel={() => {
+                if (editingVendor) {
+                  // If editing, delete the vendor when cancel is clicked
+                  handleDeleteVendor(editingVendor._id);
+                }
                 setEditingVendor(null);
                 setTab("vendors");
               }}

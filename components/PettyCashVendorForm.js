@@ -72,21 +72,7 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
   };
 
   const handleCancel = () => {
-    // Reset form completely when canceling
-    setForm({
-      companyName: "",
-      vendorRep: "",
-      repPhone: "",
-      email: "",
-      address: "",
-      mainProduct: "",
-      businessCategory: "",
-      bankName: "",
-      accountName: "",
-      accountNumber: "",
-      products: [],
-    });
-    // Call the parent's onCancel handler
+    // Reset form and call onCancel which should delete/navigate
     if (onCancel) onCancel();
   };
 
