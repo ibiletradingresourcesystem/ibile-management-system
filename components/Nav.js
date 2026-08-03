@@ -342,6 +342,7 @@ export default function Sidebar() {
                 </div>
                 {renderSubMenu([
                   { href: "/manage/products", label: "Product List" },
+                  { href: "/manage/product-import", label: "Import Products" },
                   { href: "/manage/archived", label: "Archived Products" },
                   { href: "/products/price-tags", label: "Price Tags" },
                   { href: "/manage/categories", label: "Categories" },
@@ -352,6 +353,7 @@ export default function Sidebar() {
                 ].filter(item => {
                   const permMap = {
                     "/manage/products": "manage.products",
+                    "/manage/product-import": "manage.products",
                     "/manage/archived": "manage.archived",
                     "/products/price-tags": "manage.products",
                     "/manage/categories": "manage.categories",
@@ -595,19 +597,12 @@ export default function Sidebar() {
                   { href: "/expenses/analysis", label: "Expenses Analysis" },
                   { href: "/expenses/categories", label: "Categories" },
                   { href: "/expenses/petty-cash", label: "Petty Cash" },
-                  { href: "/expenses/tax-analysis", label: "Tax Analysis" },
-                  {
-                    href: "/expenses/tax-personal",
-                    label: "Personal Tax Calculator",
-                  },
                 ].filter(item => {
                   const permMap = {
                     "/expenses/expenses": "expenses.entry",
                     "/expenses/analysis": "expenses.analysis",
                     "/expenses/categories": "expenses.entry",
                     "/expenses/petty-cash": "expenses.entry",
-                    "/expenses/tax-analysis": "expenses.tax-analysis",
-                    "/expenses/tax-personal": "expenses.tax-personal",
                   };
                   return canAccess(permMap[item.href] || "expenses");
                 }))}
@@ -649,12 +644,16 @@ export default function Sidebar() {
                   { href: "/accounting/journal-entries", label: "Journal Entries" },
                   { href: "/accounting/general-ledger", label: "General Ledger" },
                   { href: "/accounting/reports", label: "Financial Reports" },
+                  { href: "/accounting/tax-analysis", label: "Tax Analysis" },
+                  { href: "/accounting/tax-personal", label: "Personal Tax Calculator" },
                 ].filter(item => {
                   const permMap = {
                     "/accounting/chart-of-accounts": "accounting.chart-of-accounts",
                     "/accounting/journal-entries": "accounting.journal-entries",
                     "/accounting/general-ledger": "accounting.general-ledger",
                     "/accounting/reports": "accounting.trial-balance",
+                    "/accounting/tax-analysis": "accounting.tax-analysis",
+                    "/accounting/tax-personal": "accounting.tax-personal",
                   };
                   return canAccess(permMap[item.href] || "accounting");
                 }))}
@@ -833,6 +832,13 @@ export default function Sidebar() {
                   <li onClick={closeMenu}>
                     <Link href="/manage/products" className={`block px-8 py-3 text-sm transition-all ${(pathname === "/manage/products" || pathname.startsWith("/products")) ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
                       Product List
+                    </Link>
+                  </li>
+                  )}
+                  {canAccess("manage.products") && (
+                  <li onClick={closeMenu}>
+                    <Link href="/manage/product-import" className={`block px-8 py-3 text-sm transition-all ${pathname === "/manage/product-import" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
+                      Import Products
                     </Link>
                   </li>
                   )}
@@ -1114,7 +1120,7 @@ export default function Sidebar() {
             )}
 
             {/* Expenses Menu */}
-            {canAccessAny(["expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal"]) && (
+            {canAccessAny(["expenses", "expenses.entry", "expenses.analysis"]) && (
             <li>
               <button
                 onClick={() => toggleMenu("expenses")}
@@ -1152,27 +1158,13 @@ export default function Sidebar() {
                     </Link>
                   </li>
                   )}
-                  {canAccess("expenses.tax-analysis") && (
-                  <li onClick={closeMenu}>
-                    <Link href="/expenses/tax-analysis" className={`block px-8 py-3 text-sm transition-all ${pathname === "/expenses/tax-analysis" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
-                      Tax Analysis
-                    </Link>
-                  </li>
-                  )}
-                  {canAccess("expenses.tax-personal") && (
-                  <li onClick={closeMenu}>
-                    <Link href="/expenses/tax-personal" className={`block px-8 py-3 text-sm transition-all ${pathname === "/expenses/tax-personal" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
-                      Personal Tax Calculator
-                    </Link>
-                  </li>
-                  )}
                 </ul>
               )}
             </li>
             )}
 
             {/* Accounting */}
-            {canAccessAny(["accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.trial-balance", "accounting.profit-loss", "accounting.balance-sheet"]) && (
+            {canAccessAny(["accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.trial-balance", "accounting.profit-loss", "accounting.balance-sheet", "accounting.tax-analysis", "accounting.tax-personal"]) && (
             <li>
               <button
                 onClick={() => toggleMenu("accounting")}
@@ -1209,6 +1201,20 @@ export default function Sidebar() {
                   <li onClick={closeMenu}>
                     <Link href="/accounting/reports" className={`block px-8 py-3 text-sm transition-all ${pathname === "/accounting/reports" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
                       Financial Reports
+                    </Link>
+                  </li>
+                  )}
+                  {canAccess("accounting.tax-analysis") && (
+                  <li onClick={closeMenu}>
+                    <Link href="/accounting/tax-analysis" className={`block px-8 py-3 text-sm transition-all ${pathname === "/accounting/tax-analysis" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
+                      Tax Analysis
+                    </Link>
+                  </li>
+                  )}
+                  {canAccess("accounting.tax-personal") && (
+                  <li onClick={closeMenu}>
+                    <Link href="/accounting/tax-personal" className={`block px-8 py-3 text-sm transition-all ${pathname === "/accounting/tax-personal" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
+                      Personal Tax Calculator
                     </Link>
                   </li>
                   )}

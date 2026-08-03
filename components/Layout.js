@@ -45,9 +45,9 @@ const ROUTE_PERMISSIONS = {
   "/reporting": "reporting",
   "/expenses/expenses": "expenses.entry",
   "/expenses/analysis": "expenses.analysis",
-  "/expenses/tax-analysis": "expenses.tax-analysis",
-  "/expenses/tax-personal": "expenses.tax-personal",
   "/expenses": "expenses",
+  "/accounting/tax-analysis": "accounting.tax-analysis",
+  "/accounting/tax-personal": "accounting.tax-personal",
   "/support": "support",
 };
 
