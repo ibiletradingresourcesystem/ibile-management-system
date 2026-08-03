@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     try {
       const { active, vendorType, includePettyCash } = req.query;
       const filter = {};
-      if (active === "true") filter.isActive = true;
+      if (active === "true") filter.isActive = { $ne: false };
       if (vendorType) {
         filter.vendorType = vendorType;
       } else if (includePettyCash !== "true") {

@@ -33,13 +33,18 @@ export default async function handler(req, res) {
 
     if (store || user) {
       const authError = authMiddleware(req, res);
-      if (authError) return authError;
+      if (authError) return;
       if (!isStaff(req)) {
-        return res
-          .status(403)
-          .json({ success: false, message: "Insufficient permissions" });
+        if (!res.writableEnded) {
+          return res
+            .status(403)
+            .json({ success: false, message: "Insufficient permissions" });
+        }
+        return;
       }
     }
+
+    if (res.writableEnded) return;
 
     return res.status(200).json({
       store: store ? store.toObject() : null,
