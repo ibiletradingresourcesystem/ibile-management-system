@@ -299,7 +299,7 @@ export default function ExpenseAnalysisPage() {
                   <div key={exp._id} className="border-b border-gray-100 pb-2">
                     <p className="font-medium text-sm text-gray-900">{exp.title}</p>
                     <p className="text-xs text-gray-500">
-                      {formatCurrency(exp.amount)} - {exp.categoryName} - {exp.locationName || "—"}
+                      {formatCurrency(exp.amount)} - {exp.categoryName === "Petty Cash" ? "Petty Cash Vendor" : exp.categoryName} - {exp.locationName || "—"}
                     </p>
                     <p className="text-xs text-gray-400">{formatDate(exp.createdAt)}</p>
                   </div>
@@ -310,34 +310,6 @@ export default function ExpenseAnalysisPage() {
               <button onClick={() => setShowAllExpenses(!showAllExpenses)} className="mt-3 text-xs text-blue-600 hover:underline flex items-center gap-1">
                 {showAllExpenses ? <><ChevronUp className="w-3 h-3" /> Show less</> : <><ChevronDown className="w-3 h-3" /> Show all ({filteredExpenses.length})</>}
               </button>
-            )}
-          </div>
-        </div>
-
-        {/* Daily Cash Report */}
-        <div className="content-card mb-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">💰 Daily Cash Report</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {locations.length === 1 ? (
-              <div className="md:col-span-2">
-                <h3 className="font-semibold text-sm text-gray-700 mb-2">🏪 {locations[0]}</h3>
-                {reports[locations[0]] ? (
-                  <EndOfDayCard location={locations[0]} report={reports[locations[0]]} />
-                ) : (
-                  <p className="text-xs text-gray-400 italic">No daily cash records for {locations[0]}</p>
-                )}
-              </div>
-            ) : (
-              locations.map(loc => (
-                <div key={loc}>
-                  <h3 className="font-semibold text-sm text-gray-700 mb-2">🏪 {loc}</h3>
-                  {reports[loc] ? (
-                    <EndOfDayCard location={loc} report={reports[loc]} />
-                  ) : (
-                    <p className="text-xs text-gray-400 italic">No daily cash records for {loc}</p>
-                  )}
-                </div>
-              ))
             )}
           </div>
         </div>
@@ -441,18 +413,5 @@ export default function ExpenseAnalysisPage() {
         </div>
       </div>
     </Layout>
-  );
-}
-
-function EndOfDayCard({ location, report }) {
-  if (!report) return null;
-  return (
-    <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-      <div className="flex justify-between"><span className="text-gray-600">Cash B/F</span><span>{formatCurrency(report.cashBroughtForward || 0)}</span></div>
-      <div className="flex justify-between"><span className="text-gray-600">Cash Received</span><span>{formatCurrency(report.cashReceived || 0)}</span></div>
-      <div className="flex justify-between"><span className="text-gray-600">Total Available</span><span>{formatCurrency(report.totalCashAvailable || 0)}</span></div>
-      <div className="flex justify-between"><span className="text-gray-600">Payments</span><span className="text-red-600">-{formatCurrency(report.totalPayments || 0)}</span></div>
-      <div className="flex justify-between font-bold border-t pt-1"><span className="text-green-700">Cash at Hand</span><span className="text-green-700">{formatCurrency(report.cashAtHand || 0)}</span></div>
-    </div>
   );
 }

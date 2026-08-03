@@ -999,7 +999,9 @@ export default function Home() {
               <ListCard
                 title="Expenses"
                 items={filteredExpenses.map((expense) => ({
-                  label: expense.title,
+                  label: expense.title?.startsWith("Petty Cash - ")
+                    ? expense.title.replace(/^Petty Cash - /, "").split(":")[0].trim() + " Purchase"
+                    : expense.title,
                   meta: formatCurrency(expense.amount),
                 }))}
               />

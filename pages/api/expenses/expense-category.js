@@ -5,7 +5,7 @@ const defaultCategories = [
   "Power/Utilities",
     "Logistics (Tansportation)",
     "Repairs/Maintenance",
-    "Petty Cash",
+    "Petty Cash Vendor",
     "Supplies/Stock Purchase",
 ];
 

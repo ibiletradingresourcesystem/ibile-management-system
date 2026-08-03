@@ -270,7 +270,7 @@ export default function ExpensesPage() {
                           <span className="text-green-600">●</span> {exp.locationName || "—"} &nbsp;📅 {formatDate(exp.createdAt)}
                         </p>
                         <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium uppercase">{exp.categoryName}</span>
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium uppercase">{exp.categoryName === "Petty Cash" ? "Petty Cash Vendor" : exp.categoryName}</span>
                           <span className="text-xs text-gray-400">Entered by: {exp.staffName || "—"}</span>
                         </div>
                         <div className="flex gap-2 mt-2">
