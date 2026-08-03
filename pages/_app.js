@@ -85,7 +85,7 @@ function installGlobalApiFetchWrapper() {
     if (isApiRequest && response.status === 401) {
       // Avoid redirect loops if already on `login` or `register`
       const path = window.location.pathname;
-      if (!path.includes("/login") && !path.includes("/register")) {
+      if (!path.includes("/login") && !path.includes("/register") && !path.includes("/stock-take-mobile/") && !path.includes("/onboarding/")) {
         localStorage.removeItem("auth_token");
         localStorage.removeItem("user");
         window.location.href = "/login";
@@ -118,7 +118,7 @@ function installAxiosAuthInterceptor() {
         localStorage.removeItem("auth_token");
         localStorage.removeItem("user");
         const path = window.location.pathname;
-        if (!path.includes("/login") && !path.includes("/register")) {
+        if (!path.includes("/login") && !path.includes("/register") && !path.includes("/stock-take-mobile/") && !path.includes("/onboarding/")) {
           window.location.href = "/login";
         }
       }
@@ -134,7 +134,7 @@ export default function App({
   pageProps,
 }) {
   const router = useRouter();
-  const noLayoutPaths = ['/login', '/register', '/memo/', '/onboarding/'];
+  const noLayoutPaths = ['/login', '/register', '/memo/', '/onboarding/', '/stock-take-mobile/'];
   const showLayout = !noLayoutPaths.some(p => router.pathname.includes(p));
 
   installGlobalApiFetchWrapper();
