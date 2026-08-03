@@ -18,6 +18,7 @@ import {
   faSearch,
   faFileExport,
   faFilter,
+  faLink,
 } from "@fortawesome/free-solid-svg-icons";
 
 const EMPTY_CREATE_FORM = {
@@ -403,16 +404,33 @@ export default function StockTakeList() {
                               {new Date(st.createdAt).toLocaleDateString()}
                             </td>
                             <td className="py-3 px-3 text-right">
-                              <button
-                                onClick={() => router.push(`/stock/stock-take/${st._id}`)}
-                                className="inline-flex items-center gap-2 theme-accent-text transition-opacity hover:opacity-75 px-2 py-1 rounded"
-                                title={canResume ? "Resume Stock Take" : "View Details"}
-                              >
-                                <FontAwesomeIcon icon={canResume ? faPlay : faEye} className="w-4 h-4" />
-                                <span className="hidden md:inline text-xs font-semibold uppercase tracking-wide">
-                                  {canResume ? "Resume" : "View"}
-                                </span>
-                              </button>
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    const url = `${window.location.origin}/stock-take-mobile/${st._id}`;
+                                    navigator.clipboard.writeText(url).then(() => {
+                                      alert("Mobile stock take link copied!");
+                                    }).catch(() => {
+                                      prompt("Copy this link:", url);
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1 text-gray-500 hover:text-blue-600 transition-colors px-2 py-1 rounded"
+                                  title="Copy mobile stock take link"
+                                >
+                                  <FontAwesomeIcon icon={faLink} className="w-3.5 h-3.5" />
+                                  <span className="hidden md:inline text-xs font-semibold uppercase tracking-wide">Link</span>
+                                </button>
+                                <button
+                                  onClick={() => router.push(`/stock/stock-take/${st._id}`)}
+                                  className="inline-flex items-center gap-2 theme-accent-text transition-opacity hover:opacity-75 px-2 py-1 rounded"
+                                  title={canResume ? "Resume Stock Take" : "View Details"}
+                                >
+                                  <FontAwesomeIcon icon={canResume ? faPlay : faEye} className="w-4 h-4" />
+                                  <span className="hidden md:inline text-xs font-semibold uppercase tracking-wide">
+                                    {canResume ? "Resume" : "View"}
+                                  </span>
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
