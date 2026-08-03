@@ -146,7 +146,7 @@ export default function ProductForm(props) {
 
   // Load vendors
   useEffect(() => {
-    axios.get("/api/vendors?active=true")
+    axios.get("/api/vendors?active=true&includePettyCash=true")
       .then((res) => {
         const list = res.data?.vendors || res.data;
         setAllVendors(Array.isArray(list) ? list : []);
