@@ -68,6 +68,7 @@ export default function ExpenseAnalysisPage() {
   // Daily cash report
   const [reports, setReports] = useState({});
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [dailyCashEntries, setDailyCashEntries] = useState({});
 
   // Expense list
   const [showAllExpenses, setShowAllExpenses] = useState(false);
@@ -79,6 +80,7 @@ export default function ExpenseAnalysisPage() {
   useEffect(() => {
     if (locations.length > 0) {
       fetchReports();
+      fetchDailyCashEntries();
     }
   }, [selectedDate, locations]);
 
@@ -115,6 +117,20 @@ export default function ExpenseAnalysisPage() {
       }
     }
     setReports(reportData);
+  }
+
+  async function fetchDailyCashEntries() {
+    const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
+    const entries = {};
+    for (const loc of locations) {
+      try {
+        const res = await fetch(`/api/daily-cash?location=${encodeURIComponent(loc)}`, { headers });
+        if (res.ok) entries[loc] = await res.json();
+      } catch (err) {
+        console.error(`Daily cash fetch failed for ${loc}:`, err);
+      }
+    }
+    setDailyCashEntries(entries);
   }
 
   // === Filtering ===
@@ -314,7 +330,10 @@ export default function ExpenseAnalysisPage() {
           </div>
         </div>
 
-        {/* End of Day Report - Detailed */}
+        {/* End of Day + Daily Cash side by side */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* End of Day Report - Detailed (takes 2 cols) */}
+          <div className="lg:col-span-2">
         {locations.map(loc => (
           <div key={loc} className="content-card mb-6">
             <div className="flex justify-between items-start mb-4">
@@ -410,6 +429,32 @@ export default function ExpenseAnalysisPage() {
             )}
           </div>
         ))}
+          </div>
+
+          {/* Daily Cash Report */}
+          <div className="lg:col-span-1">
+            <div className="content-card">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">💰 Daily Cash Report</h2>
+              {locations.map(loc => (
+                <div key={loc} className="mb-4">
+                  <h3 className="font-semibold text-sm text-blue-700 mb-2 flex items-center gap-1">🏪 {loc}</h3>
+                  {dailyCashEntries[loc]?.length > 0 ? (
+                    <div className="max-h-[300px] overflow-y-auto space-y-1">
+                      {dailyCashEntries[loc].map(entry => (
+                        <div key={entry._id} className="flex justify-between items-center bg-blue-50 rounded px-3 py-2 text-sm">
+                          <span className="text-gray-700 flex items-center gap-1">🏪 {new Date(entry.date).toISOString().split("T")[0]}</span>
+                          <span className="font-bold text-blue-800">{formatCurrency(entry.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 italic">No daily cash entries.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
         </div>
       </div>
     </Layout>
