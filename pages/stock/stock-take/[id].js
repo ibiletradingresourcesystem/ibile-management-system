@@ -702,6 +702,22 @@ export default function StockTakeDetail() {
                 </span>
               )}
               {hasItems && (
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/stock-take-mobile/${id}`;
+                    navigator.clipboard.writeText(url).then(() => {
+                      showMsg("success", "Mobile stock take link copied to clipboard");
+                    }).catch(() => {
+                      prompt("Copy this link:", url);
+                    });
+                  }}
+                  className="btn-action flex items-center gap-2 text-sm"
+                >
+                  <FontAwesomeIcon icon={faClipboardList} className="w-3.5 h-3.5" />
+                  Copy Mobile Link
+                </button>
+              )}
+              {hasItems && (
                 <button onClick={exportCSV} className="btn-action flex items-center gap-2 text-sm">
                   <FontAwesomeIcon icon={faDownload} className="w-3.5 h-3.5" />
                   Export CSV

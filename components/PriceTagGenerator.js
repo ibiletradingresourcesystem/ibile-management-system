@@ -16,7 +16,12 @@ function escapeHtml(str) {
 }
 
 function buildBarcodeValue(product, index) {
-  if (product.barcode) return String(product.barcode).trim();
+  if (product.barcode) {
+    // Use only the first barcode if multiple exist (comma or space separated)
+    const raw = String(product.barcode).trim();
+    const first = raw.split(/[,;\s|]+/)[0].trim();
+    if (first) return first;
+  }
   const prefix = "IBIL";
   const idx = String(index).padStart(3, "0");
   const nameChars = String(product.name || "")
@@ -525,7 +530,7 @@ function PriceTag({ tag, currency, brandName, size, tagIdx }) {
           style={{ width: "90%", height: "18px" }}
           data-barcode={barcodeValue}
         />
-        <p className="text-[5px] text-gray-500 font-mono mt-0.5 leading-none">
+        <p className="text-[7px] text-gray-600 font-mono mt-0.5 leading-none font-semibold">
           {barcodeValue}
         </p>
       </div>
@@ -621,7 +626,7 @@ function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange
                             <p className="text-[8px] font-extrabold text-gray-900 text-center border-y border-dashed border-gray-200 py-0.5 my-0.5">{formatPrice(tag.price, currency)}</p>
                             <div className="text-center">
                               <svg className="tag-barcode" style={{ width: "80%", height: "10px", margin: "0 auto", display: "block" }} data-barcode={barcodeValue} />
-                              <p className="text-[4px] text-gray-400 font-mono">{barcodeValue}</p>
+                              <p className="text-[5px] text-gray-600 font-mono font-semibold">{barcodeValue}</p>
                             </div>
                           </div>
                         );
