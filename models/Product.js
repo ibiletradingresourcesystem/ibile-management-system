@@ -98,7 +98,7 @@ const ProductSchema = new Schema(
     /* =====================
        WEB / STOREFRONT VISIBILITY
     ===================== */
-    showOnWeb: { type: Boolean, default: false },
+    showOnWeb: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

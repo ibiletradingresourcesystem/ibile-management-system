@@ -1,12 +1,14 @@
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
+import PriceTagGenerator from "@/components/PriceTagGenerator";
 import { formatCurrency } from "@/lib/format";
 
 export default function MovementDetails() {
   const router = useRouter();
   const { id } = router.query;
   const [movement, setMovement] = useState(null);
+  const [showPriceTags, setShowPriceTags] = useState(false);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -84,10 +86,32 @@ if (!movement)
           <h1 className="page-title">
             Stock Movement Details
           </h1>
-          <button className="btn-action btn-action-primary">
-            PRINT LABELS
+          <button
+            onClick={() => setShowPriceTags(!showPriceTags)}
+            className="btn-action btn-action-primary"
+          >
+            {showPriceTags ? "HIDE PRICE TAGS" : "PRINT PRICE TAGS"}
           </button>
         </div>
+
+        {/* Price Tag Generator Section */}
+        {showPriceTags && (
+          <div className="content-card mb-6 p-4">
+            <h3 className="text-sm font-bold text-gray-700 mb-3">
+              Generate Price Tags for this Stock Movement
+            </h3>
+            <PriceTagGenerator
+              products={products.map((p) => ({
+                _id: p.productId,
+                name: p.productName || "N/A",
+                salePriceIncTax: p.salePrice || p.costPrice || 0,
+                costPrice: p.costPrice || 0,
+                barcode: p.barcode || "",
+              }))}
+            />
+          </div>
+        )}
+
         <div id="print-section">
           <div className="content-card mb-6 overflow-hidden p-0">
             <div className="p-4 bg-gray-50 border-b font-semibold text-sm text-gray-700">

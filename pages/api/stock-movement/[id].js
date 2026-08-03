@@ -60,6 +60,8 @@ export default async function handler(req, res) {
               productName: product?.name || "N/A",
               quantity: p.quantity,
               costPrice: product?.costPrice || 0,
+              salePrice: product?.salePriceIncTax || 0,
+              barcode: product?.barcode || "",
             };
           })
         );
