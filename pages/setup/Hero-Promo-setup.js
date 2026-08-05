@@ -258,7 +258,7 @@ export default function HeroPromoSetup() {
   function addSocialLink() {
     setSocialLinks((previous) => [
       ...previous,
-      normalizeSocialLink({ platform: "Instagram", scope: "warehouse" }, previous.length),
+      normalizeSocialLink({ platform: "Instagram", scope: "both" }, previous.length),
     ]);
   }
 
@@ -517,7 +517,7 @@ export default function HeroPromoSetup() {
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">Social Media Details</h2>
-                  <p className="mt-1 text-sm text-gray-500">Choose which links show on the warehouse/e-commerce site, the hotel site, or both.</p>
+                  <p className="mt-1 text-sm text-gray-500">Social links will appear on the website footer and contact sections.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={addSocialLink} className="btn-action-secondary">Add Social Link</button>
@@ -531,12 +531,9 @@ export default function HeroPromoSetup() {
               ) : (
                 <div className="space-y-3">
                   {socialLinks.map((link, index) => (
-                    <div key={index} className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-3 lg:grid-cols-[150px_170px_1fr_1fr_1.2fr_auto_auto] lg:items-center">
+                    <div key={index} className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 p-3 lg:grid-cols-[150px_1fr_1fr_1.2fr_auto_auto] lg:items-center">
                       <select value={link.platform || "Instagram"} onChange={(event) => updateSocialLink(index, "platform", event.target.value)} className="form-select">
                         {SOCIAL_PLATFORMS.map((platform) => <option key={platform} value={platform}>{platform}</option>)}
-                      </select>
-                      <select value={normalizeSocialScope(link.scope)} onChange={(event) => updateSocialLink(index, "scope", event.target.value)} className="form-select">
-                        {SOCIAL_SCOPES.map((scope) => <option key={scope.value} value={scope.value}>{scope.label}</option>)}
                       </select>
                       <input value={link.label || ""} onChange={(event) => updateSocialLink(index, "label", event.target.value)} className="form-input" placeholder="Label" />
                       <input value={link.handle || ""} onChange={(event) => updateSocialLink(index, "handle", event.target.value)} className="form-input" placeholder="Handle" />
