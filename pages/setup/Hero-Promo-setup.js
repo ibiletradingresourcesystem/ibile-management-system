@@ -27,6 +27,7 @@ const emptyForm = {
   linkedCampaign: "",
   startDate: "",
   endDate: "",
+  indefinite: false,
   order: 0,
   status: "active",
 };
@@ -114,8 +115,8 @@ function scheduleFor(hero) {
   const record = linkedRecord(hero);
   return {
     startDate: record?.startDate || hero.startDate,
-    endDate: record?.indefinite ? null : record?.endDate || hero.endDate,
-    indefinite: Boolean(record?.indefinite),
+    endDate: (hero.indefinite || record?.indefinite) ? null : (record?.endDate || hero.endDate),
+    indefinite: Boolean(hero.indefinite || record?.indefinite),
   };
 }
 
@@ -146,7 +147,8 @@ function formFromHero(hero) {
     linkedPromotion: getRecordId(hero.linkedPromotion),
     linkedCampaign: getRecordId(hero.linkedCampaign),
     startDate: toDateInput(hero.startDate),
-    endDate: toDateInput(hero.endDate),
+    endDate: hero.indefinite ? "" : toDateInput(hero.endDate),
+    indefinite: Boolean(hero.indefinite),
     order: hero.order || 0,
     status: hero.status || "active",
   };
@@ -323,7 +325,8 @@ export default function HeroPromoSetup() {
       linkedPromotion: isPromotionBannerType(form.bannerType) ? form.linkedPromotion : null,
       linkedCampaign: null,
       startDate: form.startDate || null,
-      endDate: form.endDate || null,
+      endDate: form.indefinite ? null : (form.endDate || null),
+      indefinite: form.indefinite,
       order: form.order,
       status: form.status,
     };
@@ -473,13 +476,31 @@ export default function HeroPromoSetup() {
                 />
               </Field>
               <Field label="End Date">
-                <input
-                  type="date"
-                  value={scheduleLocked && selectedPromotion ? (selectedPromotion.indefinite ? "" : toDateInput(selectedPromotion.endDate)) : form.endDate}
-                  onChange={(event) => updateForm("endDate", event.target.value)}
-                  disabled={scheduleLocked}
-                  className="form-input disabled:bg-gray-100"
-                />
+                {form.indefinite && !scheduleLocked ? (
+                  <input type="text" value="Never expires" disabled className="form-input bg-gray-100 text-gray-500" />
+                ) : (
+                  <input
+                    type="date"
+                    value={scheduleLocked && selectedPromotion ? (selectedPromotion.indefinite ? "" : toDateInput(selectedPromotion.endDate)) : form.endDate}
+                    onChange={(event) => updateForm("endDate", event.target.value)}
+                    disabled={scheduleLocked || form.indefinite}
+                    className="form-input disabled:bg-gray-100"
+                  />
+                )}
+                {!scheduleLocked && (
+                  <label className="mt-2 inline-flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.indefinite}
+                      onChange={(event) => {
+                        updateForm("indefinite", event.target.checked);
+                        if (event.target.checked) updateForm("endDate", "");
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-sky-600"
+                    />
+                    Indefinite (Never Expires)
+                  </label>
+                )}
               </Field>
               <Field label="Display Order">
                 <input type="number" value={form.order} onChange={(event) => updateForm("order", Number(event.target.value))} className="form-input" />
@@ -601,23 +622,46 @@ function Uploader({ label, inputRef, progress, images, onUpload, onRemove }) {
 
 function HeroCard({ hero, onEdit, onDelete }) {
   const period = scheduleFor(hero);
-  const image = hero.bgImage?.[0]?.full || hero.image?.[0]?.full;
+  const bgImg = hero.bgImage?.[0]?.full;
+  const heroImg = hero.image?.[0]?.full;
+  const state = scheduleState(hero);
 
   return (
     <article className="content-card overflow-hidden p-0">
-      <div className="relative min-h-[220px] bg-gray-900">
-        {image && <img src={image} alt={hero.title} className="absolute inset-0 h-full w-full object-cover opacity-70" />}
-        <div className="relative p-5 text-white">
-          <div className="mb-4 flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-full bg-white/90 px-3 py-1 text-gray-800 capitalize">{hero.bannerType}</span>
-            <span className="rounded-full bg-white/90 px-3 py-1 text-gray-800">{scheduleState(hero)}</span>
+      {/* Web-like hero preview */}
+      <div
+        className="relative overflow-hidden"
+        style={{
+          minHeight: 240,
+          background: bgImg ? undefined : "linear-gradient(135deg, #1b3a4b 0%, #274c5e 50%, #1f4050 100%)",
+        }}
+      >
+        {bgImg && <img src={bgImg} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+        {bgImg && <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(0,0,0,0.55), rgba(0,0,0,0.15) 60%, transparent)" }} />}
+        <div className="relative flex items-center gap-6 p-6" style={{ minHeight: 240 }}>
+          <div className="flex-1 min-w-0">
+            <div className="mb-3 flex flex-wrap gap-2 text-xs font-semibold">
+              <span className="rounded bg-white/20 px-2.5 py-1 text-white capitalize">{hero.bannerType}</span>
+              <span className={`rounded px-2.5 py-1 text-white ${state === "Live" ? "bg-green-600/80" : state === "Queued" ? "bg-amber-600/80" : "bg-gray-600/80"}`}>{state}</span>
+            </div>
+            <h2 className="text-2xl font-bold text-white leading-tight">{hero.title}</h2>
+            {hero.subtitle && <p className="mt-2 text-sm text-white/85 max-w-md">{hero.subtitle}</p>}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {hero.ctaText && (
+                <span className="inline-flex items-center gap-1.5 rounded bg-white px-4 py-2 text-xs font-bold text-gray-800">
+                  {hero.ctaText} →
+                </span>
+              )}
+            </div>
+            <p className="mt-4 text-xs text-white/60">
+              {dateLabel(period.startDate)} — {period.indefinite ? "Never expires" : dateLabel(period.endDate)}
+            </p>
           </div>
-          <p className="text-xs uppercase tracking-wide text-white/80">{linkedLabel(hero)}</p>
-          <h2 className="mt-1 text-2xl font-bold">{hero.title}</h2>
-          <p className="mt-2 max-w-xl text-sm text-white/90">{hero.subtitle}</p>
-          <p className="mt-4 text-xs text-white/80">
-            {dateLabel(period.startDate)} to {period.indefinite ? "Indefinite" : dateLabel(period.endDate)}
-          </p>
+          {heroImg && !bgImg && (
+            <div className="hidden sm:block flex-none">
+              <img src={heroImg} alt="" className="h-40 w-40 object-contain rounded" />
+            </div>
+          )}
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 p-4">
