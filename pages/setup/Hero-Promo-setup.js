@@ -20,7 +20,7 @@ const emptyForm = {
   image: [],
   bgImage: [],
   ctaText: "Shop Now",
-  ctaLink: "/store/products",
+  ctaLink: "/products",
   targetSystem: "ecommerce",
   bannerType: "standard",
   linkedPromotion: "",
@@ -461,7 +461,17 @@ export default function HeroPromoSetup() {
                     ))}
                   </select>
                 ) : (
-                  <input value={form.ctaLink} onChange={(event) => updateForm("ctaLink", event.target.value)} className="form-input" placeholder="/store/products" />
+                  <select value={form.ctaLink} onChange={(event) => updateForm("ctaLink", event.target.value)} className="form-select">
+                    <option value="/products">All Products</option>
+                    <option value="/products?filter=featured">Featured Products</option>
+                    <option value="/products?filter=new">New Arrivals</option>
+                    <option value="/products?filter=sale">On Sale</option>
+                    {activePromotions.map((promotion) => (
+                      <option key={promotion._id} value={`/products?promotion=${promotion._id}`}>
+                        {promotion.name} (Promotion)
+                      </option>
+                    ))}
+                  </select>
                 )}
               </Field>
             </div>
