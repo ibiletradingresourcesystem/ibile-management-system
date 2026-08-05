@@ -21,7 +21,7 @@ const emptyForm = {
   bgImage: [],
   ctaText: "Shop Now",
   ctaLink: "/products",
-  targetSystem: "ecommerce",
+  targetSystem: "both",
   bannerType: "standard",
   linkedPromotion: "",
   linkedCampaign: "",
@@ -100,9 +100,8 @@ function promotionCtaLabel(type) {
   return type === "campaign" ? "Shop Campaign" : "Shop Promotion";
 }
 
-function buildPromotionCtaLink(promotionId, targetSystem) {
-  const basePath = targetSystem === "web" ? "/hotel/products" : "/store/products";
-  return promotionId ? `${basePath}?promotion=${promotionId}` : basePath;
+function buildPromotionCtaLink(promotionId) {
+  return promotionId ? `/products?promotion=${promotionId}` : "/products";
 }
 
 function linkedRecord(hero) {
@@ -141,8 +140,8 @@ function formFromHero(hero) {
     image: hero.image || [],
     bgImage: hero.bgImage || [],
     ctaText: hero.ctaText || "Shop Now",
-    ctaLink: hero.ctaLink || "/store/products",
-    targetSystem: hero.targetSystem || "ecommerce",
+    ctaLink: hero.ctaLink || "/products",
+    targetSystem: "both",
     bannerType: hero.bannerType || "standard",
     linkedPromotion: getRecordId(hero.linkedPromotion),
     linkedCampaign: getRecordId(hero.linkedCampaign),
@@ -202,13 +201,7 @@ export default function HeroPromoSetup() {
   }
 
   function updateForm(field, value) {
-    setForm((previous) => {
-      const next = { ...previous, [field]: value };
-      if (field === "targetSystem" && isPromotionBannerType(previous.bannerType) && previous.linkedPromotion) {
-        next.ctaLink = buildPromotionCtaLink(previous.linkedPromotion, value);
-      }
-      return next;
-    });
+    setForm((previous) => ({ ...previous, [field]: value }));
   }
 
   async function uploadImage(file, field, setProgress) {
@@ -241,7 +234,7 @@ export default function HeroPromoSetup() {
       linkedPromotion: "",
       linkedCampaign: "",
       ctaText: value === "standard" ? "Shop Now" : previous.ctaText,
-      ctaLink: value === "standard" ? "/store/products" : buildPromotionCtaLink("", previous.targetSystem),
+      ctaLink: value === "standard" ? "/products" : buildPromotionCtaLink(""),
       startDate: value === "standard" ? previous.startDate : "",
       endDate: value === "standard" ? previous.endDate : "",
     }));
@@ -256,7 +249,7 @@ export default function HeroPromoSetup() {
       title: previous.title || promotion?.name || "",
       subtitle: previous.subtitle || promotion?.description || "",
       ctaText: promotionCtaLabel(previous.bannerType),
-      ctaLink: buildPromotionCtaLink(id, previous.targetSystem),
+      ctaLink: buildPromotionCtaLink(id),
       startDate: toDateInput(promotion?.startDate),
       endDate: promotion?.indefinite ? "" : toDateInput(promotion?.endDate),
     }));
@@ -404,14 +397,7 @@ export default function HeroPromoSetup() {
               {editId && <button onClick={resetForm} className="btn-action-secondary">Cancel Edit</button>}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Field label="Target System">
-                <select value={form.targetSystem} onChange={(event) => updateForm("targetSystem", event.target.value)} className="form-select">
-                  <option value="ecommerce">E-commerce</option>
-                  <option value="web">Web</option>
-                  <option value="both">Both</option>
-                </select>
-              </Field>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Banner Source">
                 <select value={form.bannerType} onChange={(event) => selectBannerType(event.target.value)} className="form-select">
                   <option value="standard">Standard hero</option>
@@ -453,9 +439,9 @@ export default function HeroPromoSetup() {
               <Field label="CTA Link">
                 {isPromotionBannerType(form.bannerType) ? (
                   <select value={form.ctaLink} onChange={(event) => updateForm("ctaLink", event.target.value)} className="form-select">
-                    <option value={buildPromotionCtaLink("", form.targetSystem)}>Product list</option>
+                    <option value={buildPromotionCtaLink("")}>Product list</option>
                     {activePromotions.map((promotion) => (
-                      <option key={promotion._id} value={buildPromotionCtaLink(promotion._id, form.targetSystem)}>
+                      <option key={promotion._id} value={buildPromotionCtaLink(promotion._id)}>
                         {promotion.name} product list
                       </option>
                     ))}
@@ -626,7 +612,6 @@ function HeroCard({ hero, onEdit, onDelete }) {
         {image && <img src={image} alt={hero.title} className="absolute inset-0 h-full w-full object-cover opacity-70" />}
         <div className="relative p-5 text-white">
           <div className="mb-4 flex flex-wrap gap-2 text-xs font-semibold">
-            <span className="rounded-full bg-white/90 px-3 py-1 text-gray-800 capitalize">{hero.targetSystem}</span>
             <span className="rounded-full bg-white/90 px-3 py-1 text-gray-800 capitalize">{hero.bannerType}</span>
             <span className="rounded-full bg-white/90 px-3 py-1 text-gray-800">{scheduleState(hero)}</span>
           </div>
