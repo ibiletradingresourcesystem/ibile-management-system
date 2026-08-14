@@ -1,6 +1,8 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import DailyCash from "@/models/DailyCash";
 import Expense from "@/models/Expense";
+import EndOfDayReport from "@/models/EndOfDayReport";
+import Store from "@/models/Store";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 
 export default async function handler(req, res) {
@@ -24,6 +26,21 @@ export default async function handler(req, res) {
     date: { $gte: targetDate, $lt: nextDay },
   }).lean();
 
+  // Fallback: derive cash received from closed EOD report when no DailyCash amount
+  let cashReceived = cashEntry?.amount || 0;
+  if (cashReceived === 0) {
+    const store = await Store.findOne({}).select("locations").lean();
+    const storeLocation = store?.locations?.find((l) => l.name === location);
+    if (storeLocation) {
+      const eodReport = await EndOfDayReport.findOne({
+        locationId: storeLocation._id,
+        closedAt: { $ne: null },
+        date: { $gte: targetDate, $lt: nextDay },
+      }).select("tenderBreakdown").lean();
+      cashReceived = eodReport?.tenderBreakdown?.CASH || 0;
+    }
+  }
+
   // Get previous day's cash at hand
   const prevCash = await DailyCash.findOne({
     location,
@@ -31,7 +48,6 @@ export default async function handler(req, res) {
   }).sort({ date: -1 }).lean();
 
   const cashBroughtForward = prevCash?.cashAtHand || 0;
-  const cashReceived = cashEntry?.amount || 0;
   const totalCashAvailable = cashBroughtForward + cashReceived;
 
   // Get expenses for the day
@@ -43,9 +59,20 @@ export default async function handler(req, res) {
   const totalPayments = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const cashAtHand = totalCashAvailable - totalPayments;
 
-  // Update the cash entry record if it exists
+  // Update existing entry or create one from EOD data so the carried-forward chain builds up
   if (cashEntry) {
     await DailyCash.findByIdAndUpdate(cashEntry._id, {
+      cashBroughtForward,
+      totalPayments,
+      totalCashAvailable,
+      cashAtHand,
+    });
+  } else if (cashReceived > 0) {
+    await DailyCash.create({
+      date: targetDate,
+      amount: cashReceived,
+      location,
+      source: "pos",
       cashBroughtForward,
       totalPayments,
       totalCashAvailable,
