@@ -56,7 +56,7 @@ export default function CompletedTransactions() {
   const [locationFilter, setLocationFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [locations, setLocations] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(() => getReportDateKey(new Date()));
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [showBarcode, setShowBarcode] = useState(false);

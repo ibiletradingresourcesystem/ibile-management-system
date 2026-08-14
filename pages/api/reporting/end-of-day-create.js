@@ -3,6 +3,7 @@ import EndOfDayReport from "@/models/EndOfDayReport";
 import Transaction from "@/models/Transactions";
 import Store from "@/models/Store";
 import Till from "@/models/Till";
+import DailyCash from "@/models/DailyCash";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 
 function startOfToday() {
@@ -213,6 +214,31 @@ export default async function handler(req, res) {
           closedAt: now,
           notes: closingNotes || "",
         });
+      }
+
+      // Auto-create daily cash entry from EOD cash tender
+      const cashTenderAmount = tenderBreakdown.get("CASH") || 0;
+      if (locationName && cashTenderAmount > 0) {
+        const businessDay = openReport.date || startOfToday();
+        const dayStart = new Date(businessDay);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+
+        await DailyCash.findOneAndUpdate(
+          { date: { $gte: dayStart, $lt: dayEnd }, location: locationName },
+          {
+            $set: {
+              date: dayStart,
+              amount: cashTenderAmount,
+              location: locationName,
+              staffName: staffName || "",
+              source: "pos",
+              posSessionId: String(openReport.tillId || ""),
+            },
+          },
+          { upsert: true, new: true }
+        );
       }
 
       return res.status(200).json({
