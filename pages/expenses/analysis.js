@@ -69,6 +69,7 @@ export default function ExpenseAnalysisPage() {
   const [reports, setReports] = useState({});
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [dailyCashEntries, setDailyCashEntries] = useState({});
+  const [reportsLoading, setReportsLoading] = useState(false);
 
   // Expense list
   const [showAllExpenses, setShowAllExpenses] = useState(false);
@@ -89,7 +90,7 @@ export default function ExpenseAnalysisPage() {
     try {
       const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
       const [expRes, locRes] = await Promise.all([
-        fetch("/api/expenses", { headers }),
+        fetch("/api/expenses?limit=500", { headers }),
         fetch("/api/setup/get"),
       ]);
       const expData = await expRes.json();
@@ -106,6 +107,7 @@ export default function ExpenseAnalysisPage() {
   }
 
   async function fetchReports() {
+    setReportsLoading(true);
     const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
     const reportData = {};
     for (const loc of locations) {
@@ -117,6 +119,7 @@ export default function ExpenseAnalysisPage() {
       }
     }
     setReports(reportData);
+    setReportsLoading(false);
   }
 
   async function fetchDailyCashEntries() {
@@ -344,7 +347,12 @@ export default function ExpenseAnalysisPage() {
               <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="form-input w-auto text-sm" />
             </div>
 
-            {reports[loc] ? (
+            {reportsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+                <span className="ml-2 text-sm text-gray-500">Loading report...</span>
+              </div>
+            ) : reports[loc] ? (
               <>
                 <div className="border border-gray-100 rounded-lg overflow-hidden mb-4">
                   <table className="w-full text-sm">

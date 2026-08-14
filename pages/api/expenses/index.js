@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     /* ---------------- GET EXPENSES ---------------- */
     if (req.method === "GET") {
       const pageNum = Math.max(1, parseInt(req.query.page) || 1);
-      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 50));
       const skip = (pageNum - 1) * limit;
 
       const [expenses, total] = await Promise.all([
