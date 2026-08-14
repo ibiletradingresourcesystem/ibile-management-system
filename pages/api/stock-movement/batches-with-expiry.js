@@ -1,5 +1,6 @@
 // pages/api/stock-movement/batches-with-expiry.js
 
+import mongoose from "mongoose";
 import { mongooseConnect, withRetry } from "@/lib/mongodb";
 import StockMovement from "@/models/StockMovement";
 import Product from "@/models/Product";
@@ -93,101 +94,144 @@ export default async function handler(req, res) {
   try {
     const batches = await withRetry(async () => {
       await mongooseConnect();
+      const locationCache = await buildLocationCache();
 
-      const [locationCache, allCategories, stockMovements, products, transactions] = await Promise.all([
-        buildLocationCache(),
-        Category.find({}).select("_id name").lean(),
-        StockMovement.find({ "products.expiryDate": { $exists: true, $ne: null } })
-          .select("transRef toLocationId fromLocationId reason status dateReceived dateSent products")
-          .populate({
-            path: "products.productId",
-            model: Product,
-            select: "name category expiryDate _id isChildProduct parentProduct packType qtyPerPack",
-          })
-          .lean(),
-        Product.find({}).select("_id isChildProduct parentProduct packType qtyPerPack").lean(),
-        Transaction.find({ status: { $in: ["completed", "refunded", "credit"] } })
-          .select("items location status subStatus createdAt")
-          .lean(),
+      // Stage 1 — Build batch list via aggregation ($match first to respect 100MB RAM limit)
+      const rawBatches = await StockMovement.aggregate([
+        { $match: { "products.expiryDate": { $exists: true, $ne: null } } },
+        { $unwind: "$products" },
+        { $match: { "products.expiryDate": { $ne: null }, "products.quantity": { $gt: 0 } } },
+        { $lookup: {
+          from: "products",
+          localField: "products.productId",
+          foreignField: "_id",
+          pipeline: [
+            { $project: { name: 1, category: 1, expiryDate: 1, isChildProduct: 1, parentProduct: 1, packType: 1, qtyPerPack: 1 } }
+          ],
+          as: "productInfo"
+        }},
+        { $unwind: { path: "$productInfo", preserveNullAndEmptyArrays: false } },
+        { $project: {
+          transRef: 1,
+          toLocationId: 1,
+          fromLocationId: 1,
+          reason: 1,
+          status: 1,
+          dateReceived: 1,
+          dateSent: 1,
+          productId: "$productInfo._id",
+          productName: { $ifNull: ["$productInfo.name", "Unknown Product"] },
+          category: { $ifNull: ["$productInfo.category", "Top Level"] },
+          expiryDate: { $ifNull: ["$products.expiryDate", "$productInfo.expiryDate"] },
+          originalQuantity: "$products.quantity",
+          costPrice: { $ifNull: ["$products.costPrice", 0] },
+        }}
       ]);
 
-      const categoryCache = {};
-      allCategories.forEach((category) => {
-        categoryCache[String(category._id)] = category.name;
-      });
+      if (rawBatches.length === 0) return [];
 
-      const productMap = new Map(products.map((product) => [String(product._id), product]));
-      const batchList = [];
+      // Build batch list with resolved location names
+      const batchProductIds = new Set();
+      const batchList = rawBatches.map((batch) => {
+        const productId = String(batch.productId);
+        batchProductIds.add(productId);
 
-      for (const movement of stockMovements) {
-        if (!movement.products?.length) continue;
-
-        const destinationName = movement.toLocationId
-          ? getLocationName(movement.toLocationId, locationCache)
-          : movement.reason === "Restock"
+        const destinationName = batch.toLocationId
+          ? getLocationName(batch.toLocationId, locationCache)
+          : batch.reason === "Restock"
             ? "Vendor"
-            : getLocationName(movement.fromLocationId, locationCache, "Vendor");
+            : getLocationName(batch.fromLocationId, locationCache, "Vendor");
 
-        for (const productItem of movement.products) {
-          const product = productItem.productId;
-          if (!product) continue;
-
-          const expiryDate = productItem.expiryDate || product.expiryDate;
-          const originalQuantity = toQuantity(productItem.quantity);
-          if (!expiryDate || originalQuantity <= 0) continue;
-
-          let categoryName = "Top Level";
-          if (product.category && product.category !== "Top Level") {
-            const categoryId = String(product.category);
-            categoryName = categoryCache[categoryId] || product.category;
-          }
-
-          batchList.push({
-            batchId: `${movement.transRef || movement._id.toString()}-${String(product._id)}`,
-            transRef: movement.transRef,
-            productId: String(product._id),
-            productName: product.name || "Unknown Product",
-            category: categoryName,
-            locationId: movement.toLocationId,
-            locationName: destinationName,
-            expiryDate,
-            originalQuantity,
-            remainingQuantity: originalQuantity,
-            depletedQuantity: 0,
-            quantity: originalQuantity,
-            costPrice: productItem.costPrice || 0,
-            dateReceived: movement.dateReceived || movement.dateSent,
-            status: movement.status,
-            reason: movement.reason,
-          });
-        }
-      }
+        return {
+          batchId: `${batch.transRef || String(batch._id)}-${productId}`,
+          transRef: batch.transRef,
+          productId,
+          productName: batch.productName,
+          category: batch.category,
+          locationId: batch.toLocationId,
+          locationName: destinationName,
+          expiryDate: batch.expiryDate,
+          originalQuantity: batch.originalQuantity,
+          remainingQuantity: batch.originalQuantity,
+          depletedQuantity: 0,
+          quantity: batch.originalQuantity,
+          costPrice: batch.costPrice,
+          dateReceived: batch.dateReceived || batch.dateSent,
+          status: batch.status,
+          reason: batch.reason,
+        };
+      });
 
       sortBatchesForFifo(batchList);
 
-      for (const movement of stockMovements) {
-        if (!["Transfer", "Return", "Adjustment", "Operational Loss"].includes(movement.reason)) continue;
-
-        const sourceName = getLocationName(movement.fromLocationId, locationCache, "");
-        if (!sourceName) continue;
-
-        for (const productItem of movement.products || []) {
-          const productId = normalizeProductId(productItem.productId);
-          const { productId: resolvedProductId, quantity } = getProductBatchDelta(productMap, productId, toQuantity(productItem.quantity));
-          applyFifoDepletion(batchList, resolvedProductId, sourceName, quantity);
+      // Resolve category IDs to names for ObjectId-style values
+      const categoryIds = [...new Set(
+        batchList.filter((b) => /^[a-f0-9]{24}$/i.test(b.category)).map((b) => b.category)
+      )];
+      if (categoryIds.length > 0) {
+        const cats = await Category.find({ _id: { $in: categoryIds } }).select("_id name").lean();
+        const catMap = new Map(cats.map((c) => [String(c._id), c.name]));
+        for (const batch of batchList) {
+          if (catMap.has(batch.category)) batch.category = catMap.get(batch.category);
         }
       }
 
-      for (const transaction of transactions) {
-        if (transaction.status !== "completed" || transaction.subStatus === "void") continue;
+      // Fetch only products needed for child-product FIFO resolution
+      const productIdObjects = Array.from(batchProductIds).map((id) => new mongoose.Types.ObjectId(id));
+      const relevantProducts = await Product.find({
+        $or: [
+          { _id: { $in: productIdObjects } },
+          { isChildProduct: true, parentProduct: { $in: productIdObjects }, packType: { $ne: "pack" } },
+        ]
+      }).select("_id isChildProduct parentProduct packType qtyPerPack").lean();
 
-        const locationName = String(transaction.location || "").trim();
+      const productMap = new Map(relevantProducts.map((p) => [String(p._id), p]));
+      const allProductIds = relevantProducts.map((p) => p._id);
+
+      // Stage 2 — Depletion events from movements (transfers, returns, adjustments)
+      const [depletionMovements, depletionTransactions] = await Promise.all([
+        StockMovement.aggregate([
+          { $match: {
+            reason: { $in: ["Transfer", "Return", "Adjustment", "Operational Loss"] },
+            "products.productId": { $in: allProductIds },
+          }},
+          { $unwind: "$products" },
+          { $match: { "products.productId": { $in: allProductIds } } },
+          { $project: {
+            fromLocationId: 1,
+            productId: "$products.productId",
+            quantity: "$products.quantity",
+          }},
+        ]),
+        // Stage 3 — Depletion events from transactions (sales)
+        Transaction.aggregate([
+          { $match: {
+            status: "completed",
+            subStatus: { $ne: "void" },
+            "items.productId": { $in: allProductIds },
+          }},
+          { $unwind: "$items" },
+          { $match: { "items.productId": { $in: allProductIds } } },
+          { $project: {
+            location: 1,
+            productId: "$items.productId",
+            quantity: { $ifNull: ["$items.qty", "$items.quantity"] },
+          }},
+        ]),
+      ]);
+
+      for (const event of depletionMovements) {
+        const sourceName = getLocationName(event.fromLocationId, locationCache, "");
+        if (!sourceName) continue;
+        const { productId, quantity } = getProductBatchDelta(productMap, event.productId, toQuantity(event.quantity));
+        applyFifoDepletion(batchList, productId, sourceName, quantity);
+      }
+
+      for (const event of depletionTransactions) {
+        const locationName = String(event.location || "").trim();
         if (!locationName) continue;
-
-        for (const item of transaction.items || []) {
-          const { productId, quantity } = getProductBatchDelta(productMap, item.productId, toQuantity(item.qty ?? item.quantity));
-          applyFifoDepletion(batchList, productId, locationName, quantity);
-        }
+        const { productId, quantity } = getProductBatchDelta(productMap, event.productId, toQuantity(event.quantity));
+        applyFifoDepletion(batchList, productId, locationName, quantity);
       }
 
       return batchList

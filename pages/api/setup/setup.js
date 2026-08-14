@@ -317,7 +317,7 @@ async function handlePost(req, res) {
 
     const normalizedReceiptSettings = receiptSettings && typeof receiptSettings === "object"
       ? {
-          companyDisplayName: receiptSettings.companyDisplayName || store?.companyDisplayName || "St's Michael Hub",
+          companyDisplayName: receiptSettings.companyDisplayName || store?.companyDisplayName || "Ibile Trading Resource",
           taxNumber: receiptSettings.taxNumber || "",
           website: receiptSettings.website || "",
           refundDays: Number(receiptSettings.refundDays) || 0,

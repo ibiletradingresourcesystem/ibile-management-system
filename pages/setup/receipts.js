@@ -46,7 +46,7 @@ export default function Receipts() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const GUID = "75c09f89-1d79-47cd-8afa-065873c6f43b";
-  const companyNameDisplay = "St's Michael Hub";
+  const companyNameDisplay = "Ibile Mart";
   const previewLocation = locations.find((loc) => loc.name === selectedLocation);
   const previewDisplayName = companyDisplayName || companyName || companyNameDisplay;
   const previewContactLine = [
@@ -314,7 +314,7 @@ export default function Receipts() {
                 {/* Company Info */}
                 <div className="flex flex-col space-y-4">
                   <div className="form-group">
-                    <label className="form-label">Company Name (Display: St's Michael Hub)</label>
+                    <label className="form-label">Company Name (Display: Ibile Mart)</label>
                     <input
                       type="text"
                       value={companyName}

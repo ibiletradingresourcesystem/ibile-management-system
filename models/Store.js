@@ -45,7 +45,7 @@ const StoreSchema = new mongoose.Schema(
     locations: [LocationSchema],
 
     // 📋 Receipt Settings
-    companyDisplayName: { type: String, default: "St's Michael Hub" },
+    companyDisplayName: { type: String, default: "Ibile Trading Resource" },
     taxNumber: { type: String, default: "" },
     website: { type: String, default: "" },
     refundDays: { type: Number, default: 0 },

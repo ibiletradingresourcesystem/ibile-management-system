@@ -18,9 +18,18 @@ export default async function handler(req, res) {
   try {
     /* ---------------- GET EXPENSES ---------------- */
     if (req.method === "GET") {
-      const expenses = await Expense.find()
-        .sort({ createdAt: -1 })
-        .lean();
+      const pageNum = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const skip = (pageNum - 1) * limit;
+
+      const [expenses, total] = await Promise.all([
+        Expense.find()
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Expense.countDocuments()
+      ]);
 
       // Backfill categoryName for old entries that have category ObjectId but no categoryName
       const needsCategoryName = expenses.filter(
@@ -43,6 +52,9 @@ export default async function handler(req, res) {
       return res.status(200).json({
         success: true,
         expenses,
+        total,
+        page: pageNum,
+        totalPages: Math.ceil(total / limit),
       });
     }
 

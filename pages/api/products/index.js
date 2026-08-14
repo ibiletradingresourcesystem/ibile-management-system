@@ -218,7 +218,7 @@ export default async function handler(req, res) {
       // Full query with pagination
       const [products, total] = await Promise.all([
         Product.find(filter)
-          .select('+expiryDate')
+          .select('-salesHistory -promoStats')
           .populate('vendors', 'companyName')
           .sort({ createdAt: -1 })
           .skip(skip)

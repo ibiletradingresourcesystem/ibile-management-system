@@ -8,7 +8,6 @@ import {
   applyInventoryDelta,
   toSafeNumber,
 } from "@/lib/transaction-utils";
-import { aggregateProductSales } from "@/lib/product-sales-report";
 import { postCreditRecoveryEntry, postCreditSaleEntry, postSaleEntry } from "@/lib/accounting";
 
 async function connectDB() {
@@ -290,32 +289,55 @@ async function handleGET(req, res) {
   try {
     await connectDB();
 
-    const hasPaginationParams =
-      typeof req.query.page !== "undefined" ||
-      typeof req.query.limit !== "undefined";
-
     const requestedPage = Math.max(1, Number(req.query.page) || 1);
     const requestedLimit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
     const skip = (requestedPage - 1) * requestedLimit;
 
-    let transactions = [];
-    let totalRecords = 0;
-
-    if (hasPaginationParams) {
-      totalRecords = await Transaction.countDocuments({});
-      transactions = await Transaction.find()
+    // Paginated fetch + global summary via aggregation in parallel
+    const [transactions, totalRecords, summaryResults] = await Promise.all([
+      Transaction.find()
         .populate("staff", "name")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(requestedLimit)
-        .lean();
-    } else {
-      transactions = await Transaction.find()
-        .populate("staff", "name")
-        .sort({ createdAt: -1 })
-        .lean();
-      totalRecords = transactions.length;
-    }
+        .lean(),
+      Transaction.countDocuments({}),
+      Transaction.aggregate([
+        { $match: { status: "completed" } },
+        { $facet: {
+          totals: [
+            { $group: { _id: null, totalSales: { $sum: "$total" }, count: { $sum: 1 } } }
+          ],
+          byStaff: [
+            { $group: {
+              _id: { $cond: { if: { $in: ["$staffName", [null, ""]] }, then: "Unknown", else: "$staffName" } },
+              total: { $sum: "$total" }
+            }}
+          ],
+          byLocation: [
+            { $group: {
+              _id: { $ifNull: ["$location", "Unknown"] },
+              total: { $sum: "$total" }
+            }}
+          ],
+          topProducts: [
+            { $unwind: "$items" },
+            { $group: {
+              _id: { $toString: { $ifNull: ["$items.productId", "unknown"] } },
+              name: { $first: "$items.name" },
+              qty: { $sum: { $ifNull: ["$items.qty", { $ifNull: ["$items.quantity", 0] }] } },
+              total: { $sum: { $multiply: [
+                { $ifNull: ["$items.salePriceIncTax", { $ifNull: ["$items.price", 0] }] },
+                { $ifNull: ["$items.qty", { $ifNull: ["$items.quantity", 0] }] }
+              ]}}
+            }},
+            { $sort: { qty: -1 } },
+            { $limit: 10 },
+            { $project: { _id: 0, productId: "$_id", name: 1, qty: 1, total: 1 } }
+          ]
+        }}
+      ])
+    ]);
 
     const enrichedTransactions = transactions.map((tx) => ({
       ...tx,
@@ -328,14 +350,9 @@ async function handleGET(req, res) {
           : tx.staff,
     }));
 
-    const paidTransactions = enrichedTransactions.filter((tx) => tx.status === "completed");
-
-    const totalSales = paidTransactions.reduce(
-      (sum, tx) => sum + (tx.total || 0),
-      0
-    );
-
-    const totalTransactions = paidTransactions.length;
+    const summaryData = summaryResults[0] || {};
+    const totalSales = summaryData.totals?.[0]?.totalSales || 0;
+    const totalTransactions = summaryData.totals?.[0]?.count || 0;
 
     const summary = {
       totalSales,
@@ -344,51 +361,29 @@ async function handleGET(req, res) {
         totalTransactions > 0 ? totalSales / totalTransactions : 0,
     };
 
-    const topProducts = aggregateProductSales(paidTransactions)
-      .map((product) => ({
-        productId: product.productId,
-        name: product.name,
-        qty: product.unitsSold,
-        total: product.totalSales,
-      }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 10);
-
-    const byStaff = {};
-    paidTransactions.forEach((tx) => {
-      const staff = getNormalizedStaffName(tx);
-      byStaff[staff] = (byStaff[staff] || 0) + (tx.total || 0);
-    });
-
-    const byLocation = {};
-    paidTransactions.forEach((tx) => {
-      const loc = tx.location || "Unknown";
-      byLocation[loc] = (byLocation[loc] || 0) + (tx.total || 0);
-    });
-
     const pagination = {
-      enabled: hasPaginationParams,
+      enabled: true,
       page: requestedPage,
       limit: requestedLimit,
       totalRecords,
       totalPages: requestedLimit > 0 ? Math.ceil(totalRecords / requestedLimit) : 1,
-      hasMore: hasPaginationParams ? skip + enrichedTransactions.length < totalRecords : false,
-      loadedRecords: hasPaginationParams ? Math.min(skip + enrichedTransactions.length, totalRecords) : enrichedTransactions.length,
+      hasMore: skip + enrichedTransactions.length < totalRecords,
+      loadedRecords: Math.min(skip + enrichedTransactions.length, totalRecords),
     };
 
     return res.status(200).json({
       success: true,
       transactions: enrichedTransactions,
       summary,
-      topProducts,
+      topProducts: summaryData.topProducts || [],
       pagination,
-      byStaff: Object.entries(byStaff).map(([staff, total]) => ({
-        staff,
-        total,
+      byStaff: (summaryData.byStaff || []).map((item) => ({
+        staff: item._id,
+        total: item.total,
       })),
-      byLocation: Object.entries(byLocation).map(([locationName, total]) => ({
-        location: locationName,
-        total,
+      byLocation: (summaryData.byLocation || []).map((item) => ({
+        location: item._id,
+        total: item.total,
       })),
     });
   } catch (err) {

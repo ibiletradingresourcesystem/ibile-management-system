@@ -12,37 +12,43 @@ export default async function handler(req, res) {
   try {
     await mongooseConnect();
 
-    const expenses = await Expense.find()
-      .sort({ createdAt: -1 })
-      .lean();
+    const [analysis] = await Expense.aggregate([
+      { $facet: {
+        totals: [
+          { $group: { _id: null, totalSpent: { $sum: "$amount" }, count: { $sum: 1 } } }
+        ],
+        byCategory: [
+          { $group: {
+            _id: { $cond: { if: { $in: ["$categoryName", [null, ""]] }, then: "Uncategorized", else: "$categoryName" } },
+            total: { $sum: "$amount" }
+          }},
+          { $sort: { total: -1 } }
+        ],
+        byLocation: [
+          { $group: {
+            _id: { $cond: { if: { $in: ["$locationName", [null, ""]] }, then: "Unassigned", else: "$locationName" } },
+            total: { $sum: "$amount" }
+          }},
+          { $sort: { total: -1 } }
+        ],
+        byStaff: [
+          { $group: {
+            _id: { $cond: { if: { $in: ["$staffName", [null, ""]] }, then: "Unknown", else: "$staffName" } },
+            total: { $sum: "$amount" }
+          }},
+          { $sort: { total: -1 } }
+        ],
+      }}
+    ]);
 
-    const totalSpent = expenses.reduce(
-      (sum, exp) => sum + Number(exp.amount),
-      0
-    );
-
-    // Group by category
+    const totalSpent = analysis.totals[0]?.totalSpent || 0;
+    const expenseCount = analysis.totals[0]?.count || 0;
     const categoryTotals = {};
-    expenses.forEach((exp) => {
-      const category = exp.categoryName || "Uncategorized";
-      categoryTotals[category] =
-        (categoryTotals[category] || 0) + Number(exp.amount);
-    });
-
-    // Group by location
+    analysis.byCategory.forEach(item => { categoryTotals[item._id] = item.total; });
     const locationTotals = {};
-    expenses.forEach((exp) => {
-      const location = exp.locationName || "Unassigned";
-      locationTotals[location] =
-        (locationTotals[location] || 0) + Number(exp.amount);
-    });
-
-    // Group by staff
+    analysis.byLocation.forEach(item => { locationTotals[item._id] = item.total; });
     const staffTotals = {};
-    expenses.forEach((exp) => {
-      const staff = exp.staffName || "Unknown";
-      staffTotals[staff] = (staffTotals[staff] || 0) + Number(exp.amount);
-    });
+    analysis.byStaff.forEach(item => { staffTotals[item._id] = item.total; });
 
     const doc = new PDFDocument({ margin: 50, size: "A4" });
     res.setHeader(
@@ -107,7 +113,7 @@ export default async function handler(req, res) {
       .font("Helvetica-Bold")
       .fontSize(20)
       .fillColor("#0284C7")
-      .text(`${expenses.length}`, 250, 155);
+      .text(`${expenseCount}`, 250, 155);
 
     doc
       .font("Helvetica")
