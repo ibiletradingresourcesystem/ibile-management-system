@@ -132,7 +132,7 @@ export default function ProductImportPage() {
   const downloadTemplate = () => {
     const csv = EXPECTED_HEADERS.join(",") + "\n" +
       "Indomie Noodles 70g,Instant noodle snack,80,120,5012345678901,Noodles\n" +
-      "Peak Milk 400g,Powdered milk tin,950,1350,5012345678902,Beverages\n" +
+      "Peak Milk 400g,Powdered milk tin,950,1350,5012345678902|5012345678905,Beverages\n" +
       "Dettol Soap 65g,Antibacterial bath soap,180,280,5012345678903,Personal Care\n";
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -179,7 +179,7 @@ export default function ProductImportPage() {
               </table>
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              <strong>Required:</strong> Name, Cost, Sale &nbsp;|&nbsp; <strong>Optional:</strong> Description, Barcode, Category
+              <strong>Required:</strong> Name, Cost, Sale &nbsp;|&nbsp; <strong>Optional:</strong> Description, Barcode (use | or ; for multiple), Category
             </p>
             <button onClick={downloadTemplate} className="mt-3 btn-action btn-action-secondary flex items-center gap-2 text-xs">
               <FontAwesomeIcon icon={faDownload} className="w-3.5 h-3.5" />

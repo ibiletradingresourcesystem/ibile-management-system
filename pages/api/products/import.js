@@ -45,8 +45,10 @@ export default async function handler(req, res) {
       name: { $in: categoryNames },
     }).lean();
 
-    const existingCategorySet = new Set(existingCategories.map((c) => c.name));
-    const missingCategories = categoryNames.filter((n) => !existingCategorySet.has(n));
+    const categoryNameToId = {};
+    existingCategories.forEach((c) => { categoryNameToId[c.name] = String(c._id); });
+
+    const missingCategories = categoryNames.filter((n) => !categoryNameToId[n]);
 
     // Create missing categories
     if (missingCategories.length > 0) {
@@ -55,21 +57,15 @@ export default async function handler(req, res) {
         locations: location ? [location] : [],
         isStockManaged: true,
       }));
-      await Category.insertMany(toCreate, { ordered: false }).catch(() => {});
+      const created = await Category.insertMany(toCreate, { ordered: false }).catch(() => []);
+      (Array.isArray(created) ? created : []).forEach((c) => {
+        categoryNameToId[c.name] = String(c._id);
+      });
     }
 
-    // 2. Check for existing products (by barcode or exact name) to skip duplicates
-    const barcodes = products
-      .map((p) => String(p.barcode || "").trim())
-      .filter(Boolean);
+    // 2. Check for existing products (by exact name) to skip duplicates
     const names = products.map((p) => String(p.name || "").trim()).filter(Boolean);
-
-    const existingByBarcode = barcodes.length > 0
-      ? await Product.find({ barcode: { $in: barcodes } }).select("barcode").lean()
-      : [];
     const existingByName = await Product.find({ name: { $in: names } }).select("name").lean();
-
-    const existingBarcodeSet = new Set(existingByBarcode.map((p) => p.barcode));
     const existingNameSet = new Set(existingByName.map((p) => p.name));
 
     // 3. Build product documents
@@ -80,30 +76,31 @@ export default async function handler(req, res) {
       const name = String(row.name || "").trim();
       if (!name) { skipped.push({ name: "(empty)", reason: "No name" }); continue; }
 
-      const barcode = String(row.barcode || "").trim();
-
-      // Skip if barcode exists already
-      if (barcode && existingBarcodeSet.has(barcode)) {
-        skipped.push({ name, reason: "Barcode already exists" });
-        continue;
-      }
-
       // Skip if exact name exists already
       if (existingNameSet.has(name)) {
         skipped.push({ name, reason: "Product name already exists" });
         continue;
       }
 
+      const rawBarcode = String(row.barcode || "").trim();
+      // Support multiple barcodes separated by | or ;
+      const barcode = rawBarcode
+        .split(/[|;]/)
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .join(", ") || undefined;
+
       const costPrice = Math.max(0, Number(row.costPrice) || 0);
       const salePriceIncTax = Math.max(0, Number(row.salePriceIncTax) || 0);
-      const category = String(row.category || "").trim() || "Top Level";
+      const catName = String(row.category || "").trim();
+      const category = categoryNameToId[catName] || "Top Level";
 
       toInsert.push({
         name,
         description: String(row.description || "").trim(),
         costPrice,
         salePriceIncTax,
-        barcode: barcode || undefined,
+        barcode,
         category,
         locations: location ? [location] : [],
         showOnWeb: true,
@@ -112,8 +109,6 @@ export default async function handler(req, res) {
         quantity: 0,
       });
 
-      // Track to avoid duplicates within same batch
-      if (barcode) existingBarcodeSet.add(barcode);
       existingNameSet.add(name);
     }
 
