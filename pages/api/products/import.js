@@ -83,9 +83,8 @@ export default async function handler(req, res) {
       }
 
       const rawBarcode = String(row.barcode || "").trim();
-      // Support multiple barcodes separated by | or ;
       const barcode = rawBarcode
-        .split(/[|;]/)
+        .split(/[,|;]/)
         .map((b) => b.trim())
         .filter(Boolean)
         .join(", ") || undefined;

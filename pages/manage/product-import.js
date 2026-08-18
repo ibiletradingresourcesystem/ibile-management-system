@@ -18,20 +18,59 @@ function normalizeHeader(h) {
   return null;
 }
 
+function parseCSVLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else current += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      values.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  values.push(current.trim());
+  return values;
+}
+
+function fixBarcodeOverflow(row, values, mapped) {
+  const barcodeIdx = mapped.indexOf("barcode");
+  if (barcodeIdx < 0) return;
+  const extraValues = values.slice(mapped.length);
+  // If category looks like a barcode (5+ digits), it overflowed from the barcode column
+  if (row.category && /^\d{5,}$/.test(row.category)) {
+    row.barcode = [row.barcode, row.category].filter(Boolean).join(", ");
+    row.category = extraValues.find((v) => v && !/^\d+$/.test(v)) || "";
+  }
+  const extraBarcodes = extraValues.filter((v) => v && /^\d{5,}$/.test(v));
+  if (extraBarcodes.length > 0) {
+    row.barcode = [row.barcode, ...extraBarcodes].filter(Boolean).join(", ");
+  }
+}
+
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return [];
 
-  const headers = lines[0].split(",").map((h) => h.replace(/^"|"$/g, "").trim());
+  const headers = parseCSVLine(lines[0]);
   const mapped = headers.map(normalizeHeader);
 
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(",").map((v) => v.replace(/^"|"$/g, "").trim());
+    const values = parseCSVLine(lines[i]);
     const row = {};
     mapped.forEach((key, idx) => {
       if (key) row[key] = values[idx] || "";
     });
+    fixBarcodeOverflow(row, values, mapped);
     if (row.name) rows.push(row);
   }
   return rows;
@@ -86,10 +125,12 @@ export default function ProductImportPage() {
 
         const rows = [];
         for (let i = 1; i < rawRows.length; i++) {
+          const values = rawRows[i].map((v) => v != null ? String(v).trim() : "");
           const row = {};
           mapped.forEach((key, idx) => {
-            if (key) row[key] = rawRows[i][idx] != null ? String(rawRows[i][idx]).trim() : "";
+            if (key) row[key] = values[idx] || "";
           });
+          fixBarcodeOverflow(row, values, mapped);
           if (row.name) rows.push(row);
         }
         if (rows.length === 0) throw new Error("No valid products found. Check your column headers.");
