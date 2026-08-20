@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel }) {
   const [form, setForm] = useState(
@@ -17,6 +17,20 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
     }
   );
   const [submitting, setSubmitting] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState([]);
+  const [allProducts, setAllProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/products?listAll=true")
+      .then((r) => r.json())
+      .then((data) => {
+        const list = Array.isArray(data) ? data : data.data || [];
+        setAllProducts(list);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -31,12 +45,26 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
     });
   };
 
-  const addProduct = () => {
+  const addProduct = (product) => {
+    const already = form.products.some((p) => p.productId === product._id);
+    if (already) return;
     setForm((prev) => ({
       ...prev,
-      products: [...prev.products, { productName: "", price: 0 }],
+      products: [...prev.products, { productId: product._id, productName: product.name, price: product.costPrice || product.salePriceIncTax || 0 }],
     }));
+    setProductSearch("");
+    setProductResults([]);
   };
+
+  useEffect(() => {
+    const q = productSearch.trim().toLowerCase();
+    if (q.length < 2) { setProductResults([]); return; }
+    const existingIds = new Set(form.products.map((p) => p.productId));
+    const matches = allProducts
+      .filter((p) => !existingIds.has(p._id) && (p.name?.toLowerCase().includes(q) || p.barcode?.toLowerCase().includes(q)))
+      .slice(0, 8);
+    setProductResults(matches);
+  }, [productSearch, allProducts, form.products]);
 
   const removeProduct = (index) => {
     setForm((prev) => ({
@@ -188,13 +216,30 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
       <div className="border-t pt-3">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-semibold text-gray-500">PRODUCTS / SERVICES</p>
-          <button
-            type="button"
-            onClick={addProduct}
-            className="text-xs text-blue-600 font-medium hover:underline px-2 py-1 rounded hover:bg-blue-50"
-          >
-            + Add Product
-          </button>
+        </div>
+        {/* Product Search */}
+        <div className="relative mb-3">
+          <input
+            type="text"
+            value={productSearch}
+            onChange={(e) => setProductSearch(e.target.value)}
+            placeholder="Search products to add..."
+            className="w-full border rounded px-3 py-2 text-sm"
+          />
+          {productResults.length > 0 && (
+            <ul className="absolute top-full left-0 right-0 z-20 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto mt-1">
+              {productResults.map((p) => (
+                <li
+                  key={p._id}
+                  className="px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm border-b border-gray-100 last:border-0 flex justify-between"
+                  onClick={() => addProduct(p)}
+                >
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-gray-500">₦{(p.costPrice || p.salePriceIncTax || 0).toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         {form.products.length === 0 ? (
           <p className="text-xs text-gray-400 py-3 text-center italic">No products added yet</p>
@@ -212,12 +257,7 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
                 {form.products.map((p, i) => (
                   <tr key={i} className="border-b hover:bg-gray-50">
                     <td className="px-2 py-2">
-                      <input
-                        value={p.productName || ""}
-                        onChange={(e) => handleProductChange(i, "productName", e.target.value)}
-                        placeholder="e.g. Soap, Paper, Pen"
-                        className="w-full border rounded px-2 py-1.5 text-xs"
-                      />
+                      <span className="text-xs font-medium text-gray-800">{p.productName || "—"}</span>
                     </td>
                     <td className="px-2 py-2">
                       <input

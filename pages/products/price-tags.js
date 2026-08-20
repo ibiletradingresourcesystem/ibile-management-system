@@ -21,7 +21,7 @@ export default function PriceTagsPage() {
           setProducts(list);
         } else {
           const { data } = await apiClient.get("/api/products", {
-            params: { limit: 200 },
+            params: { listAll: "true" },
           });
           const list = Array.isArray(data) ? data : Array.isArray(data.data) ? data.data : Array.isArray(data.products) ? data.products : [];
           setProducts(list);

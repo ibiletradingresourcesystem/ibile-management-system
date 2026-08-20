@@ -26,18 +26,18 @@ export default async function handler(req, res) {
     date: { $gte: targetDate, $lt: nextDay },
   }).lean();
 
-  // Fallback: derive cash received from closed EOD report when no DailyCash amount
+  // Fallback: derive cash received from all closed EOD reports when no DailyCash amount
   let cashReceived = cashEntry?.amount || 0;
   if (cashReceived === 0) {
     const store = await Store.findOne({}).select("locations").lean();
     const storeLocation = store?.locations?.find((l) => l.name === location);
     if (storeLocation) {
-      const eodReport = await EndOfDayReport.findOne({
+      const eodReports = await EndOfDayReport.find({
         locationId: storeLocation._id,
         closedAt: { $ne: null },
         date: { $gte: targetDate, $lt: nextDay },
       }).select("tenderBreakdown").lean();
-      cashReceived = eodReport?.tenderBreakdown?.CASH || 0;
+      cashReceived = eodReports.reduce((sum, rpt) => sum + (rpt?.tenderBreakdown?.CASH || 0), 0);
     }
   }
 

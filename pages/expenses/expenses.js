@@ -27,6 +27,7 @@ export default function ExpensesPage() {
   // Cash form
   const [cashDate, setCashDate] = useState(new Date().toISOString().split("T")[0]);
   const [cashAmount, setCashAmount] = useState("");
+  const [cashMode, setCashMode] = useState("replace");
   const [cashSaving, setCashSaving] = useState(false);
 
   // Inline edit
@@ -74,14 +75,14 @@ export default function ExpensesPage() {
 
   // === Cash Handlers ===
   const handleSaveCash = async () => {
-    if (!cashAmount || Number(cashAmount) === 0) return;
+    if (!cashAmount || Number(cashAmount) <= 0) return;
     setCashSaving(true);
     try {
       const loc = userLocation || locations[0] || "";
       const res = await fetch("/api/daily-cash", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
-        body: JSON.stringify({ date: cashDate, amount: Number(cashAmount), location: loc, staffName: userName }),
+        body: JSON.stringify({ date: cashDate, amount: Number(cashAmount), location: loc, staffName: userName, mode: cashMode }),
       });
       if (res.ok) {
         setCashAmount("");
@@ -198,7 +199,7 @@ export default function ExpensesPage() {
         {/* Add Cash for the Day */}
         <div className="content-card mb-6">
           <h2 className="text-lg font-semibold text-blue-700 mb-3 flex items-center gap-2">
-            <DollarSign className="w-5 h-5" /> Add / Adjust Cash for the Day
+            <DollarSign className="w-5 h-5" /> Add Cash for the Day
           </h2>
           <div className="flex flex-wrap gap-3 items-end">
             <input type="date" value={cashDate} onChange={e => setCashDate(e.target.value)} className="form-input w-auto" />
@@ -206,16 +207,20 @@ export default function ExpensesPage() {
               type="number"
               value={cashAmount}
               onChange={e => setCashAmount(e.target.value)}
-              placeholder="Amount (+ve to add, -ve to deduct)"
+              placeholder="Enter cash amount"
               className="form-input w-48"
               onWheel={e => e.target.blur()}
             />
+            <select value={cashMode} onChange={e => setCashMode(e.target.value)} className="form-input w-auto text-sm">
+              <option value="replace">Set / Replace</option>
+              <option value="add">Add to Existing</option>
+            </select>
             <button onClick={handleSaveCash} disabled={cashSaving} className="btn-action-primary px-6">
-              {cashSaving ? "Saving..." : "Save Entry"}
+              {cashSaving ? "Saving..." : "Save"}
             </button>
           </div>
           <p className="text-xs text-gray-400 mt-2">
-            💡 Cash is added automatically from POS End-of-Day close. Use negative amounts to deduct or correct entries.
+            💡 Cash is also added automatically from POS End-of-Day close and Close-of-Work reports. Manual entry is for additional cash or corrections.
           </p>
         </div>
 

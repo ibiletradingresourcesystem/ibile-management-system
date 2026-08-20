@@ -312,11 +312,11 @@ export default function MobileStockTakePage() {
 
       <style jsx global>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; -webkit-text-size-adjust: 100%; }
 
-        .mst-page { max-width: 480px; margin: 0 auto; min-height: 100dvh; background: #fff; }
+        .mst-page { max-width: 480px; margin: 0 auto; min-height: 100dvh; background: #fff; overflow-x: hidden; }
 
-        .mst-login { padding: 48px 24px; }
+        .mst-login { padding: 40px 20px; }
         .mst-login__header { text-align: center; margin-bottom: 32px; }
         .mst-login__header h1 { font-size: 28px; margin-bottom: 8px; }
         .mst-login__header p { color: #666; font-size: 14px; }
@@ -337,41 +337,43 @@ export default function MobileStockTakePage() {
         .mst-error-page p { color: #666; font-size: 14px; margin-bottom: 20px; }
         .mst-error-page button { height: 40px; border: 1px solid #d0d5dd; border-radius: 8px; padding: 0 20px; background: #fff; font-weight: 600; cursor: pointer; }
 
-        .mst-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 12px; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #fff; z-index: 10; }
+        .mst-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; background: #fff; z-index: 10; }
         .mst-header__info h1 { font-size: 16px; font-weight: 800; }
         .mst-header__info p { font-size: 12px; color: #666; margin-top: 2px; }
-        .mst-save-btn { height: 36px; border: 0; border-radius: 6px; background: #16a34a; color: #fff; font-size: 13px; font-weight: 700; padding: 0 14px; cursor: pointer; }
+        .mst-save-btn { height: 40px; border: 0; border-radius: 8px; background: #16a34a; color: #fff; font-size: 14px; font-weight: 700; padding: 0 16px; cursor: pointer; white-space: nowrap; }
         .mst-save-btn:disabled { opacity: 0.6; }
 
         .mst-message { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; font-size: 13px; font-weight: 600; }
         .mst-message--success { background: #ecfdf5; color: #065f46; }
         .mst-message--error { background: #fef2f2; color: #991b1b; }
-        .mst-message button { border: 0; background: transparent; font-size: 18px; cursor: pointer; color: inherit; }
+        .mst-message button { border: 0; background: transparent; font-size: 18px; cursor: pointer; color: inherit; padding: 4px 8px; }
 
-        .mst-search-bar { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #e5e7eb; position: sticky; top: 60px; background: #fff; z-index: 9; }
-        .mst-search-bar input { flex: 1; height: 42px; border: 1px solid #d0d5dd; border-radius: 8px; padding: 0 14px; font-size: 15px; }
-        .mst-search-bar input:focus { outline: none; border-color: #2563eb; }
-        .mst-scan-btn { width: 42px; height: 42px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; font-size: 20px; cursor: pointer; display: grid; place-items: center; }
+        .mst-search-bar { display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid #e5e7eb; position: sticky; top: 53px; background: #fff; z-index: 9; }
+        .mst-search-bar input { flex: 1; height: 44px; border: 2px solid #d0d5dd; border-radius: 10px; padding: 0 14px; font-size: 16px; -webkit-appearance: none; }
+        .mst-search-bar input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+        .mst-scan-btn { width: 44px; height: 44px; border: 2px solid #d0d5dd; border-radius: 10px; background: #fff; font-size: 20px; cursor: pointer; display: grid; place-items: center; flex-shrink: 0; }
         .mst-scan-btn:active { background: #f3f4f6; }
 
-        .mst-stats { display: flex; gap: 12px; padding: 10px 16px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; font-size: 12px; font-weight: 700; color: #555; }
+        .mst-stats { display: flex; gap: 0; padding: 0; background: #f9fafb; border-bottom: 1px solid #e5e7eb; font-size: 12px; font-weight: 700; color: #555; }
+        .mst-stats span { flex: 1; text-align: center; padding: 8px 4px; border-right: 1px solid #e5e7eb; }
+        .mst-stats span:last-child { border-right: none; }
 
         .mst-items { padding: 8px 12px 100px; }
         .mst-empty { text-align: center; padding: 40px 16px; color: #999; font-size: 14px; }
 
-        .mst-item { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; background: #fff; transition: all 0.2s; }
+        .mst-item { display: flex; align-items: center; gap: 10px; padding: 14px 12px; border: 1.5px solid #e5e7eb; border-radius: 10px; margin-bottom: 8px; background: #fff; transition: all 0.15s; }
         .mst-item--counted { border-color: #bbf7d0; background: #f0fdf4; }
-        .mst-item--highlighted { border-color: #93c5fd; background: #eff6ff; box-shadow: 0 0 0 2px rgba(59,130,246,0.3); }
+        .mst-item--highlighted { border-color: #93c5fd; background: #eff6ff; box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
         .mst-item__info { flex: 1; min-width: 0; }
-        .mst-item__info strong { display: block; font-size: 13px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-        .mst-item__barcode { display: block; font-size: 11px; color: #666; font-family: monospace; margin-top: 2px; }
-        .mst-item__system { display: block; font-size: 11px; color: #888; margin-top: 3px; }
+        .mst-item__info strong { display: block; font-size: 14px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .mst-item__barcode { display: block; font-size: 11px; color: #666; font-family: monospace; margin-top: 3px; }
+        .mst-item__system { display: inline-block; font-size: 11px; color: #fff; background: #6b7280; padding: 1px 6px; border-radius: 4px; margin-top: 4px; font-weight: 600; }
         .mst-item__input { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-        .mst-item__input input { width: 64px; height: 40px; border: 2px solid #d0d5dd; border-radius: 8px; text-align: center; font-size: 16px; font-weight: 700; }
-        .mst-item__input input:focus { outline: none; border-color: #2563eb; }
-        .mst-item__check { color: #16a34a; font-weight: 800; font-size: 16px; }
+        .mst-item__input input { width: 72px; height: 48px; border: 2px solid #d0d5dd; border-radius: 10px; text-align: center; font-size: 18px; font-weight: 700; -webkit-appearance: none; }
+        .mst-item__input input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+        .mst-item__check { color: #16a34a; font-weight: 800; font-size: 18px; }
 
-        .mst-floating-save { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); height: 48px; border: 0; border-radius: 24px; background: #2563eb; color: #fff; font-size: 15px; font-weight: 700; padding: 0 28px; cursor: pointer; box-shadow: 0 4px 20px rgba(37,99,235,0.4); z-index: 20; }
+        .mst-floating-save { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); height: 52px; border: 0; border-radius: 26px; background: #2563eb; color: #fff; font-size: 16px; font-weight: 700; padding: 0 32px; cursor: pointer; box-shadow: 0 4px 20px rgba(37,99,235,0.4); z-index: 20; white-space: nowrap; }
         .mst-floating-save:disabled { opacity: 0.6; }
 
         .mst-scanner { position: fixed; inset: 0; z-index: 50; background: #000; display: flex; flex-direction: column; }

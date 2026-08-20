@@ -181,11 +181,18 @@ export default async function handler(req, res) {
       if (stockManaged === "true") filter.isStockManaged = true;
       if (stockManaged === "false") filter.isStockManaged = false;
       if (excludeChild === "true") {
-        // Exclude true derived children (unit from pack), not pack products
-        filter.$or = [
+        const childCondition = [
           { isChildProduct: { $ne: true } },
           { isChildProduct: true, packType: "pack" },
         ];
+        if (filter.$or) {
+          // Combine search $or with excludeChild $or via $and
+          const searchOr = filter.$or;
+          delete filter.$or;
+          filter.$and = [{ $or: searchOr }, { $or: childCondition }];
+        } else {
+          filter.$or = childCondition;
+        }
       }
 
       // Minimal mode for stock management - only essential fields
