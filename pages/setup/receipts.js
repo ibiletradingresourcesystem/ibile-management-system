@@ -25,6 +25,7 @@ export default function Receipts() {
   const [receiptMessage, setReceiptMessage] = useState("");
   const [fontSize, setFontSize] = useState("8.0");
   const [fontFamily, setFontFamily] = useState("Arial");
+  const [fontWeight, setFontWeight] = useState("normal");
   const [barcodeType, setBarcodeType] = useState("Default - Code 39");
   const [companyLogo, setCompanyLogo] = useState("/images/logo.png");
   const [qrUrl, setQrUrl] = useState("");
@@ -81,6 +82,7 @@ export default function Receipts() {
         setReceiptMessage(data.store.receiptMessage || "");
         setFontSize(data.store.fontSize || "8.0");
         setFontFamily(data.store.fontFamily || "Arial");
+        setFontWeight(data.store.fontWeight || "normal");
         setBarcodeType(data.store.barcodeType || "Default - Code 39");
         setQrUrl(data.store.qrUrl || "");
         setQrDescription(data.store.qrDescription || "");
@@ -130,6 +132,7 @@ export default function Receipts() {
           setReceiptMessage(settings.receiptMessage || data.store.receiptMessage || "");
           setFontSize(settings.fontSize || data.store.fontSize || "8.0");
           setFontFamily(settings.fontFamily || data.store.fontFamily || "Arial");
+          setFontWeight(settings.fontWeight || data.store.fontWeight || "normal");
           setBarcodeType(settings.barcodeType || data.store.barcodeType || "Default - Code 39");
           setQrUrl(settings.qrUrl || data.store.qrUrl || "");
           setQrDescription(settings.qrDescription || data.store.qrDescription || "");
@@ -228,6 +231,7 @@ export default function Receipts() {
         receiptMessage,
         fontSize,
         fontFamily,
+        fontWeight,
         barcodeType,
         qrUrl,
         qrDescription,
@@ -483,7 +487,7 @@ export default function Receipts() {
                       Controls how text appears on printed receipts in the Point of Sale.
                     </p>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="form-group mb-0">
                       <label className="form-label">Font Size</label>
                       <select
@@ -520,6 +524,19 @@ export default function Receipts() {
                         <option value="Tahoma">Tahoma (Compact)</option>
                         <option value="Roboto">Roboto (Modern)</option>
                         <option value="Mono">Mono (Fixed-width)</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group mb-0">
+                      <label className="form-label">Text Weight</label>
+                      <select
+                        value={fontWeight}
+                        onChange={(e) => setFontWeight(e.target.value)}
+                        className="form-select"
+                      >
+                        <option value="light">Light (Thin)</option>
+                        <option value="normal">Normal (Default)</option>
+                        <option value="bold">Bold (Heavy)</option>
                       </select>
                     </div>
                   </div>
@@ -745,7 +762,7 @@ export default function Receipts() {
                 className="bg-white rounded border border-gray-300 overflow-y-auto max-h-[700px]"
                 style={{ fontSize: `${fontSize}pt`, fontFamily: fontFamily === 'Mono' || fontFamily === 'Courier New' ? '"Courier New", monospace' : fontFamily === 'Times New Roman' ? '"Times New Roman", serif' : `"${fontFamily}", sans-serif`, lineHeight: '1.18', padding: '2mm 0' }}
               >
-                <div className="mx-auto w-full max-w-[280px] text-gray-900">
+                <div className="mx-auto w-full max-w-[340px] text-gray-900" style={{ fontWeight: fontWeight === 'light' ? '300' : fontWeight === 'bold' ? '700' : '400' }}>
                   {companyLogo && (
                     <img
                       src={companyLogo}
@@ -811,11 +828,7 @@ export default function Receipts() {
                   </div>
 
                   <div className="text-left" style={{ borderTop: '0.5px dashed #444', padding: '1mm 0' }}>
-                    <div className="flex justify-between">
-                      <span>Subtotal</span>
-                      <span>₦3,500.00</span>
-                    </div>
-                    <div className="flex justify-between font-bold text-[1.02em]" style={{ paddingTop: '0.8mm', marginTop: '0.8mm', borderTop: '0.5px dashed #444' }}>
+                    <div className="flex justify-between font-bold text-[1.02em]">
                       <span>Total</span>
                       <span>₦3,500.00</span>
                     </div>
@@ -868,6 +881,7 @@ export default function Receipts() {
                       {paymentStatus.toUpperCase()}
                     </div>
                   </div>
+                  <div style={{ marginBottom: '3mm' }}></div>
                 </div>
               </div>
             </div>
