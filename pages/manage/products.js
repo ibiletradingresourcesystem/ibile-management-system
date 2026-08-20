@@ -95,7 +95,7 @@ function normalizeLocationValue(value) {
 
 export default function Products() {
   const router = useRouter();
-  const fetchProducts = useCallback(() => fetcher("/api/products"), []);
+  const fetchProducts = useCallback(() => fetcher("/api/products?listAll=true"), []);
   const queryLocation = typeof router.query.location === "string" ? router.query.location : "";
 
   // ========== SMART CACHING STRATEGY ==========

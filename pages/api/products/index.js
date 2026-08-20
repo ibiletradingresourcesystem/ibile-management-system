@@ -210,6 +210,17 @@ export default async function handler(req, res) {
         return res.json({ success: true, data: products });
       }
 
+      // Full list mode - returns all products with list-view fields (no pagination cap)
+      if (req.query.listAll === "true") {
+        const products = await Product.find(filter)
+          .select("name barcode category costPrice salePriceIncTax quantity minStock maxStock locations isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice expiryDate isExpired showOnWeb description")
+          .sort({ createdAt: -1 })
+          .lean();
+        await deriveChildQuantities(products);
+        res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+        return res.json({ success: true, data: products, total: products.length });
+      }
+
       // Pagination support
       const pageNum = Math.max(1, parseInt(page) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(limitParam) || 100));
@@ -218,7 +229,7 @@ export default async function handler(req, res) {
       // Full query with pagination
       const [products, total] = await Promise.all([
         Product.find(filter)
-          .select('-salesHistory -promoStats')
+          .select('+expiryDate')
           .populate('vendors', 'companyName')
           .sort({ createdAt: -1 })
           .skip(skip)

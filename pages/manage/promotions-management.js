@@ -123,7 +123,7 @@ export default function PromotionsManagementPage() {
       }
 
       const [prodRes, catRes] = await Promise.all([
-        fetch("/api/products"),
+        fetch("/api/products?listAll=true"),
         fetch("/api/categories"),
       ]);
 

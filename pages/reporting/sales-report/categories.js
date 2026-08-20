@@ -79,28 +79,18 @@ export default function CategoriesSales() {
       setLoading(true);
       start();
       onFetch();
-      const [transRes, catRes] = await Promise.all([
+      const [transRes, prodRes, catRes] = await Promise.all([
         fetch("/api/transactions/transactions"),
+        fetch("/api/products?listAll=true"),
         fetch("/api/categories"),
       ]);
-      // Fetch all products across pages
-      let allProducts = [];
-      let page = 1;
-      let hasMore = true;
-      while (hasMore) {
-        const prodRes = await fetch(`/api/products?limit=200&page=${page}`);
-        const prodData = await prodRes.json();
-        const batch = prodData.data || prodData || [];
-        allProducts = allProducts.concat(Array.isArray(batch) ? batch : []);
-        hasMore = Array.isArray(batch) && batch.length === 200;
-        page++;
-      }
       const transData = await transRes.json();
+      const prodData = await prodRes.json();
       const catData = await catRes.json();
 
       onProcess();
       let allTx = transData.transactions || [];
-      const products = allProducts;
+      const products = prodData.data || prodData || [];
       const catsRaw = catData.data || catData || [];
 
       const categoryNameMap = {};
