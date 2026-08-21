@@ -16,6 +16,7 @@ import { Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend,
 } from "chart.js";
+import { saveAs } from "file-saver";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -161,6 +162,46 @@ export default function ProductsSales() {
     finally { complete(); setLoading(false); }
   }
 
+  const escapeCSV = (val) => {
+    const s = String(val ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const exportProducts = (format) => {
+    if (!data?.products?.length) return;
+    const headers = ['Rank', 'Product', 'Units Sold', 'Total Sales', '% of Total'];
+    const rows = data.products.map((p, i) => [
+      i + 1,
+      escapeCSV(p.name),
+      p.unitsSold,
+      p.totalSales.toFixed(2),
+      data.totalSales > 0 ? ((p.totalSales / data.totalSales) * 100).toFixed(1) + '%' : '0.0%',
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const bom = '\uFEFF';
+    const ext = format === 'excel' ? 'csv' : 'csv';
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
+    saveAs(blob, `product-sales-${timeRange}.${ext}`);
+  };
+
+  const exportDrilldown = () => {
+    if (!selectedProductTransactions?.length) return;
+    const headers = ['Date', 'Transaction', 'Location', 'Staff', 'Customer', 'Qty', 'Product Sales', 'Transaction Total'];
+    const rows = selectedProductTransactions.map(t => [
+      new Date(t.createdAt).toLocaleString('en-NG', { timeZone: 'Africa/Lagos' }),
+      escapeCSV(t.transactionId),
+      escapeCSV(t.location),
+      escapeCSV(t.staffName),
+      escapeCSV(t.customerName),
+      t.quantity,
+      t.lineTotal.toFixed(2),
+      t.transactionTotal.toFixed(2),
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    saveAs(blob, `${selectedProduct?.name || 'product'}-transactions.csv`);
+  };
+
   const chartColors = [
     "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6",
     "#ef4444", "#06b6d4", "#ec4899", "#14b8a6", "#f97316", "#6366f1",
@@ -258,6 +299,18 @@ export default function ProductsSales() {
               </div>
 
               {/* Products Table */}
+              <div className="content-card mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">All Products</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => exportProducts('csv')} className="btn-action-secondary text-xs px-3 py-1.5">
+                      📄 Export CSV
+                    </button>
+                    <button onClick={() => exportProducts('excel')} className="btn-action-secondary text-xs px-3 py-1.5">
+                      📊 Export Excel
+                    </button>
+                  </div>
+                </div>
               <div className="data-table-container">
                 <table className="data-table">
                   <thead className="sticky top-0">
@@ -293,6 +346,7 @@ export default function ProductsSales() {
                   </tbody>
                 </table>
               </div>
+              </div>
 
               {selectedProduct && (
                 <div ref={drilldownRef} className="content-card mt-6">
@@ -301,13 +355,18 @@ export default function ProductsSales() {
                       <h3 className="text-lg font-semibold text-gray-800">Completed Transactions for {selectedProduct.name}</h3>
                       <p className="text-sm text-gray-500">Showing {selectedProductTransactions.length} completed transaction{selectedProductTransactions.length === 1 ? "" : "s"} in the selected period.</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProductKey("")}
-                      className="text-sm font-medium text-cyan-600 hover:text-cyan-700"
-                    >
-                      Close
-                    </button>
+                    <div className="flex gap-2">
+                      {selectedProductTransactions.length > 0 && (
+                        <button onClick={exportDrilldown} className="btn-action-secondary text-xs px-3 py-1.5">📄 Export CSV</button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProductKey("")}
+                        className="text-sm font-medium text-cyan-600 hover:text-cyan-700"
+                      >
+                        Close
+                      </button>
+                    </div>
                   </div>
 
                   <div className="data-table-container">

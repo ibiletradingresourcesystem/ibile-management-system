@@ -20,6 +20,7 @@ import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import AIBusinessInsight from "@/components/AIBusinessInsight";
 import MonthlyReportAISummary from "@/components/MonthlyReportAISummary";
+import { saveAs } from "file-saver";
 
 ChartJS.register(
   BarElement,
@@ -111,6 +112,30 @@ export default function Reporting() {
     return a.localeCompare(b);
   });
 
+  const escapeCSV = (val) => {
+    const s = String(val ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const exportSalesReport = () => {
+    if (!dates?.length) return;
+    const rows = [['Date', 'Sales', 'Transactions'].join(',')];
+    dates.forEach((d, i) => {
+      rows.push([escapeCSV(d), (salesData[i] || 0).toFixed(2), transactionQty[i] || 0].join(','));
+    });
+    rows.push('');
+    rows.push(['Tender', 'Amount'].join(','));
+    Object.entries(salesByTender || {}).forEach(([k, v]) => rows.push([escapeCSV(k), Number(v).toFixed(2)].join(',')));
+    rows.push('');
+    rows.push(['Location', 'Sales'].join(','));
+    Object.entries(salesByLocation || {}).forEach(([k, v]) => rows.push([escapeCSV(k), Number(v).toFixed(2)].join(',')));
+    rows.push('');
+    rows.push(['Product', 'Units Sold'].join(','));
+    (bestSellingProducts || []).forEach(([name, units]) => rows.push([escapeCSV(name), units].join(',')));
+    const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+    saveAs(blob, `sales-report-${timeRange.replace(/\s+/g, '-')}.csv`);
+  };
+
   return (
     <Layout title="Reporting">
       <div className="page-container">
@@ -121,12 +146,17 @@ export default function Reporting() {
               <h1 className="page-title">Sales Report</h1>
               <p className="page-subtitle">Track your business performance and metrics in real-time</p>
             </div>
-            <Link
+            <div className="flex gap-2">
+              <button onClick={exportSalesReport} className="btn-action-secondary whitespace-nowrap text-sm">
+                📄 Export CSV
+              </button>
+              <Link
               href="/reporting/end-of-day-report"
               className="btn-action-primary whitespace-nowrap"
             >
                EOD Reports
             </Link>
+            </div>
           </div>
 
           {/* FILTER BAR */}
