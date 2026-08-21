@@ -254,12 +254,49 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
               Select from Products
             </button>
           )}
+          {source === "database" && filteredDbProducts.length > 0 && (
+            <button
+              onClick={() => {
+                const allFiltered = filteredDbProducts.filter(
+                  (p) => !selectedDbProducts.find((s) => s._id === p._id)
+                );
+                if (allFiltered.length > 0) {
+                  setSelectedDbProducts((prev) => [...prev, ...allFiltered]);
+                } else {
+                  setSelectedDbProducts([]);
+                }
+              }}
+              className="px-4 py-2 rounded text-sm font-medium border border-purple-600 text-purple-600 hover:bg-purple-50"
+            >
+              {filteredDbProducts.every((p) => selectedDbProducts.find((s) => s._id === p._id))
+                ? "Deselect All"
+                : `Select All (${filteredDbProducts.length})`}
+            </button>
+          )}
           {products.length > 0 && (
             <button
               onClick={handlePrint}
               className="bg-gray-800 text-white px-4 py-2 rounded text-sm font-medium hover:bg-gray-900 ml-auto"
             >
               🖨️ Print Tags
+            </button>
+          )}
+          {source === "database" && safeProducts.length > 0 && selectedDbProducts.length === 0 && (
+            <button
+              onClick={() => {
+                const tags = filteredDbProducts.map((p, i) => ({
+                  name: p.name || p.productName || "",
+                  price: p.salePriceIncTax || p.sellingPrice || p.price || 0,
+                  barcode: p.barcode || "",
+                  copies: 1,
+                }));
+                setSelectedDbProducts(filteredDbProducts);
+                setProducts(tags);
+                setTimeout(() => handlePrintPreview(), 100);
+              }}
+              className="bg-purple-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-purple-800"
+            >
+              🖨️ Generate & Print All ({filteredDbProducts.length})
             </button>
           )}
         </div>
@@ -286,7 +323,7 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
             <div className="max-h-96 overflow-y-auto">
               {filteredDbProducts.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 p-2">
-                  {filteredDbProducts.slice(0, 100).map((p) => {
+                  {filteredDbProducts.map((p) => {
                     const selected = selectedDbProducts.find((s) => s._id === p._id);
                     return (
                       <label
