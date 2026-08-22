@@ -210,7 +210,7 @@ const PrintMemo = forwardRef(
                   paddingTop: "5em",
                 }}
               >
-                Thank you.
+                Thank you for shopping with us!.
               </p>
               <p>Yours faithfully,</p>
               <p style={{ marginBottom: "2rem" }}>

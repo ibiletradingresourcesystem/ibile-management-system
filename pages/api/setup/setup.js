@@ -321,7 +321,7 @@ async function handlePost(req, res) {
           taxNumber: receiptSettings.taxNumber || "",
           website: receiptSettings.website || "",
           refundDays: Number(receiptSettings.refundDays) || 0,
-          receiptMessage: receiptSettings.receiptMessage || "Thank you for shopping with us!",
+          receiptMessage: receiptSettings.receiptMessage || "",
           fontSize: String(receiptSettings.fontSize || store?.fontSize || "8.0"),
           fontFamily: String(receiptSettings.fontFamily || store?.fontFamily || "Arial"),
           barcodeType: receiptSettings.barcodeType || store?.barcodeType || "Default - Code 39",

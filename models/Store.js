@@ -49,7 +49,7 @@ const StoreSchema = new mongoose.Schema(
     taxNumber: { type: String, default: "" },
     website: { type: String, default: "" },
     refundDays: { type: Number, default: 0 },
-    receiptMessage: { type: String, default: "Thank you for shopping with us!" },
+    receiptMessage: { type: String, default: "" },
     fontSize: { type: String, default: "8.0" },
     fontFamily: { type: String, default: "Arial" },
     barcodeType: { type: String, default: "Default - Code 39" },

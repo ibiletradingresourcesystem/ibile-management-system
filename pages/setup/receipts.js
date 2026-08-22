@@ -871,7 +871,7 @@ export default function Receipts() {
                     ) : null}
 
                     <div className="font-bold uppercase tracking-[0.08em]" style={{ marginTop: '1.5mm' }}>
-                      Thank You
+                      Thank you for shopping with us!
                     </div>
 
                     <div
