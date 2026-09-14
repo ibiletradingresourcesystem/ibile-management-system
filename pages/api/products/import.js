@@ -1,13 +1,60 @@
 /**
  * API: POST /api/products/import
- * Bulk-imports products from parsed spreadsheet data.
- * Auto-creates categories that don't exist.
- * Assigns all products to the specified location.
+ * Seeds products from parsed spreadsheet rows.
+ *
+ * Body: { products: rawRows[], location, dryRun, updateExistingQty }
+ *   dryRun=true  → returns the plan (what would be created/updated) without saving anything
+ *   dryRun=false → applies the plan
+ *
+ * - New products are created in `location` (categories auto-created) with 7.5% VAT.
+ * - Existing products (matched by name, then barcode) only get cost & sale price updates;
+ *   stock qty is updated only when `updateExistingQty` is true. Other details stay the same.
+ * - "Pack Qty" / "Parent" / "Units" columns set up mother (pack) and child products.
+ *   Children have no stock of their own — it is derived from the parent after the import.
  */
+import mongoose from "mongoose";
 import { mongooseConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import { Category } from "@/models/Category";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { normalizeImportRow } from "@/lib/productImport";
+import { buildImportPlan, nameKey } from "@/lib/productImportPlan";
+import { deriveChildrenForParent } from "@/lib/syncPackQty";
+
+const MAX_ROWS = 5000;
+const PLAN_PRODUCT_FIELDS =
+  "name barcode costPrice salePriceIncTax taxRate quantity packType qtyPerPack isChildProduct parentProduct unitsPerChild isArchived isStockManaged";
+
+function formatEntry(entry, result) {
+  return {
+    rowNumber: entry.rowNumber,
+    name: entry.name || "(no name)",
+    action: result || entry.action,
+    matchedBy: entry.matchedBy,
+    existingName: entry.product && entry.product.name !== entry.name ? entry.product.name : undefined,
+    archived: Boolean(entry.product?.isArchived),
+    changes: entry.changes,
+    warnings: entry.warnings,
+    error: entry.error,
+    qtyNotApplied: Boolean(entry.qtyNotApplied),
+  };
+}
+
+async function resolveCategoryIds(names, location, dryRun) {
+  const categories = await Category.find({}).select("name").lean();
+  const idByName = new Map(categories.map((c) => [nameKey(c.name), String(c._id)]));
+  const missing = [...new Set(names.filter((name) => name && !idByName.has(nameKey(name))))];
+
+  if (!dryRun && missing.length > 0) {
+    const created = await Category.insertMany(
+      missing.map((name) => ({ name, locations: location ? [location] : [], isStockManaged: true })),
+      { ordered: false }
+    ).catch((err) => err.insertedDocs || []);
+    (Array.isArray(created) ? created : []).forEach((c) => idByName.set(nameKey(c.name), String(c._id)));
+  }
+
+  return { idByName, missing };
+}
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -23,113 +70,147 @@ export default async function handler(req, res) {
 
   await mongooseConnect();
 
-  const { products, location } = req.body || {};
+  const { products, location, dryRun = false, updateExistingQty = false } = req.body || {};
 
   if (!Array.isArray(products) || products.length === 0) {
     return res.status(400).json({ error: "No products provided" });
   }
 
-  if (products.length > 500) {
-    return res.status(400).json({ error: "Maximum 500 products per import" });
+  if (products.length > MAX_ROWS) {
+    return res.status(400).json({ error: `Maximum ${MAX_ROWS} products per import` });
   }
 
   try {
-    // 1. Collect unique category names and ensure they exist
-    const categoryNames = [...new Set(
-      products
-        .map((p) => String(p.category || "").trim())
-        .filter(Boolean)
-    )];
+    const rows = products.map((raw, index) => normalizeImportRow(raw, index));
+    const existingProducts = await Product.find({}).select(PLAN_PRODUCT_FIELDS).lean();
+    const canSeedQty = req.user?.role === "admin";
 
-    const existingCategories = await Category.find({
-      name: { $in: categoryNames },
-    }).lean();
+    const plan = buildImportPlan({
+      rows,
+      existingProducts,
+      options: { canSeedQty, updateExistingQty: Boolean(updateExistingQty) },
+    });
 
-    const categoryNameToId = {};
-    existingCategories.forEach((c) => { categoryNameToId[c.name] = String(c._id); });
+    const { missing: categoriesToCreate } = await resolveCategoryIds(plan.categoriesToCreate, location, true);
 
-    const missingCategories = categoryNames.filter((n) => !categoryNameToId[n]);
-
-    // Create missing categories
-    if (missingCategories.length > 0) {
-      const toCreate = missingCategories.map((name) => ({
-        name,
-        locations: location ? [location] : [],
-        isStockManaged: true,
-      }));
-      const created = await Category.insertMany(toCreate, { ordered: false }).catch(() => []);
-      (Array.isArray(created) ? created : []).forEach((c) => {
-        categoryNameToId[c.name] = String(c._id);
+    if (dryRun) {
+      return res.status(200).json({
+        success: true,
+        dryRun: true,
+        canSeedQty,
+        summary: { ...plan.summary, categoriesToCreate: categoriesToCreate.length },
+        categoriesToCreate,
+        rows: plan.entries.map((entry) => formatEntry(entry)),
       });
     }
 
-    // 2. Check for existing products (by exact name) to skip duplicates
-    const names = products.map((p) => String(p.name || "").trim()).filter(Boolean);
-    const existingByName = await Product.find({ name: { $in: names } }).select("name").lean();
-    const existingNameSet = new Set(existingByName.map((p) => p.name));
+    const creates = plan.entries.filter((entry) => entry.action === "create");
+    const updates = plan.entries.filter((entry) => entry.action === "update");
 
-    // 3. Build product documents
-    const toInsert = [];
-    const skipped = [];
+    if (creates.length > 0 && !location) {
+      return res.status(400).json({ error: "Select a location for the new products" });
+    }
 
-    for (const row of products) {
-      const name = String(row.name || "").trim();
-      if (!name) { skipped.push({ name: "(empty)", reason: "No name" }); continue; }
+    // 1. Categories for new products
+    const { idByName } = await resolveCategoryIds(plan.categoriesToCreate, location, false);
 
-      // Skip if exact name exists already
-      if (existingNameSet.has(name)) {
-        skipped.push({ name, reason: "Product name already exists" });
-        continue;
-      }
+    // 2. Ids up front so children can point at parents created in this same import
+    creates.forEach((entry) => {
+      entry.newId = new mongoose.Types.ObjectId();
+    });
+    const productIdFor = (entry) => entry.product?._id || entry.newId;
+    const parentIdFor = (entry) =>
+      entry.parent?.product ? entry.parent.product._id : entry.parent?.entry ? productIdFor(entry.parent.entry) : null;
 
-      const rawBarcode = String(row.barcode || "").trim();
-      const barcode = rawBarcode
-        .split(/[,|;]/)
-        .map((b) => b.trim())
-        .filter(Boolean)
-        .join(", ") || undefined;
-
-      const costPrice = Math.max(0, Number(row.costPrice) || 0);
-      const salePriceIncTax = Math.max(0, Number(row.salePriceIncTax) || 0);
-      const catName = String(row.category || "").trim();
-      const category = categoryNameToId[catName] || "Top Level";
-
-      toInsert.push({
-        name,
-        description: String(row.description || "").trim(),
-        costPrice,
-        salePriceIncTax,
-        barcode,
-        category,
+    const newDocs = creates.map((entry) => {
+      const { categoryName, isChildProduct, ...doc } = entry.doc;
+      return {
+        ...doc,
+        _id: entry.newId,
+        category: idByName.get(nameKey(categoryName)) || "Top Level",
         locations: location ? [location] : [],
         showOnWeb: true,
         isStockManaged: true,
         isArchived: false,
-        quantity: 0,
-      });
+        ...(isChildProduct ? { isChildProduct: true, parentProduct: parentIdFor(entry) } : {}),
+      };
+    });
 
-      existingNameSet.add(name);
+    if (newDocs.length > 0) {
+      await Product.insertMany(newDocs, { ordered: false }).catch((err) => {
+        console.error("Product import insert error:", err.message);
+      });
+    }
+    const insertedIds = new Set(
+      newDocs.length > 0
+        ? (await Product.find({ _id: { $in: newDocs.map((d) => d._id) } }).select("_id").lean()).map((d) => String(d._id))
+        : []
+    );
+    const failedCreates = new Set(creates.filter((entry) => !insertedIds.has(String(entry.newId))));
+
+    // New children whose new parent failed to save must not point at a missing product
+    const orphanedChildren = creates.filter(
+      (entry) => !failedCreates.has(entry) && entry.parent?.entry && failedCreates.has(entry.parent.entry)
+    );
+    if (orphanedChildren.length > 0) {
+      await Product.updateMany(
+        { _id: { $in: orphanedChildren.map((entry) => entry.newId) } },
+        { $set: { isChildProduct: false, unitsPerChild: 1 }, $unset: { parentProduct: "" } }
+      );
+      orphanedChildren.forEach((entry) => {
+        entry.warnings.push("Its parent failed to save, so it was created without a parent link");
+        entry.parent = null;
+      });
     }
 
-    // 4. Bulk insert
-    let created = 0;
-    if (toInsert.length > 0) {
-      const result = await Product.insertMany(toInsert, { ordered: false }).catch((err) => {
-        // Some might fail (duplicate key etc), count what succeeded
-        return err.insertedDocs || [];
-      });
-      created = Array.isArray(result) ? result.length : toInsert.length;
+    // 3. Updates to existing products (skip child links whose new parent failed to save)
+    const skippedUpdates = new Set();
+    const updateOps = [];
+    for (const entry of updates) {
+      const set = { ...entry.set };
+      if (entry.linkToParent) {
+        if (entry.parent?.entry && failedCreates.has(entry.parent.entry)) {
+          skippedUpdates.add(entry);
+          continue;
+        }
+        set.parentProduct = parentIdFor(entry);
+      }
+      updateOps.push({ updateOne: { filter: { _id: entry.product._id }, update: { $set: set } } });
     }
+    if (updateOps.length > 0) {
+      await Product.bulkWrite(updateOps, { ordered: false });
+    }
+
+    // 4. Children take their stock from the parent
+    const parentIds = new Set();
+    for (const entry of [...creates, ...updates]) {
+      if (failedCreates.has(entry) || skippedUpdates.has(entry)) continue;
+      if (entry.parent) parentIds.add(String(parentIdFor(entry)));
+      const packType = entry.doc?.packType || entry.set?.packType || entry.product?.packType;
+      if (packType === "pack") parentIds.add(String(productIdFor(entry)));
+    }
+    for (const parentId of parentIds) {
+      await deriveChildrenForParent(parentId);
+    }
+
+    const resultFor = (entry) => {
+      if (failedCreates.has(entry)) return "failed";
+      if (skippedUpdates.has(entry)) return "failed";
+      return entry.action;
+    };
 
     return res.status(200).json({
       success: true,
+      dryRun: false,
+      canSeedQty,
       summary: {
-        total: products.length,
-        created,
-        skipped: skipped.length,
-        categoriesCreated: missingCategories.length,
+        ...plan.summary,
+        create: creates.length - failedCreates.size,
+        update: updates.length - skippedUpdates.size,
+        failed: failedCreates.size + skippedUpdates.size,
+        categoriesCreated: categoriesToCreate.length,
       },
-      skipped,
+      rows: plan.entries.map((entry) => formatEntry(entry, resultFor(entry))),
     });
   } catch (err) {
     console.error("Product import error:", err.message);
@@ -138,5 +219,6 @@ export default async function handler(req, res) {
 }
 
 export const config = {
-  api: { bodyParser: { sizeLimit: "4mb" } },
+  api: { bodyParser: { sizeLimit: "10mb" } },
+  maxDuration: 60,
 };

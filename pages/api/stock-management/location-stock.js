@@ -4,6 +4,7 @@ import StockMovement from "@/models/StockMovement";
 import Transaction from "@/models/Transactions";
 import { buildLocationCache } from "@/lib/serverLocationHelper";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { childQtyToParentQty, deriveChildQuantity } from "@/lib/packUnits";
 
 function normalizeLocationValue(value) {
   return String(value || "").trim().toLowerCase();
@@ -61,8 +62,7 @@ function resolveStockProductDelta(productMap, productId, quantity) {
   if (isDerivedChild(product)) {
     const parentId = String(product.parentProduct || "");
     const parent = productMap.get(parentId);
-    const unitsPerPack = Number(parent?.qtyPerPack || product.qtyPerPack || 1) || 1;
-    return { productId: parentId, quantity: quantity / unitsPerPack };
+    return { productId: parentId, quantity: childQtyToParentQty(quantity, product, parent) };
   }
 
   return { productId: String(product._id), quantity };
@@ -97,7 +97,7 @@ export default async function handler(req, res) {
       isArchived: { $ne: true },
       isStockManaged: true,
     })
-      .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice locations")
+      .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack unitsPerChild childSalePrice locations")
       .sort({ name: 1 })
       .lean();
 
@@ -162,12 +162,11 @@ export default async function handler(req, res) {
       const parentLocationMap = stockByProduct.get(parentId);
       if (!parent || !parentLocationMap) return;
 
-      const unitsPerPack = Number(parent.qtyPerPack || product.qtyPerPack || 1) || 1;
       const childLocationMap = ensureLocationMap(stockByProduct, getProductId(product));
       parentLocationMap.forEach((entry, locationKey) => {
         childLocationMap.set(locationKey, {
           locationName: entry.locationName,
-          quantity: entry.quantity * unitsPerPack,
+          quantity: deriveChildQuantity(entry.quantity, parent, product),
         });
       });
     });

@@ -8,6 +8,7 @@ import Transaction from "@/models/Transactions";
 import { Category } from "@/models/Category";
 import { buildLocationCache } from "@/lib/serverLocationHelper";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { childQtyToParentQty } from "@/lib/packUnits";
 
 function normalizeLocationValue(value) {
   return String(value || "").trim().toLowerCase();
@@ -40,8 +41,7 @@ function getProductBatchDelta(productMap, productId, quantity) {
 
   if (product.isChildProduct && product.parentProduct && product.packType !== "pack") {
     const parent = productMap.get(String(product.parentProduct));
-    const qtyPerPack = Number(parent?.qtyPerPack || product.qtyPerPack || 1) || 1;
-    return { productId: String(product.parentProduct), quantity: quantity / qtyPerPack };
+    return { productId: String(product.parentProduct), quantity: childQtyToParentQty(quantity, product, parent) };
   }
 
   return { productId: normalizedProductId, quantity };
@@ -183,7 +183,7 @@ export default async function handler(req, res) {
           { _id: { $in: productIdObjects } },
           { isChildProduct: true, parentProduct: { $in: productIdObjects }, packType: { $ne: "pack" } },
         ]
-      }).select("_id isChildProduct parentProduct packType qtyPerPack").lean();
+      }).select("_id isChildProduct parentProduct packType qtyPerPack unitsPerChild").lean();
 
       const productMap = new Map(relevantProducts.map((p) => [String(p._id), p]));
       const allProductIds = relevantProducts.map((p) => p._id);

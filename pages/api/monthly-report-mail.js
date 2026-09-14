@@ -10,6 +10,7 @@ import { createMailTransport, getMailEnvValue, getMailFromAddress } from "@/lib/
 import { aggregateProductSales } from "@/lib/product-sales-report";
 import { buildLocationCache, resolveLocationName } from "@/lib/serverLocationHelper";
 import { generateMonthlyReportInsight, buildMonthlyReportAIHtml } from "@/lib/ai/monthlyReportAI";
+import { childQtyToParentQty } from "@/lib/packUnits";
 
 function isDerivedChildProduct(product) {
   return product?.isChildProduct && product?.packType !== "pack";
@@ -63,8 +64,7 @@ function resolveStockProductDelta(productMap, productId, quantity) {
   if (isDerivedChildProduct(product)) {
     const parentId = String(product.parentProduct || "");
     const parent = productMap.get(parentId);
-    const unitsPerPack = Number(parent?.qtyPerPack || product.qtyPerPack || 1) || 1;
-    return { productId: parentId, quantity: quantity / unitsPerPack };
+    return { productId: parentId, quantity: childQtyToParentQty(quantity, product, parent) };
   }
 
   return { productId: String(product._id), quantity };

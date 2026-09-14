@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useRouter } from "next/router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faBarcode } from "@fortawesome/free-solid-svg-icons";
 import Loader from "./Loader";
@@ -11,10 +11,13 @@ import { clearCache } from "@/lib/useIndexedDBCache";
 import { useAuth } from "@/lib/useAuth";
 import {
   calculateMarginPercent,
-  calculateProfit,
   calculateSalePriceIncTax,
+  getPriceBreakdown,
+  VAT_RATE,
 } from "@/lib/pricing";
+import { isDerivedChild } from "@/lib/packUnits";
 import AIPriceSuggestion from "@/components/AIPriceSuggestion";
+import ProductPackLinks from "@/components/ProductPackLinks";
 
 function toDateInputValue(v) {
   if (!v) return "";
@@ -50,15 +53,15 @@ export default function ProductForm(props) {
   const [name, setName] = useState(props.name || "");
   const [description, setDescription] = useState(props.description || "");
   const [costPrice, setCostPrice] = useState(props.costPrice ?? "");
-  const [taxRate, setTaxRate] = useState(
-    props.taxRate != null ? String(props.taxRate) : "4.5"
-  );
+  // Existing products keep whether VAT was applied; new products get VAT by default
+  const [applyTax, setApplyTax] = useState(props._id ? Number(props.taxRate) > 0 : true);
   const [salePriceIncTax, setSalePriceIncTax] = useState(
     props.salePriceIncTax ?? ""
   );
   const [margin, setMargin] = useState(props.margin ?? "");
   const [barcode, setBarcode] = useState(props.barcode || "");
   const [quantity, setQuantity] = useState(props.quantity ?? "");
+  const [quantityEdited, setQuantityEdited] = useState(false);
   const [category, setCategory] = useState(props.category || "Top Level");
   const [categories, setCategories] = useState([]);
   const [images, setImages] = useState(props.images || []);
@@ -70,6 +73,9 @@ export default function ProductForm(props) {
   const [packType, setPackType] = useState(props.packType || "unit");
   const [qtyPerPack, setQtyPerPack] = useState(props.qtyPerPack ?? 1);
   const [childSalePrice, setChildSalePrice] = useState(props.childSalePrice ?? "");
+  const [isLinkedChild, setIsLinkedChild] = useState(isDerivedChild(props));
+  // Existing products converted to a pack usually get existing products linked as children instead
+  const [autoCreateUnitChild, setAutoCreateUnitChild] = useState(!props._id);
   const [selectedLocations, setSelectedLocations] = useState(props.locations || []);
   const [allLocations, setAllLocations] = useState([]);
   const [showOnWeb, setShowOnWeb] = useState(props.showOnWeb || false);
@@ -97,7 +103,6 @@ export default function ProductForm(props) {
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [goToProducts, setGoToProducts] = useState(false);
-  const [applyTax, setApplyTax] = useState(true);
   const [fieldErrors, setFieldErrors] = useState({});
   const [descriptionEdited, setDescriptionEdited] = useState(false);
 
@@ -106,11 +111,12 @@ export default function ProductForm(props) {
     setName(props.name || "");
     setDescription(props.description || "");
     setCostPrice(props.costPrice ?? "");
-    setTaxRate(props.taxRate != null ? String(props.taxRate) : "4.5");
+    setApplyTax(props._id ? Number(props.taxRate) > 0 : true);
     setSalePriceIncTax(props.salePriceIncTax ?? "");
     setMargin(props.margin ?? "");
     setBarcode(props.barcode || "");
     setQuantity(props.quantity ?? "");
+    setQuantityEdited(false);
     setCategory(props.category || "Top Level");
     setImages(props.images || []);
     setProperties(props.properties || []);
@@ -119,6 +125,8 @@ export default function ProductForm(props) {
     setPackType(props.packType || "unit");
     setQtyPerPack(props.qtyPerPack ?? 1);
     setChildSalePrice(props.childSalePrice ?? "");
+    setIsLinkedChild(isDerivedChild(props));
+    setAutoCreateUnitChild(!props._id);
     setSelectedLocations(props.locations || []);
     setShowOnWeb(props.showOnWeb || false);
     setIsPromotion(props.isPromotion || false);
@@ -180,38 +188,55 @@ export default function ProductForm(props) {
   const effectivePrice =
     isPromotion && promoPrice ? promoPrice : salePriceIncTax;
 
-  // --- Pricing logic ---
-  useEffect(() => {
-    const cp = Number(costPrice) || 0;
-    const tr = Number(taxRate) || 0;
-    const mg = Number(margin) || 0;
-    const sp = Number(salePriceIncTax) || 0;
+  // --- Pricing logic: cost → margin → price before VAT → VAT → sale price ---
+  const taxRate = applyTax ? VAT_RATE : 0;
 
-    if (document.activeElement?.name === "margin") {
-      setSalePriceIncTax(
-        calculateSalePriceIncTax(cp, mg, tr, applyTax).toFixed(2)
-      );
+  function handleCostPriceChange(value) {
+    setCostPrice(value);
+    if (fieldErrors.costPrice) {
+      setFieldErrors((prev) => ({ ...prev, costPrice: null }));
     }
-
-    if (document.activeElement?.name === "salePrice") {
-      setMargin(calculateMarginPercent(cp, sp, tr, applyTax).toFixed(2));
+    // Keep the sale price and re-derive the margin; with no sale price yet, price from the margin
+    if (Number(salePriceIncTax) > 0 || margin === "") {
+      setMargin(calculateMarginPercent(value, salePriceIncTax, taxRate).toFixed(2));
+    } else {
+      setSalePriceIncTax(calculateSalePriceIncTax(value, margin, taxRate).toFixed(2));
     }
+  }
 
-    if (["costPrice", "taxRate"].includes(document.activeElement?.name)) {
-      setMargin(calculateMarginPercent(cp, sp, tr, applyTax).toFixed(2));
+  function handleMarginChange(value) {
+    setMargin(value);
+    if (value !== "") {
+      setSalePriceIncTax(calculateSalePriceIncTax(costPrice, value, taxRate).toFixed(2));
     }
-  }, [costPrice, taxRate, margin, salePriceIncTax, applyTax]);
+  }
 
-  // --- Profit calculator --- (uses effectivePrice)
-  const { profit, margin: calcMargin } = (() => {
-    const cp = Number(costPrice) || 0;
-    const sp = Number(effectivePrice) || 0;
-    if (sp === 0) return { profit: 0, margin: "0.00" };
-    return {
-      profit: calculateProfit(cp, sp, taxRate, applyTax).toFixed(2),
-      margin: calculateMarginPercent(cp, sp, taxRate, applyTax).toFixed(2),
-    };
-  })();
+  function handleSalePriceChange(value) {
+    setSalePriceIncTax(value);
+    setMargin(calculateMarginPercent(costPrice, value, taxRate).toFixed(2));
+  }
+
+  function handleApplyTaxChange(checked) {
+    setApplyTax(checked);
+    setMargin(calculateMarginPercent(costPrice, salePriceIncTax, checked ? VAT_RATE : 0).toFixed(2));
+  }
+
+  const priceBreakdown = getPriceBreakdown(costPrice, salePriceIncTax, taxRate);
+  const promoBreakdown =
+    isPromotion && Number(promoPrice) > 0 ? getPriceBreakdown(costPrice, effectivePrice, taxRate) : null;
+
+  const handleRelationsChange = useCallback((relations) => {
+    const current = relations?.product;
+    if (!current) return;
+    const linkedAsChild = isDerivedChild(current) && Boolean(relations.parent);
+    setIsLinkedChild(linkedAsChild);
+    if (linkedAsChild) {
+      setPackType("unit");
+      setQtyPerPack(1);
+    }
+    // Linking can move stock into this pack, and unlinking resets a child's stock
+    setQuantity((prev) => (quantityEdited ? prev : current.quantity ?? ""));
+  }, [quantityEdited]);
 
   // --- Promo Margin & Warning ---
   const promoMargin = (() => {
@@ -259,7 +284,8 @@ export default function ProductForm(props) {
       images,
       properties,
       minStock: minStock === "" ? undefined : Number(minStock),
-      quantity: quantity === "" ? undefined : Number(quantity),
+      // Only send qty when it was typed here, so a stale value never overwrites stock changed by sales
+      quantity: quantityEdited && quantity !== "" ? Number(quantity) : undefined,
       expiryDate,
       isPromotion,
       promoPrice: isPromotion ? promoPrice : "",
@@ -271,6 +297,7 @@ export default function ProductForm(props) {
       packType,
       qtyPerPack: packType === "pack" ? Number(qtyPerPack) || 1 : 1,
       childSalePrice: packType === "pack" ? Number(childSalePrice) || 0 : undefined,
+      autoCreateUnitChild: packType === "pack" ? autoCreateUnitChild : undefined,
       showOnWeb,
     };
 
@@ -595,70 +622,42 @@ export default function ProductForm(props) {
             name="costPrice"
             type="number"
             value={costPrice}
-            setValue={(v) => {
-              setCostPrice(v);
-              if (fieldErrors.costPrice) {
-                setFieldErrors((prev) => ({ ...prev, costPrice: null }));
-              }
-            }}
+            setValue={handleCostPriceChange}
             required
             error={fieldErrors.costPrice}
           />
           <div className="form-group">
-            <label className="form-label">
-              Tax Rate
+            <label className="form-label">VAT</label>
+            <label className="form-input flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="applyTax"
+                checked={applyTax}
+                onChange={(e) => handleApplyTaxChange(e.target.checked)}
+              />
+              <span className="text-sm text-gray-700">Apply VAT at {VAT_RATE}%</span>
             </label>
-            <div className="flex items-center gap-2">
-              <select
-                name="taxRate"
-                className="form-select flex-1"
-                value={taxRate}
-                onChange={(e) => setTaxRate(e.target.value)}
-                disabled={!applyTax}
-              >
-                <option value="4.5">4.5%</option>
-                <option value="7.5">7.5%</option>
-              </select>
-              <label className="flex items-center gap-1 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={applyTax}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setApplyTax(checked);
-                    const nextMargin = calculateMarginPercent(
-                      costPrice,
-                      salePriceIncTax,
-                      taxRate,
-                      checked
-                    );
-                    setMargin(nextMargin.toFixed(2));
-                  }}
-                />{" "}
-                Apply
-              </label>
-            </div>
           </div>
           <InputField
-            label="Margin %"
+            label="Margin % (on cost)"
             name="margin"
             type="number"
             value={margin}
-            setValue={setMargin}
+            setValue={handleMarginChange}
           />
         </div>
         <InputField
-          label="Sale Price (₦, inc. tax)"
+          label={applyTax ? `Sale Price (₦, inc. ${VAT_RATE}% VAT)` : "Sale Price (₦, no VAT)"}
           name="salePrice"
           type="number"
           value={salePriceIncTax}
-          setValue={setSalePriceIncTax}
+          setValue={handleSalePriceChange}
         />
         {props._id && (
           <AIPriceSuggestion
             productId={props._id}
             currentPrice={salePriceIncTax}
-            onApplyPrice={(price) => setSalePriceIncTax(String(price))}
+            onApplyPrice={(price) => handleSalePriceChange(String(price))}
           />
         )}
         <InputField
@@ -667,14 +666,7 @@ export default function ProductForm(props) {
           value={expiryDate}
           setValue={setExpiryDate}
         />
-        <div className="mt-4 p-4 bg-gray-50 border rounded-lg">
-          <p className="text-sm text-gray-700">
-            <span className="font-semibold">Profit:</span> {formatCurrency(Number(profit) || 0)}
-          </p>
-          <p className="text-sm text-gray-700">
-            <span className="font-semibold">Margin:</span> {calcMargin}%
-          </p>
-        </div>
+        <PriceBuildUp breakdown={priceBreakdown} applyTax={applyTax} promoBreakdown={promoBreakdown} />
       </Section>
 
       <Section title="Stock & Quantity">
@@ -692,50 +684,81 @@ export default function ProductForm(props) {
               name="quantity"
               type="number"
               value={quantity}
-              setValue={setQuantity}
+              setValue={(v) => {
+                setQuantity(v);
+                setQuantityEdited(true);
+              }}
+              disabled={isLinkedChild}
+              hint={isLinkedChild ? "Child products take their stock from the parent pack." : ""}
             />
           )}
         </div>
       </Section>
 
       {/* Pack / Child Product */}
-      <Section title="Pack & Child Product">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-              <div className="form-group">
-                <label className="form-label">Pack Type</label>
-                <select
-                  className="form-select"
-                  value={packType}
-                  onChange={(e) => setPackType(e.target.value)}
-                >
-                  <option value="unit">Unit (Single Item)</option>
-                  <option value="pack">Pack (Multiple Units)</option>
-                </select>
+      <Section title="Pack & Child Products">
+            {isLinkedChild ? (
+              <p className="text-sm text-gray-600">
+                This product is a child of a pack. It has no stock of its own — see the parent below.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
+                <div className="form-group">
+                  <label className="form-label">Pack Type</label>
+                  <select
+                    className="form-select"
+                    value={packType}
+                    onChange={(e) => setPackType(e.target.value)}
+                  >
+                    <option value="unit">Unit (Single Item)</option>
+                    <option value="pack">Pack (Multiple Units)</option>
+                  </select>
+                </div>
+                {packType === "pack" && (
+                  <>
+                    <InputField
+                      label="Qty Per Pack"
+                      type="number"
+                      value={qtyPerPack}
+                      setValue={setQtyPerPack}
+                    />
+                    <InputField
+                      label="Auto Unit Child Sale Price (₦)"
+                      type="number"
+                      value={childSalePrice}
+                      setValue={setChildSalePrice}
+                    />
+                  </>
+                )}
               </div>
-              {packType === "pack" && (
-                <>
-                  <InputField
-                    label="Qty Per Pack"
-                    type="number"
-                    value={qtyPerPack}
-                    setValue={setQtyPerPack}
-                  />
-                  <InputField
-                    label="Child Sale Price (₦)"
-                    type="number"
-                    value={childSalePrice}
-                    setValue={setChildSalePrice}
-                  />
-                </>
-              )}
-            </div>
-            {packType === "pack" && Number(qtyPerPack) > 1 && (
-              <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700">
+            )}
+            {!isLinkedChild && packType === "pack" && Number(qtyPerPack) > 1 && (
+              <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700 space-y-2">
                 <p>
                   <strong>Pack of {qtyPerPack}:</strong> Cost per unit = {formatCurrency((Number(costPrice) || 0) / (Number(qtyPerPack) || 1))}
-                  {childSalePrice ? ` | Child sale price = ${formatCurrency(Number(childSalePrice))}` : ""}
+                  {childSalePrice ? ` | Auto unit child sale price = ${formatCurrency(Number(childSalePrice))}` : ""}
                 </p>
+                {!(props._id && props.packType === "pack" && Number(props.qtyPerPack) > 1) && (
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={autoCreateUnitChild}
+                      onChange={(e) => setAutoCreateUnitChild(e.target.checked)}
+                    />
+                    <span>
+                      Auto-create a new &quot;{name || "Product"} (Unit)&quot; child product
+                      {props._id ? " (leave unticked to link existing products below instead)" : ""}
+                    </span>
+                  </label>
+                )}
               </div>
+            )}
+            {props._id ? (
+              <ProductPackLinks productId={props._id} onRelationsChange={handleRelationsChange} />
+            ) : (
+              <p className="mt-3 text-xs text-gray-500">
+                Save this product first to link existing products to it as children, or to link it to a parent pack.
+              </p>
             )}
           </Section>
 
@@ -925,6 +948,53 @@ export default function ProductForm(props) {
   );
 }
 
+function PriceBuildUp({ breakdown, applyTax, promoBreakdown }) {
+  const { cost, marginAmount, marginPercent, saleExTax, vatAmount, sale, totalAddOns, totalAddOnsPercent } = breakdown;
+  const lossClass = (value) => (value < 0 ? "text-red-600" : "text-gray-900");
+
+  return (
+    <div className="mt-4 p-4 bg-gray-50 border rounded-lg text-sm">
+      <h4 className="font-semibold text-gray-800 mb-2">Price Build-up</h4>
+      <dl className="space-y-1">
+        <div className="flex justify-between gap-4">
+          <dt className="text-gray-600">Cost price</dt>
+          <dd className="font-medium text-gray-900">{formatCurrency(cost)}</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-gray-600">+ Margin ({marginPercent.toFixed(2)}% on cost)</dt>
+          <dd className={`font-medium ${lossClass(marginAmount)}`}>{formatCurrency(marginAmount)}</dd>
+        </div>
+        <div className="flex justify-between gap-4 border-t pt-1">
+          <dt className="text-gray-600">= Price before VAT</dt>
+          <dd className="font-medium text-gray-900">{formatCurrency(saleExTax)}</dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-gray-600">+ VAT ({applyTax ? `${VAT_RATE}%` : "not applied"})</dt>
+          <dd className="font-medium text-gray-900">{formatCurrency(vatAmount)}</dd>
+        </div>
+        <div className="flex justify-between gap-4 border-t pt-1">
+          <dt className="font-semibold text-gray-800">= Sale price</dt>
+          <dd className="font-semibold text-gray-900">{formatCurrency(sale)}</dd>
+        </div>
+        <div className="flex justify-between gap-4 mt-2 rounded-md bg-blue-50 px-2 py-1.5">
+          <dt className="font-semibold text-blue-900">Total add-ons (margin + VAT)</dt>
+          <dd className={`font-semibold ${totalAddOns < 0 ? "text-red-600" : "text-blue-900"}`}>
+            {formatCurrency(totalAddOns)} ({totalAddOnsPercent.toFixed(2)}% of cost)
+          </dd>
+        </div>
+      </dl>
+      {promoBreakdown && (
+        <p className="mt-2 text-xs text-gray-600">
+          At the promo price of {formatCurrency(promoBreakdown.sale)}: profit{" "}
+          <span className={lossClass(promoBreakdown.marginAmount)}>{formatCurrency(promoBreakdown.marginAmount)}</span>{" "}
+          ({promoBreakdown.marginPercent.toFixed(2)}% on cost), VAT {formatCurrency(promoBreakdown.vatAmount)}, total
+          add-ons {formatCurrency(promoBreakdown.totalAddOns)}.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // InputField & Section
 function InputField({
   label,
@@ -935,6 +1005,8 @@ function InputField({
   textarea,
   required,
   error,
+  disabled,
+  hint,
 }) {
   return (
     <div className="form-group">
@@ -953,13 +1025,17 @@ function InputField({
         <input
           name={name}
           type={type}
-          className={`form-input ${error ? "border-red-500 ring-1 ring-red-200" : ""}`}
+          className={`form-input ${error ? "border-red-500 ring-1 ring-red-200" : ""} ${
+            disabled ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""
+          }`}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onWheel={type === "number" ? (e) => e.currentTarget.blur() : undefined}
           required={required}
+          disabled={disabled}
         />
       )}
+      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );

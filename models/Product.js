@@ -76,10 +76,13 @@ const ProductSchema = new Schema(
        PACK / CHILD PRODUCT
     ===================== */
     isChildProduct: { type: Boolean, default: false },
-    parentProduct: { type: Schema.Types.ObjectId, ref: "Product" },
+    parentProduct: { type: Schema.Types.ObjectId, ref: "Product", index: true },
     childSalePrice: { type: Number },
     packType: { type: String, enum: ["unit", "pack"], default: "unit" },
+    // Parent: base units in one pack (e.g. 24)
     qtyPerPack: { type: Number, default: 1 },
+    // Child: base units of the parent's pack in one child item (e.g. 6, 2 or 1)
+    unitsPerChild: { type: Number, default: 1, min: 1 },
 
     isArchived: { type: Boolean, default: false, index: true },
     archivedAt: { type: Date },

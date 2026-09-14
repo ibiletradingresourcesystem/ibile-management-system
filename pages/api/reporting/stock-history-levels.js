@@ -6,6 +6,7 @@ import { mongooseConnect, withRetry } from "@/lib/mongodb";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { buildLocationCache, getAllLocations } from "@/lib/serverLocationHelper";
 import { getDateTimeParts, parseDateKey } from "@/lib/dateFilter";
+import { childQtyToParentQty } from "@/lib/packUnits";
 
 const VALID_PERIODS = new Set(["monthly", "daily", "hourly", "half-hourly"]);
 
@@ -117,8 +118,7 @@ function resolveStockProductDelta(productMap, productId, quantity) {
   if (isDerivedChild(product)) {
     const parentId = String(product.parentProduct || "");
     const parent = productMap.get(parentId);
-    const unitsPerPack = Number(parent?.qtyPerPack || product.qtyPerPack || 1) || 1;
-    return { productId: parentId, quantity: quantity / unitsPerPack };
+    return { productId: parentId, quantity: childQtyToParentQty(quantity, product, parent) };
   }
 
   return { productId: String(product._id), quantity };
@@ -221,7 +221,7 @@ export default async function handler(req, res) {
         isArchived: { $ne: true },
         isStockManaged: true,
       })
-        .select("name barcode category costPrice salePriceIncTax isChildProduct parentProduct packType qtyPerPack")
+        .select("name barcode category costPrice salePriceIncTax isChildProduct parentProduct packType qtyPerPack unitsPerChild")
         .sort({ name: 1 })
         .lean(),
       StockMovement.find({

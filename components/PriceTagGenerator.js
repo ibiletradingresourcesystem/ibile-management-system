@@ -80,8 +80,9 @@ export default function PriceTagGenerator({ products: productsProp = [] }) {
     }
 
     try {
-      const { default: readXlsxFile } = await import("read-excel-file/browser");
-      const rows = await readXlsxFile(file);
+      // read-excel-file v8+: readSheet returns the first sheet's rows (the default export returns all sheets)
+      const { readSheet } = await import("read-excel-file/browser");
+      const rows = await readSheet(file);
 
       if (rows.length < 2) {
         alert("Excel file needs at least a header row and one data row.");

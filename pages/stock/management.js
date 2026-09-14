@@ -7,6 +7,7 @@ import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
 import { useIndexedDBCache } from "@/lib/useIndexedDBCache";
 import { getCachedCategories } from "@/lib/categoriesCache";
+import { getPackSize } from "@/lib/packUnits";
 
 const LOCATION_FILTER_KEY = "stockManagement:locationFilter";
 const CARD_FILTER_KEY = "stockManagement:cardFilter";
@@ -91,10 +92,14 @@ function formatQuantity(value) {
   return String(parseFloat(numberValue.toFixed(2)));
 }
 
-function getInnerUnitLabel(childProducts = []) {
+// Units inside the pack's stock. Every child draws from the same units, so they are never summed.
+function getInnerUnitQuantity(product) {
+  return Number(product?.quantity || 0) * getPackSize(product);
+}
+
+function getInnerUnitLabel(product, childProducts = []) {
   if (childProducts.length === 0) return "-";
-  const innerQuantity = childProducts.reduce((sum, childProduct) => sum + Number(childProduct.quantity || 0), 0);
-  return `${formatQuantity(innerQuantity)} inner units`;
+  return `${formatQuantity(getInnerUnitQuantity(product))} inner units`;
 }
 
 function quoteCsvValue(value) {
@@ -402,7 +407,7 @@ export default function StockManagement() {
   const buildReportRows = useCallback((sourceProducts) => {
     return sourceProducts.map((product) => {
       const childProducts = childProductsByParent.get(getProductId(product)) || [];
-      const innerQuantity = childProducts.reduce((sum, childProduct) => sum + Number(childProduct.quantity || 0), 0);
+      const innerQuantity = getInnerUnitQuantity(product);
       return {
         "Name": product.name || "N/A",
         "Category": categoryMap[product.category] || product.category || "Uncategorized",
@@ -617,7 +622,7 @@ export default function StockManagement() {
                             {formatQuantity(qty)}
                           </td>
                           <td className="px-6 py-4 text-blue-700 font-semibold">
-                            {getInnerUnitLabel(childProducts)}
+                            {getInnerUnitLabel(product, childProducts)}
                           </td>
                           <td className="px-6 py-4 text-gray-700">{product.minStock ?? 0}</td>
                           <td className="px-6 py-4">{formatCurrency(product.costPrice || 0, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>

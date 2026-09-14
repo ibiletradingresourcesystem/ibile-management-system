@@ -11,7 +11,8 @@ import { useRouter } from "next/router";
 import { mutate } from "swr";
 import { useIndexedDBCache, clearCache } from "@/lib/useIndexedDBCache";
 import { getCachedCategories } from "@/lib/categoriesCache";
-import { calculateMarginPercent } from "@/lib/pricing";
+import { calculateMarginPercent, calculateSalePriceIncTax, normalizeTaxRate, VAT_RATE } from "@/lib/pricing";
+import { getUnitsPerChild } from "@/lib/packUnits";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { Loader } from "@/components/ui";
@@ -411,7 +412,7 @@ export default function Products() {
   // Inline edit handlers
   const handleEditClick = (index, product) => {
     setEditIndex(index);
-    setEditableProduct({ ...product });
+    setEditableProduct({ ...product, taxRate: normalizeTaxRate(product.taxRate) });
     setPropertiesText(formatPropertiesForInput(product.properties || []));
     // set highlight now so when user leaves/returns it remains
     setHighlightedId(product._id);
@@ -430,19 +431,13 @@ export default function Products() {
     setEditableProduct((prev) => {
       const newValue = type === "checkbox" ? checked : value;
       const updated = { ...prev, [name]: newValue };
-      const cost = parseFloat(updated.costPrice || 0);
-      const margin = parseFloat(updated.margin || 0);
-      const tax = parseFloat(updated.taxRate || 0);
-      const sale = parseFloat(updated.salePriceIncTax || 0);
+      const tax = normalizeTaxRate(updated.taxRate);
 
       if (name === "margin") {
-        const marginRatio = margin / 100;
-        const saleExTax = cost * (1 + marginRatio);
-        const saleIncTax = saleExTax * (1 + tax / 100);
-        updated.salePriceIncTax = Number.isFinite(saleIncTax) ? saleIncTax.toFixed(2) : "0.00";
+        updated.salePriceIncTax = calculateSalePriceIncTax(updated.costPrice, updated.margin, tax).toFixed(2);
       }
       if (["costPrice", "taxRate", "salePriceIncTax"].includes(name)) {
-        updated.margin = calculateMarginPercent(cost, sale, tax, true).toFixed(2);
+        updated.margin = calculateMarginPercent(updated.costPrice, updated.salePriceIncTax, tax).toFixed(2);
       }
       return updated;
     });
@@ -451,8 +446,10 @@ export default function Products() {
   const handleUpdateClick = async (_id) => {
     try {
       setSavingProductId(_id);
+      // Stock and pack links aren't edited inline; never send the (possibly cached) values back
+      const { quantity, isChildProduct, parentProduct, unitsPerChild, ...editableFields } = editableProduct;
       const updatedProduct = {
-        ...editableProduct,
+        ...editableFields,
         properties: parsePropertiesInput(propertiesText),
       };
       const response = await axios.put("/api/products", { ...updatedProduct, _id });
@@ -817,7 +814,9 @@ export default function Products() {
                           <span>
                             {p.name}
                             {p.isChildProduct && p.packType !== "pack" && (
-                              <span className="ml-1 text-[10px] text-blue-500 font-normal">(unit from pack)</span>
+                              <span className="ml-1 text-[10px] text-blue-500 font-normal">
+                                ({getUnitsPerChild(p) > 1 ? `${getUnitsPerChild(p)} units` : "unit"} from pack)
+                              </span>
                             )}
                             {p.packType === "pack" && (
                               <span className="ml-1 text-[10px] text-purple-500 font-normal">(pack of {p.qtyPerPack})</span>
@@ -862,16 +861,16 @@ export default function Products() {
                         {editIndex === realIndex ? (
                           <select
                             name="taxRate"
-                            value={editableProduct.taxRate || ""}
+                            value={String(normalizeTaxRate(editableProduct.taxRate))}
                             onChange={handleChange}
                             onClick={(e) => e.stopPropagation()}
                             className="w-16 md:w-20 border p-1 rounded text-xs"
                           >
-                            <option value="4.5">4.5%</option>
-                            <option value="7.5">7.5%</option>
+                            <option value={String(VAT_RATE)}>{VAT_RATE}%</option>
+                            <option value="0">None</option>
                           </select>
                         ) : (
-                          p.taxRate
+                          normalizeTaxRate(p.taxRate) > 0 ? `${VAT_RATE}%` : "None"
                         )}
                       </td>
 

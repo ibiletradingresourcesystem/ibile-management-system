@@ -4,6 +4,9 @@ import { Category } from "@/models/Category";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { syncVendorAssignmentsForProduct } from "@/lib/vendorProductSync";
 import { deleteProductImages } from "@/lib/s3";
+import { deriveChildrenForParent } from "@/lib/syncPackQty";
+import { deriveChildQuantity, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
+import { calculateMarginPercent, normalizeTaxRate, roundMoney, VAT_RATE } from "@/lib/pricing";
 import {
   sanitizeMultilineText,
   sanitizePlainText,
@@ -11,13 +14,22 @@ import {
   sanitizeStringArray,
 } from "@/lib/textSanitizers";
 
+const CHILD_FILTER = { isChildProduct: true, packType: { $ne: "pack" } };
+
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Derive child product quantities from their parent in-place.
- * Child qty = parent.qty × qtyPerPack (always computed, never independent).
+ * Child qty = parent.qty × qtyPerPack ÷ unitsPerChild (always computed, never independent).
  */
 async function deriveChildQuantities(products) {
-  // Only derive for true unit children (isChildProduct=true AND packType != "pack")
-  const children = products.filter((p) => p.isChildProduct && p.parentProduct && p.packType !== "pack");
+  const children = products.filter(isDerivedChild);
   if (children.length === 0) return;
 
   const parentIds = [...new Set(children.map((p) => String(p.parentProduct)))];
@@ -28,10 +40,28 @@ async function deriveChildQuantities(products) {
 
   for (const child of children) {
     const parent = parentMap.get(String(child.parentProduct));
-    if (parent && parent.qtyPerPack > 0) {
-      child.quantity = parent.quantity * parent.qtyPerPack;
+    if (parent) {
+      child.quantity = deriveChildQuantity(parent.quantity, parent, child);
     }
   }
+}
+
+/**
+ * Values for the auto-generated "<pack name> (Unit)" child, priced as a share of the pack.
+ */
+function buildAutoUnitChildPricing(pack, childSalePriceInput, unitsPerChild = 1) {
+  const qtyPerPack = Number(pack.qtyPerPack) || 1;
+  const taxRate = normalizeTaxRate(pack.taxRate);
+  const costPrice = roundMoney(((Number(pack.costPrice) || 0) / qtyPerPack) * unitsPerChild);
+  const salePriceIncTax = roundMoney(
+    Number(childSalePriceInput) || ((Number(pack.salePriceIncTax) || 0) / qtyPerPack) * unitsPerChild
+  );
+  return {
+    costPrice,
+    taxRate,
+    salePriceIncTax,
+    margin: roundMoney(calculateMarginPercent(costPrice, salePriceIncTax, taxRate)),
+  };
 }
 
 /* =====================
@@ -111,6 +141,11 @@ function sanitizeProductPayload(payload = {}) {
     nextPayload.locations = sanitizeStringArray(nextPayload.locations);
   }
 
+  // Parent/child links are managed only through /api/products/links
+  delete nextPayload.isChildProduct;
+  delete nextPayload.parentProduct;
+  delete nextPayload.unitsPerChild;
+
   return nextPayload;
 }
 
@@ -140,10 +175,11 @@ export default async function handler(req, res) {
         archived,
         stockManaged,
         excludeChild,
+        lookup,
       } = req.query;
 
       // Skip maintenance tasks for minimal/fast queries
-      if (!minimal) {
+      if (!minimal && lookup !== "true") {
         await disableExpiredPromotions();
         await markExpiredProducts();
       }
@@ -170,10 +206,40 @@ export default async function handler(req, res) {
       else filter.isArchived = { $ne: true };
 
       if (search) {
+        const searchPattern = escapeRegex(search);
         filter.$or = [
-          { name: { $regex: search, $options: "i" } },
-          { barcode: { $regex: search, $options: "i" } },
+          { name: { $regex: searchPattern, $options: "i" } },
+          { barcode: { $regex: searchPattern, $options: "i" } },
         ];
+      }
+
+      // Lookup mode for linking parent/child products - small result set with link status
+      if (lookup === "true") {
+        if (!search) return res.json({ success: true, data: [] });
+
+        const products = await Product.find(filter)
+          .select("name barcode quantity costPrice salePriceIncTax packType qtyPerPack isChildProduct parentProduct unitsPerChild isStockManaged")
+          .populate("parentProduct", "name")
+          .sort({ name: 1 })
+          .limit(20)
+          .lean();
+
+        const childCounts = await Product.aggregate([
+          {
+            $match: {
+              parentProduct: { $in: products.map((p) => p._id) },
+              ...CHILD_FILTER,
+              isArchived: { $ne: true },
+            },
+          },
+          { $group: { _id: "$parentProduct", count: { $sum: 1 } } },
+        ]);
+        const childCountMap = new Map(childCounts.map((c) => [String(c._id), c.count]));
+
+        return res.json({
+          success: true,
+          data: products.map((p) => ({ ...p, childCount: childCountMap.get(String(p._id)) || 0 })),
+        });
       }
 
       if (expired === "true") filter.isExpired = true;
@@ -199,7 +265,7 @@ export default async function handler(req, res) {
       if (minimal === "true") {
         filter.isStockManaged = true;
         const products = await Product.find(filter)
-          .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice locations showOnWeb")
+          .select("name quantity minStock maxStock category barcode costPrice salePriceIncTax isStockManaged isChildProduct parentProduct packType qtyPerPack unitsPerChild childSalePrice locations showOnWeb")
           .sort({ name: 1 })
           .lean();
         await deriveChildQuantities(products);
@@ -220,7 +286,7 @@ export default async function handler(req, res) {
       // Full list mode - returns all products with list-view fields (no pagination cap)
       if (req.query.listAll === "true") {
         const products = await Product.find(filter)
-          .select("name barcode category costPrice salePriceIncTax quantity minStock maxStock locations isStockManaged isChildProduct parentProduct packType qtyPerPack childSalePrice expiryDate isExpired showOnWeb description")
+          .select("name barcode category costPrice taxRate margin salePriceIncTax quantity minStock maxStock locations isStockManaged isChildProduct parentProduct packType qtyPerPack unitsPerChild childSalePrice expiryDate isExpired showOnWeb description")
           .sort({ createdAt: -1 })
           .lean();
         await deriveChildQuantities(products);
@@ -260,9 +326,14 @@ export default async function handler(req, res) {
     ===================== */
     if (method === "POST") {
       const body = sanitizeProductPayload(req.body);
+      const autoCreateUnitChild = body.autoCreateUnitChild !== false;
+      delete body.autoCreateUnitChild;
       body.isArchived = false;
       body.archivedAt = null;
       body.archivedReason = "";
+
+      body.taxRate = hasOwn(body, "taxRate") ? normalizeTaxRate(body.taxRate) : VAT_RATE;
+      body.margin = roundMoney(calculateMarginPercent(body.costPrice, body.salePriceIncTax, body.taxRate));
 
       body.isStockManaged = await resolveStockManagedFromCategory(
         body.category,
@@ -283,41 +354,28 @@ export default async function handler(req, res) {
         nextVendorIds: body.vendors || [],
       });
 
-      // Auto-create child product when pack type is selected
-      if (body.packType === "pack" && Number(body.qtyPerPack) > 1) {
-        const existingChild = await Product.findOne({
-          parentProduct: product._id,
+      // Auto-create a single-unit child product when pack type is selected
+      if (autoCreateUnitChild && product.packType === "pack" && Number(product.qtyPerPack) > 1) {
+        await Product.create({
+          name: `${product.name} (Unit)`,
+          description: `${product.description || product.name} - Single unit from pack of ${product.qtyPerPack}`,
+          ...buildAutoUnitChildPricing(product, body.childSalePrice),
+          barcode: product.barcode ? `${product.barcode}-U` : "",
+          category: product.category || "Top Level",
+          images: product.images || [],
+          properties: product.properties || [],
+          quantity: deriveChildQuantity(product.quantity, product, { unitsPerChild: 1 }),
+          isStockManaged: product.isStockManaged !== false,
+          minStock: 0,
+          packType: "unit",
+          qtyPerPack: 1,
+          unitsPerChild: 1,
           isChildProduct: true,
-          packType: { $ne: "pack" },
-          isArchived: { $ne: true },
+          parentProduct: product._id,
+          vendors: body.vendors || [],
+          locations: product.locations || [],
+          isArchived: false,
         });
-        if (!existingChild) {
-          const childCostPrice = (Number(body.costPrice) || 0) / (Number(body.qtyPerPack) || 1);
-          const childSalePrice = Number(body.childSalePrice) || (Number(body.salePriceIncTax) || 0) / (Number(body.qtyPerPack) || 1);
-          const childQty = (Number(body.quantity) || 0) * (Number(body.qtyPerPack) || 1);
-          await Product.create({
-            name: `${body.name} (Unit)`,
-            description: `${body.description || body.name} - Single unit from pack of ${body.qtyPerPack}`,
-            costPrice: Math.round(childCostPrice * 100) / 100,
-            taxRate: body.taxRate || 0,
-            salePriceIncTax: Math.round(childSalePrice * 100) / 100,
-            margin: body.margin || 0,
-            barcode: body.barcode ? `${body.barcode}-U` : "",
-            category: body.category || "Top Level",
-            images: body.images || [],
-            properties: body.properties || [],
-            quantity: childQty,
-            isStockManaged: body.isStockManaged !== false,
-            minStock: 0,
-            packType: "unit",
-            qtyPerPack: 1,
-            isChildProduct: true,
-            parentProduct: product._id,
-            vendors: body.vendors || [],
-            locations: body.locations || [],
-            isArchived: false,
-          });
-        }
       }
 
       return res.status(201).json({
@@ -349,7 +407,7 @@ export default async function handler(req, res) {
       }
 
       const existingProduct = await Product.findById(_id)
-        .select("vendors packType qtyPerPack category productType isStockManaged images")
+        .select("name vendors packType qtyPerPack category productType isStockManaged images costPrice salePriceIncTax taxRate isChildProduct parentProduct")
         .lean();
 
       if (!existingProduct) {
@@ -391,6 +449,57 @@ export default async function handler(req, res) {
       }
 
       const updateData = sanitizeProductPayload(req.body);
+      const autoCreateUnitChild = updateData.autoCreateUnitChild !== false;
+      delete updateData.autoCreateUnitChild;
+
+      if (isDerivedChild(existingProduct)) {
+        // A child's stock always comes from its parent
+        delete updateData.quantity;
+        if (updateData.packType === "pack") {
+          return res.status(400).json({
+            success: false,
+            message: "This product is linked as a child of a pack. Unlink it from its parent before making it a pack.",
+          });
+        }
+      }
+
+      const packChanging =
+        (hasOwn(updateData, "packType") && updateData.packType !== "pack") ||
+        hasOwn(updateData, "qtyPerPack");
+      if (existingProduct.packType === "pack" && packChanging) {
+        const linkedChildren = await Product.find({
+          parentProduct: _id,
+          ...CHILD_FILTER,
+          isArchived: { $ne: true },
+        }).select("unitsPerChild").lean();
+
+        if (linkedChildren.length > 0 && updateData.packType && updateData.packType !== "pack") {
+          return res.status(400).json({
+            success: false,
+            message: `This pack has ${linkedChildren.length} linked child product(s). Unlink them before changing the pack type.`,
+          });
+        }
+
+        const largestChildUnits = Math.max(0, ...linkedChildren.map(getUnitsPerChild));
+        if (hasOwn(updateData, "qtyPerPack") && Number(updateData.qtyPerPack) < largestChildUnits) {
+          return res.status(400).json({
+            success: false,
+            message: `Qty per pack can't be less than ${largestChildUnits} — a linked child holds ${largestChildUnits} units.`,
+          });
+        }
+      }
+
+      // Only one VAT rate exists; keep the stored margin consistent with cost, sale price and VAT
+      if (["costPrice", "salePriceIncTax", "taxRate"].some((field) => hasOwn(updateData, field))) {
+        const costPrice = hasOwn(updateData, "costPrice") ? updateData.costPrice : existingProduct.costPrice;
+        const salePriceIncTax = hasOwn(updateData, "salePriceIncTax")
+          ? updateData.salePriceIncTax
+          : existingProduct.salePriceIncTax;
+        updateData.taxRate = normalizeTaxRate(
+          hasOwn(updateData, "taxRate") ? updateData.taxRate : existingProduct.taxRate
+        );
+        updateData.margin = roundMoney(calculateMarginPercent(costPrice, salePriceIncTax, updateData.taxRate));
+      }
 
       if (restore) {
         updateData.isArchived = false;
@@ -459,51 +568,46 @@ export default async function handler(req, res) {
         nextVendorIds: updated.vendors || [],
       });
 
-      // Auto-create/update child product when pack type is set
+      // Auto-create/update the single-unit child when pack type is set
       if (updated.packType === "pack" && Number(updated.qtyPerPack) > 1) {
-        const existingChild = await Product.findOne({
+        // Only the auto-generated "<pack name> (Unit)" child follows the pack's details.
+        // Products linked as children from /api/products/links keep their own name and prices.
+        const autoChild = await Product.findOne({
           parentProduct: updated._id,
-          isChildProduct: true,
-          packType: { $ne: "pack" },
+          ...CHILD_FILTER,
           isArchived: { $ne: true },
-        });
-        const childCostPrice = (Number(updated.costPrice) || 0) / (Number(updated.qtyPerPack) || 1);
-        const childSalePrice = Number(updateData.childSalePrice) || (Number(updated.salePriceIncTax) || 0) / (Number(updated.qtyPerPack) || 1);
-        if (existingChild) {
-          const childQty = (Number(updated.quantity) || 0) * (Number(updated.qtyPerPack) || 1);
-          await Product.findByIdAndUpdate(existingChild._id, {
+          name: { $in: [...new Set([`${existingProduct.name} (Unit)`, `${updated.name} (Unit)`])] },
+        }).select("_id unitsPerChild");
+
+        if (autoChild) {
+          await Product.findByIdAndUpdate(autoChild._id, {
             name: `${updated.name} (Unit)`,
             description: `${updated.description || updated.name} - Single unit from pack of ${updated.qtyPerPack}`,
-            costPrice: Math.round(childCostPrice * 100) / 100,
-            taxRate: updated.taxRate || 0,
-            salePriceIncTax: Math.round(childSalePrice * 100) / 100,
+            ...buildAutoUnitChildPricing(updated, updateData.childSalePrice, getUnitsPerChild(autoChild)),
             category: updated.category,
             images: updated.images || [],
             vendors: updated.vendors || [],
             locations: updated.locations || [],
-            quantity: childQty,
           });
         } else {
           const previouslyQualifiedForChild =
             existingProduct.packType === "pack" && Number(existingProduct.qtyPerPack) > 1;
 
-          if (!previouslyQualifiedForChild) {
+          if (!previouslyQualifiedForChild && autoCreateUnitChild) {
             await Product.create({
               name: `${updated.name} (Unit)`,
               description: `${updated.description || updated.name} - Single unit from pack of ${updated.qtyPerPack}`,
-              costPrice: Math.round(childCostPrice * 100) / 100,
-              taxRate: updated.taxRate || 0,
-              salePriceIncTax: Math.round(childSalePrice * 100) / 100,
-              margin: updated.margin || 0,
+              ...buildAutoUnitChildPricing(updated, updateData.childSalePrice),
               barcode: updated.barcode ? `${updated.barcode}-U` : "",
               category: updated.category || "Top Level",
               images: updated.images || [],
               properties: updated.properties || [],
-              quantity: (Number(updated.quantity) || 0) * (Number(updated.qtyPerPack) || 1),
+              quantity: deriveChildQuantity(updated.quantity, updated, { unitsPerChild: 1 }),
               isStockManaged: updated.isStockManaged !== false,
               minStock: 0,
               packType: "unit",
               qtyPerPack: 1,
+              unitsPerChild: 1,
               isChildProduct: true,
               parentProduct: updated._id,
               vendors: updated.vendors || [],
@@ -512,6 +616,10 @@ export default async function handler(req, res) {
             });
           }
         }
+      }
+
+      if (updated.packType === "pack") {
+        await deriveChildrenForParent(updated._id);
       }
 
       return res.json({
@@ -579,6 +687,10 @@ export default async function handler(req, res) {
           success: false,
           message: "Product not found",
         });
+      }
+
+      if (deleted.packType === "pack") {
+        await deriveChildrenForParent(deleted._id);
       }
 
       return res.json({
