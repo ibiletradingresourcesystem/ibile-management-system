@@ -16,7 +16,6 @@ export default function Receipts() {
   const [storeName, setStoreName] = useState("");
   const [storePhone, setStorePhone] = useState("");
   const [country, setCountry] = useState("");
-  const [staffName, setStaffName] = useState("");
   const [companyDisplayName, setCompanyDisplayName] = useState("");
   const [taxNumber, setTaxNumber] = useState("");
   const [email, setEmail] = useState("");
@@ -26,8 +25,8 @@ export default function Receipts() {
   const [fontSize, setFontSize] = useState("8.0");
   const [fontFamily, setFontFamily] = useState("Arial");
   const [fontWeight, setFontWeight] = useState("normal");
-  const [barcodeType, setBarcodeType] = useState("Default - Code 39");
-  const [companyLogo, setCompanyLogo] = useState("/images/logo.png");
+  const [companyLogo, setCompanyLogo] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
   const [qrDescription, setQrDescription] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -46,7 +45,6 @@ export default function Receipts() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const GUID = "75c09f89-1d79-47cd-8afa-065873c6f43b";
   const companyNameDisplay = "Ibile Mart";
   const previewLocation = locations.find((loc) => loc.name === selectedLocation);
   const previewDisplayName = companyDisplayName || companyName || companyNameDisplay;
@@ -83,7 +81,6 @@ export default function Receipts() {
         setFontSize(data.store.fontSize || "8.0");
         setFontFamily(data.store.fontFamily || "Arial");
         setFontWeight(data.store.fontWeight || "normal");
-        setBarcodeType(data.store.barcodeType || "Default - Code 39");
         setQrUrl(data.store.qrUrl || "");
         setQrDescription(data.store.qrDescription || "");
         setQrDataUrl(data.store.qrDataUrl || "");
@@ -116,41 +113,9 @@ export default function Receipts() {
           }
         }
         
-        // Use logo from /public/images/logo.png or fall back to images folder
-        if (data.store.logo) {
-          setCompanyLogo(data.store.logo);
-        }
-        
-        // Try to get receipt settings from localStorage or API
-        const receiptSettings = localStorage.getItem("receiptSettings");
-        if (receiptSettings) {
-          const settings = JSON.parse(receiptSettings);
-          setCompanyDisplayName(settings.companyDisplayName || data.store.companyDisplayName || "");
-          setTaxNumber(settings.taxNumber || data.store.taxNumber || "");
-          setWebsite(settings.website || data.store.website || "");
-          setRefundDays(settings.refundDays || data.store.refundDays || 0);
-          setReceiptMessage(settings.receiptMessage || data.store.receiptMessage || "");
-          setFontSize(settings.fontSize || data.store.fontSize || "8.0");
-          setFontFamily(settings.fontFamily || data.store.fontFamily || "Arial");
-          setFontWeight(settings.fontWeight || data.store.fontWeight || "normal");
-          setBarcodeType(settings.barcodeType || data.store.barcodeType || "Default - Code 39");
-          setQrUrl(settings.qrUrl || data.store.qrUrl || "");
-          setQrDescription(settings.qrDescription || data.store.qrDescription || "");
-          setQrDataUrl(settings.qrDataUrl || data.store.qrDataUrl || "");
-          setPaymentStatus(settings.paymentStatus || data.store.paymentStatus || "paid");
-          setShippingBaseCost(parseNumberOrDefault(settings.shippingBaseCost ?? data.store.shippingBaseCost, 2000));
-          setShippingRatePerKm(parseNumberOrDefault(settings.shippingRatePerKm ?? data.store.shippingRatePerKm, 100));
-          setShippingFallbackCost(
-            parseNumberOrDefault(
-              settings.shippingFallbackCost ?? data.store.shippingFallbackCost,
-              parseNumberOrDefault(settings.shippingBaseCost ?? data.store.shippingBaseCost, 2000)
-            )
-          );
-          // Load logo from localStorage if it exists
-          if (settings.companyLogo) {
-            setCompanyLogo(settings.companyLogo);
-          }
-        }
+        // The saved store settings are the only source; every till prints from them
+        setCompanyLogo(data.store.logo || "");
+        localStorage.removeItem("receiptSettings");
       }
     } catch (err) {
       console.error("Error fetching setup data:", err);
@@ -161,15 +126,30 @@ export default function Receipts() {
     }
   };
 
-  const handleLogoUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // For production, you'd upload to server, but for now we'll use the images folder
-      setCompanyLogo(`/images/${file.name}`);
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setLogoUploading(true);
+    setError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json().catch(() => ({}));
+      const uploadedUrl = data?.links?.[0]?.full;
+      if (!res.ok || !uploadedUrl) throw new Error(data?.error || "Logo upload failed");
+      // Receipts use the saved logo once you click SAVE
+      setCompanyLogo(uploadedUrl);
+    } catch (err) {
+      setError(err.message || "Logo upload failed");
+    } finally {
+      setLogoUploading(false);
     }
   };
 
-  const removeLogo = () => setCompanyLogo("/images/logo.png");
+  const removeLogo = () => setCompanyLogo("");
 
   const generateQRCode = async () => {
     const urlToEncode = qrMode === "per-location" && qrLocationId
@@ -232,7 +212,6 @@ export default function Receipts() {
         fontSize,
         fontFamily,
         fontWeight,
-        barcodeType,
         qrUrl,
         qrDescription,
         qrDataUrl,
@@ -241,7 +220,6 @@ export default function Receipts() {
         shippingRatePerKm: Number(shippingRatePerKm) || 0,
         shippingFallbackCost: Number(shippingFallbackCost) || Number(shippingBaseCost) || 0,
         companyLogo,
-        staffName,
         locationQrData,
       };
       
@@ -264,9 +242,7 @@ export default function Receipts() {
       const data = await res.json();
       
       if (data.success) {
-        // Also save to localStorage as backup
-        localStorage.setItem("receiptSettings", JSON.stringify(payload));
-        setSuccess("Receipt settings saved successfully!");
+        setSuccess("Receipt settings saved. Tills use them on their next receipt.");
         setTimeout(() => setSuccess(""), 3000);
       } else {
         setError(data.message || "Failed to save receipt settings");
@@ -336,18 +312,6 @@ export default function Receipts() {
                       onChange={(e) => setStoreName(e.target.value)}
                       className="form-input bg-gray-100 cursor-not-allowed text-gray-500"
                       placeholder="Will be pulled from transaction location"
-                      disabled
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Staff Name (Note: Dynamically set from transaction staff)</label>
-                    <input
-                      type="text"
-                      value={staffName}
-                      onChange={(e) => setStaffName(e.target.value)}
-                      className="form-input bg-gray-100 cursor-not-allowed text-gray-500"
-                      placeholder="Will be pulled from transaction staff"
                       disabled
                     />
                   </div>
@@ -484,7 +448,8 @@ export default function Receipts() {
                   <div className="mb-3">
                     <h3 className="text-sm font-semibold text-slate-900">Receipt Typography</h3>
                     <p className="text-xs text-slate-600 mt-1">
-                      Controls how text appears on printed receipts in the Point of Sale.
+                      Controls how text appears on printed receipts in the Point of Sale. Paper size and print area are set on
+                      each till in the POS under Printer Settings.
                     </p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -542,20 +507,6 @@ export default function Receipts() {
                   </div>
                 </div>
 
-                {/* Barcode Type */}
-                <div className="form-group">
-                  <label className="form-label">Barcode Type</label>
-                  <select
-                    value={barcodeType}
-                    onChange={(e) => setBarcodeType(e.target.value)}
-                    className="form-select"
-                  >
-                    <option value="Default - Code 39">Default - Code 39</option>
-                    <option value="Code 128">Code 128</option>
-                    <option value="EAN-13">EAN-13</option>
-                  </select>
-                </div>
-
                 {/* Location Selection for Preview */}
                 {locations.length > 0 && (
                   <div className="form-group">
@@ -577,29 +528,34 @@ export default function Receipts() {
                 {/* Company Logo */}
                 <div className="form-group">
                   <label className="form-label">Company Logo</label>
-                  <div className="border-2 border-dashed border-gray-300 p-4 rounded-lg text-center cursor-pointer relative hover:border-sky-400 transition-colors">
-                    {companyLogo ? (
-                      <div className="relative">
-                        <img src={companyLogo} className="mx-auto h-32 object-contain" alt="Company Logo" />
-                        <button
-                          onClick={removeLogo}
-                          className="btn-action btn-action-danger text-xs absolute top-2 right-2"
-                        >
+                  <div className="border-2 border-dashed border-gray-300 p-4 rounded-lg text-center">
+                    {logoUploading ? (
+                      <p className="text-gray-500 py-8">Uploading logo…</p>
+                    ) : companyLogo ? (
+                      <img src={companyLogo} className="mx-auto h-32 object-contain" alt="Company Logo" />
+                    ) : (
+                      <p className="text-gray-400 py-8">No logo — receipts print the company name only</p>
+                    )}
+                    <div className="mt-3 flex justify-center gap-2">
+                      <label className={`btn-action btn-action-primary text-xs cursor-pointer ${logoUploading ? "opacity-50 pointer-events-none" : ""}`}>
+                        {companyLogo ? "CHANGE LOGO" : "UPLOAD LOGO"}
+                        <input
+                          type="file"
+                          accept="image/png, image/jpeg, image/webp"
+                          className="hidden"
+                          onChange={handleLogoUpload}
+                          disabled={logoUploading}
+                        />
+                      </label>
+                      {companyLogo && !logoUploading && (
+                        <button type="button" onClick={removeLogo} className="btn-action btn-action-danger text-xs">
                           REMOVE
                         </button>
-                      </div>
-                    ) : (
-                      <p className="text-gray-400">Drop your file here or click to upload</p>
-                    )}
-                    <input
-                      type="file"
-                      accept="image/png, image/jpeg"
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      onChange={handleLogoUpload}
-                    />
+                      )}
+                    </div>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Logo should be no larger than 256x256 pixels in JPG or PNG format.
+                    JPG, PNG or WebP. Receipts print the logo in black and white, up to 30 × 12 mm. Click SAVE to apply it.
                   </p>
                 </div>
 
@@ -741,16 +697,6 @@ export default function Receipts() {
                   </select>
                 </div>
 
-                {/* GUID */}
-                <div className="form-group">
-                  <label className="form-label">GUID (Used by Support only)</label>
-                  <input
-                    type="text"
-                    value={GUID}
-                    readOnly
-                    className="form-input bg-gray-100 cursor-not-allowed text-gray-600"
-                  />
-                </div>
               </div>
             </div>
 
@@ -795,7 +741,7 @@ export default function Receipts() {
                       <span>SAMPLE</span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span>Staff: {staffName ? staffName : '[Staff Name]'}</span>
+                      <span>Staff: [Staff Name]</span>
                       <span>{paymentStatus.toUpperCase()}</span>
                     </div>
                   </div>

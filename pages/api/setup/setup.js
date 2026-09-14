@@ -324,7 +324,9 @@ async function handlePost(req, res) {
           receiptMessage: receiptSettings.receiptMessage || "",
           fontSize: String(receiptSettings.fontSize || store?.fontSize || "8.0"),
           fontFamily: String(receiptSettings.fontFamily || store?.fontFamily || "Arial"),
-          barcodeType: receiptSettings.barcodeType || store?.barcodeType || "Default - Code 39",
+          fontWeight: ["light", "normal", "bold"].includes(receiptSettings.fontWeight)
+            ? receiptSettings.fontWeight
+            : store?.fontWeight || "normal",
           qrUrl: receiptSettings.qrUrl || "",
           qrDescription: receiptSettings.qrDescription || "",
           qrDataUrl: receiptSettings.qrDataUrl || "",

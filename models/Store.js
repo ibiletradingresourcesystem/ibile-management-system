@@ -44,7 +44,7 @@ const StoreSchema = new mongoose.Schema(
     // 🔥 UPGRADED LOCATIONS
     locations: [LocationSchema],
 
-    // 📋 Receipt Settings
+    // 📋 Receipt Settings (used by the POS for printed receipts)
     companyDisplayName: { type: String, default: "Ibile Trading Resource" },
     taxNumber: { type: String, default: "" },
     website: { type: String, default: "" },
@@ -52,7 +52,7 @@ const StoreSchema = new mongoose.Schema(
     receiptMessage: { type: String, default: "" },
     fontSize: { type: String, default: "8.0" },
     fontFamily: { type: String, default: "Arial" },
-    barcodeType: { type: String, default: "Default - Code 39" },
+    fontWeight: { type: String, enum: ["light", "normal", "bold"], default: "normal" },
     qrUrl: { type: String, default: "" },
     qrDescription: { type: String, default: "Please scan and leave us a review" },
     qrDataUrl: { type: String, default: "" },
