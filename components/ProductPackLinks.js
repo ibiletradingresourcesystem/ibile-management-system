@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { clearCache } from "@/lib/useIndexedDBCache";
 import { childQtyToParentQty, getPackSize, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
+import ProductPicker from "@/components/ProductPicker";
 
 function formatQty(value) {
   const n = Number(value || 0);
@@ -28,9 +29,6 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const [term, setTerm] = useState("");
-  const [results, setResults] = useState([]);
-  const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState(null);
   const [units, setUnits] = useState("1");
   const [moveStock, setMoveStock] = useState(false);
@@ -63,33 +61,6 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
   const isPack = Boolean(product && !isChild && product.packType === "pack" && getPackSize(product) > 1);
   const mode = isChild ? "child" : isPack ? "pack" : "standalone";
 
-  // Debounced search for products to link
-  useEffect(() => {
-    const query = term.trim();
-    if (mode === "child" || query.length < 2) {
-      setResults([]);
-      return undefined;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await axios.get(`/api/products?lookup=true&search=${encodeURIComponent(query)}`, {
-          signal: controller.signal,
-        });
-        setResults(Array.isArray(res.data?.data) ? res.data.data : []);
-      } catch (err) {
-        if (!axios.isCancel(err)) setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [term, mode]);
-
   async function runMutation(request, successMessage) {
     setBusy(true);
     setError("");
@@ -99,8 +70,6 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
       await Promise.allSettled([clearCache("products_cache"), clearCache("stock_products_cache")]);
       setNotice(res?.data?.message || successMessage);
       setSelected(null);
-      setTerm("");
-      setResults([]);
       setUnits("1");
       setMoveStock(false);
       await load();
@@ -338,57 +307,23 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
           <h4 className="text-sm font-semibold text-gray-800">
             {mode === "pack" ? "Link an existing product as a child" : "Link this product to a parent pack"}
           </h4>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 mb-3 text-xs text-gray-500">
             {mode === "pack"
               ? `The child takes its stock from this pack. Set how many of the ${packSize} units one child item holds.`
-              : "To make this product a mother (parent) instead, set Pack Type to Pack with Qty Per Pack, save, then link children here."}
+              : "Only pack products are listed. To make this product a mother (parent) instead, set Pack Type to Pack with Qty Per Pack, save, then link children here."}
           </p>
 
-          <input
-            type="text"
-            className="form-input mt-3"
-            placeholder={mode === "pack" ? "Search product name or barcode…" : "Search parent pack name or barcode…"}
-            value={term}
-            onChange={(e) => {
-              setTerm(e.target.value);
-              setSelected(null);
+          <ProductPicker
+            packsOnly={mode === "standalone"}
+            getStatus={candidateStatus}
+            selected={selected}
+            placeholder={mode === "pack" ? "Pick a product or type to search…" : "Pick a parent pack or type to search…"}
+            onSelect={(candidate) => {
+              setSelected(candidate);
+              setMoveStock(false);
+              setUnits("1");
             }}
           />
-
-          {!selected && term.trim().length >= 2 && (
-            <div className="mt-2 max-h-60 overflow-y-auto rounded-lg border">
-              {searching && <p className="px-3 py-2 text-xs text-gray-500">Searching…</p>}
-              {!searching && results.length === 0 && (
-                <p className="px-3 py-2 text-xs text-gray-500">No matching products.</p>
-              )}
-              {results.map((candidate) => {
-                const status = candidateStatus(candidate);
-                return (
-                  <button
-                    key={candidate._id}
-                    type="button"
-                    disabled={status.disabled}
-                    onClick={() => {
-                      setSelected(candidate);
-                      setMoveStock(false);
-                      setUnits("1");
-                    }}
-                    className={`flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-b-0 ${
-                      status.disabled ? "cursor-not-allowed bg-gray-50 text-gray-400" : "hover:bg-blue-50"
-                    }`}
-                  >
-                    <span>
-                      <span className="font-medium">{candidate.name}</span>
-                      {candidate.barcode && <span className="ml-2 font-mono text-xs text-gray-500">{candidate.barcode}</span>}
-                    </span>
-                    <span className="shrink-0 text-xs text-gray-500">
-                      {status.note || `Stock ${formatQty(candidate.quantity)}`}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           {selected && (
             <div className="mt-3 space-y-3 rounded-lg bg-gray-50 p-3 text-sm">

@@ -539,13 +539,8 @@ export default function Home() {
   /* =======================
      CHART DATA
   ======================= */
-  const shortenExpenseTitle = (title) =>
-    title?.startsWith("Petty Cash - ")
-      ? title.replace(/^Petty Cash - /, "").split(":")[0].trim() + " Purchase"
-      : title;
-
   const expenseChart = {
-    labels: filteredExpenses.map((e) => shortenExpenseTitle(e.title)),
+    labels: filteredExpenses.map((e) => e.title),
     datasets: [
       {
         label: "Expenses",
@@ -1004,7 +999,7 @@ export default function Home() {
               <ListCard
                 title="Expenses"
                 items={filteredExpenses.map((expense) => ({
-                  label: shortenExpenseTitle(expense.title),
+                  label: expense.title,
                   meta: formatCurrency(expense.amount),
                 }))}
               />

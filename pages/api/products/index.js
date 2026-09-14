@@ -213,16 +213,25 @@ export default async function handler(req, res) {
         ];
       }
 
-      // Lookup mode for linking parent/child products - small result set with link status
+      // Lookup mode for the parent/child product picker - small result set with link status
+      // Optional: category (id or "Top Level"), packsOnly=true (possible parents), limit (max 200)
       if (lookup === "true") {
-        if (!search) return res.json({ success: true, data: [] });
+        if (req.query.category) filter.category = String(req.query.category);
+        if (req.query.packsOnly === "true") {
+          filter.packType = "pack";
+          filter.qtyPerPack = { $gt: 1 };
+        }
+        const lookupLimit = Math.min(200, Math.max(1, parseInt(limitParam) || 20));
 
-        const products = await Product.find(filter)
-          .select("name barcode quantity costPrice salePriceIncTax packType qtyPerPack isChildProduct parentProduct unitsPerChild isStockManaged")
-          .populate("parentProduct", "name")
-          .sort({ name: 1 })
-          .limit(20)
-          .lean();
+        const [products, total] = await Promise.all([
+          Product.find(filter)
+            .select("name barcode category quantity costPrice salePriceIncTax packType qtyPerPack isChildProduct parentProduct unitsPerChild isStockManaged")
+            .populate("parentProduct", "name")
+            .sort({ name: 1 })
+            .limit(lookupLimit)
+            .lean(),
+          Product.countDocuments(filter),
+        ]);
 
         const childCounts = await Product.aggregate([
           {
@@ -238,6 +247,7 @@ export default async function handler(req, res) {
 
         return res.json({
           success: true,
+          total,
           data: products.map((p) => ({ ...p, childCount: childCountMap.get(String(p._id)) || 0 })),
         });
       }

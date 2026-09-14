@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useRouter } from "next/router";
-import { useState, useEffect, useCallback } from "react";
+import { Fragment, useState, useEffect, useCallback } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faBarcode } from "@fortawesome/free-solid-svg-icons";
 import Loader from "./Loader";
@@ -19,6 +19,8 @@ import { isDerivedChild } from "@/lib/packUnits";
 import AIPriceSuggestion from "@/components/AIPriceSuggestion";
 import ProductPackLinks from "@/components/ProductPackLinks";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 function toDateInputValue(v) {
   if (!v) return "";
   try {
@@ -27,6 +29,24 @@ function toDateInputValue(v) {
   } catch {
     return "";
   }
+}
+
+function todayInputValue() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function formatShortDate(value) {
+  if (!value) return "";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatQty(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? String(parseFloat(n.toFixed(2))) : "0";
 }
 
 function normalizeVendorIds(values = []) {
@@ -222,8 +242,6 @@ export default function ProductForm(props) {
   }
 
   const priceBreakdown = getPriceBreakdown(costPrice, salePriceIncTax, taxRate);
-  const promoBreakdown =
-    isPromotion && Number(promoPrice) > 0 ? getPriceBreakdown(costPrice, effectivePrice, taxRate) : null;
 
   const handleRelationsChange = useCallback((relations) => {
     const current = relations?.product;
@@ -238,14 +256,41 @@ export default function ProductForm(props) {
     setQuantity((prev) => (quantityEdited ? prev : current.quantity ?? ""));
   }, [quantityEdited]);
 
-  // --- Promo Margin & Warning ---
-  const promoMargin = (() => {
-    const sp = Number(salePriceIncTax) || 0;
-    const pp = Number(promoPrice) || 0;
-    if (pp === 0 || sp === 0) return 0;
-    return (((sp - pp) / sp) * 100).toFixed(2);
-  })();
-  const promoWarning = Number(promoPrice) > Number(salePriceIncTax);
+  // --- Promotion impact ---
+  function handlePromotionToggle(enabled) {
+    setIsPromotion(enabled);
+    if (enabled && !promoStart) setPromoStart(todayInputValue());
+  }
+
+  const promoPriceNumber = Number(promoPrice) || 0;
+  const salePriceNumber = Number(salePriceIncTax) || 0;
+  const promoBreakdown =
+    isPromotion && promoPriceNumber > 0 ? getPriceBreakdown(costPrice, promoPriceNumber, taxRate) : null;
+  const promoDiscountPercent =
+    promoBreakdown && salePriceNumber > 0 ? ((salePriceNumber - promoPriceNumber) / salePriceNumber) * 100 : null;
+  const promoDays =
+    promoStart && promoEnd ? Math.round((new Date(promoEnd) - new Date(promoStart)) / DAY_MS) : null;
+  const promoIssues = [];
+  if (isPromotion) {
+    if (!promoPriceNumber || !promoStart || !promoEnd) {
+      promoIssues.push({ tone: "info", text: "Promo price, start date and end date are all required." });
+    }
+    if (promoPriceNumber > 0 && salePriceNumber > 0 && promoPriceNumber >= salePriceNumber) {
+      promoIssues.push({
+        tone: "warning",
+        text: `Promo price should be lower than the sale price (${formatCurrency(salePriceNumber)}).`,
+      });
+    }
+    if (promoBreakdown && promoBreakdown.marginAmount < 0) {
+      promoIssues.push({
+        tone: "danger",
+        text: `Below cost: you lose ${formatCurrency(-promoBreakdown.marginAmount)} on every sale.`,
+      });
+    }
+    if (promoDays !== null && promoDays <= 0) {
+      promoIssues.push({ tone: "danger", text: "End date must be after the start date." });
+    }
+  }
 
   // --- Save product ---
   async function saveProduct(e) {
@@ -389,6 +434,41 @@ export default function ProductForm(props) {
     setBarcode((prev) => prev ? `${prev}, ${newCode}` : newCode);
   }
 
+  async function handleImageUpload(e) {
+    const files = e.target.files;
+    if (!files?.length) return;
+    setIsUploading(true);
+    const formData = new FormData();
+    for (const f of files) formData.append("file", f);
+    const previews = Array.from(files).map((f) => ({
+      full: URL.createObjectURL(f),
+      thumb: URL.createObjectURL(f),
+      isTemp: true,
+    }));
+    setImages((prev) => [...prev, ...previews]);
+    try {
+      const res = await axios.post("/api/upload", formData);
+      const uploaded = res.data?.links || [];
+      setImages((prev) => [
+        ...prev.filter((img) => !img.isTemp),
+        ...uploaded,
+      ]);
+    } catch {
+      setImages((prev) => prev.filter((img) => !img.isTemp));
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  const isPack = !isLinkedChild && packType === "pack" && Number(qtyPerPack) > 1;
+  const stockSummary = isLinkedChild
+    ? "Taken from parent pack"
+    : quantity === "" || quantity === null
+    ? "—"
+    : isPack
+    ? `${formatQty(quantity)} packs · ${formatQty(Number(quantity) * Number(qtyPerPack))} units`
+    : formatQty(quantity);
+
   return (
     <form
       onSubmit={saveProduct}
@@ -397,7 +477,7 @@ export default function ProductForm(props) {
           e.preventDefault();
         }
       }}
-      className="page-container !p-0"
+      className="page-container !px-0 !pt-0 !pb-24 lg:!pb-8 lg:!pt-16"
     >
       {isSaving && (
         <Loader
@@ -406,596 +486,652 @@ export default function ProductForm(props) {
           progress={saveProgress}
         />
       )}
-      <div className="content-card">
-      <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-6 text-gray-800">
-        {props._id ? "Edit Product" : "Add New Product"}
-      </h2>
 
-      {/* Basic Info */}
-      <Section title="Basic Information">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <InputField
-            label="Name"
-            value={name}
-            setValue={(v) => {
-              setName(v);
-              if (!descriptionEdited || !String(description || "").trim()) {
-                setDescription(v);
-              }
-              if (fieldErrors.name) {
-                setFieldErrors((prev) => ({ ...prev, name: null }));
-              }
-            }}
-            required
-            error={fieldErrors.name}
-          />
-          <InputField
-            label="Description"
-            value={description}
-            setValue={(v) => {
-              setDescription(v);
-              setDescriptionEdited(true);
-              if (fieldErrors.description) {
-                setFieldErrors((prev) => ({ ...prev, description: null }));
-              }
-            }}
-            textarea
-            error={fieldErrors.description}
-          />
-        </div>
-        <div className="form-group">
-          <label className="form-label">Barcode</label>
-          <div className="flex gap-2">
-            <input
-              name="barcode"
-              type="text"
-              className="form-input"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={generateBarcode}
-              className="btn-action-secondary whitespace-nowrap"
-            >
-              <FontAwesomeIcon icon={faBarcode} className="mr-2" />
-              Generate
-            </button>
-          </div>
-        </div>
-
-        {/* Category Select */}
-        <div className="form-group">
-          <label className="form-label">
-            Category
-          </label>
-          <select
-            className={`form-select ${
-              fieldErrors.category ? "border-red-500 ring-1 ring-red-200" : ""
-            }`}
-            value={category}
-            onChange={(e) => {
-              setCategory(e.target.value);
-              if (fieldErrors.category) {
-                setFieldErrors((prev) => ({ ...prev, category: null }));
-              }
-            }}
-          >
-            {categoriesLoading && (
-              <option value="" disabled>
-                Loading categories...
-              </option>
-            )}
-            <option value="Top Level">Top Level</option>
-            {categories.map((cat) => (
-              <option key={cat._id} value={cat._id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
-          {fieldErrors.category && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.category}</p>
-          )}
-        </div>
-
-        {/* Vendor Selection */}
-        <div className="form-group">
-          <label className="form-label">Vendor(s)</label>
-          <div className="space-y-2">
-            <select
-              className="form-select"
-              value=""
-              onChange={(e) => {
-                const vendorId = e.target.value;
-                if (vendorId && !selectedVendors.includes(vendorId)) {
-                  setSelectedVendors((prev) => [...prev, vendorId]);
-                }
-              }}
-            >
-              <option value="">
-                {vendorsLoading ? "Loading vendors..." : "— Select vendor to add —"}
-              </option>
-              {allVendors
-                .filter((v) => !selectedVendors.includes(v._id))
-                .map((v) => (
-                  <option key={v._id} value={v._id}>
-                    {v.companyName}
-                  </option>
-                ))}
-            </select>
-            {selectedVendors.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {selectedVendors.map((vId) => {
-                  const vendor = allVendors.find((v) => v._id === vId);
-                  return (
-                    <span
-                      key={vId}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium"
-                    >
-                      {vendor?.companyName || vId}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedVendors((prev) => prev.filter((id) => id !== vId))}
-                        className="hover:text-red-500 transition-colors"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-            <p className="text-xs text-gray-400">Multiple vendors can supply the same product.</p>
-          </div>
-        </div>
-
-        {/* Location Assignment */}
-        <div className="form-group">
-          <label className="form-label">Location(s)</label>
-          <div className="space-y-2">
-            <select
-              className="form-select"
-              value=""
-              onChange={(e) => {
-                const loc = e.target.value;
-                if (loc && !selectedLocations.includes(loc)) {
-                  setSelectedLocations((prev) => [...prev, loc]);
-                }
-              }}
-            >
-              <option value="">— Select location to add —</option>
-              {allLocations
-                .filter((loc) => !selectedLocations.includes(loc))
-                .map((loc) => (
-                  <option key={loc} value={loc}>{loc}</option>
-                ))}
-            </select>
-            {selectedLocations.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {selectedLocations.map((loc) => (
-                  <span
-                    key={loc}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium"
-                  >
-                    {loc}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedLocations((prev) => prev.filter((l) => l !== loc))}
-                      className="hover:text-red-500 transition-colors"
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <p className="text-xs text-gray-400">Assign product to specific store locations.</p>
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Web Storefront">
-        <div className="flex items-center gap-3">
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={showOnWeb}
-              onChange={(e) => setShowOnWeb(e.target.checked)}
-            />
-            <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-          </label>
-          <div>
-            <span className="form-label">Show on Website</span>
-            <p className="text-xs text-gray-400">
-              When enabled, this product will be visible on the e-commerce storefront.
+      {/* Action bar: under the top nav on desktop, pinned to the bottom on smaller screens */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 shadow-sm backdrop-blur md:left-20 lg:bottom-auto lg:top-16 lg:border-b lg:border-t-0">
+        <div className="mx-auto flex max-w-7xl items-center gap-3 px-3 py-2.5 pr-24 md:px-6 md:pr-6">
+          <div className="min-w-0 flex-1">
+            <p className="hidden truncate text-sm font-semibold text-gray-900 lg:block">
+              {props._id ? "Edit product" : "New product"}
+              {name ? ` · ${name}` : ""}
+            </p>
+            <p className={`truncate text-xs ${errorMessage ? "font-medium text-red-600" : "text-gray-500"}`}>
+              {errorMessage ||
+                successMessage ||
+                `Sale ${formatCurrency(priceBreakdown.sale)} · Margin ${priceBreakdown.marginPercent.toFixed(2)}%`}
             </p>
           </div>
+          <button type="button" onClick={handleCancel} className="btn-action-secondary !py-2">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className={`btn-action-primary !py-2 ${isSaving || isUploading ? "opacity-50 cursor-not-allowed" : ""}`}
+            disabled={isSaving || isUploading}
+          >
+            {isSaving ? `Saving… ${Math.round(saveProgress)}%` : "Save product"}
+          </button>
         </div>
-      </Section>
-
-      {/* Pricing */}
-      <Section title="Pricing">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-          <InputField
-            label="Cost Price (₦)"
-            name="costPrice"
-            type="number"
-            value={costPrice}
-            setValue={handleCostPriceChange}
-            required
-            error={fieldErrors.costPrice}
-          />
-          <div className="form-group">
-            <label className="form-label">VAT</label>
-            <label className="form-input flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="applyTax"
-                checked={applyTax}
-                onChange={(e) => handleApplyTaxChange(e.target.checked)}
-              />
-              <span className="text-sm text-gray-700">Apply VAT at {VAT_RATE}%</span>
-            </label>
-          </div>
-          <InputField
-            label="Margin % (on cost)"
-            name="margin"
-            type="number"
-            value={margin}
-            setValue={handleMarginChange}
-          />
-        </div>
-        <InputField
-          label={applyTax ? `Sale Price (₦, inc. ${VAT_RATE}% VAT)` : "Sale Price (₦, no VAT)"}
-          name="salePrice"
-          type="number"
-          value={salePriceIncTax}
-          setValue={handleSalePriceChange}
-        />
-        {props._id && (
-          <AIPriceSuggestion
-            productId={props._id}
-            currentPrice={salePriceIncTax}
-            onApplyPrice={(price) => handleSalePriceChange(String(price))}
-          />
-        )}
-        <InputField
-          label="Expiry Date (optional)"
-          type="date"
-          value={expiryDate}
-          setValue={setExpiryDate}
-        />
-        <PriceBuildUp breakdown={priceBreakdown} applyTax={applyTax} promoBreakdown={promoBreakdown} />
-      </Section>
-
-      <Section title="Stock & Quantity">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-          <InputField
-            label="Min Stock (optional)"
-            name="minStock"
-            type="number"
-            value={minStock}
-            setValue={setMinStock}
-          />
-          {isAdmin && (
-            <InputField
-              label="Qty (optional)"
-              name="quantity"
-              type="number"
-              value={quantity}
-              setValue={(v) => {
-                setQuantity(v);
-                setQuantityEdited(true);
-              }}
-              disabled={isLinkedChild}
-              hint={isLinkedChild ? "Child products take their stock from the parent pack." : ""}
-            />
-          )}
-        </div>
-      </Section>
-
-      {/* Pack / Child Product */}
-      <Section title="Pack & Child Products">
-            {isLinkedChild ? (
-              <p className="text-sm text-gray-600">
-                This product is a child of a pack. It has no stock of its own — see the parent below.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-                <div className="form-group">
-                  <label className="form-label">Pack Type</label>
-                  <select
-                    className="form-select"
-                    value={packType}
-                    onChange={(e) => setPackType(e.target.value)}
-                  >
-                    <option value="unit">Unit (Single Item)</option>
-                    <option value="pack">Pack (Multiple Units)</option>
-                  </select>
-                </div>
-                {packType === "pack" && (
-                  <>
-                    <InputField
-                      label="Qty Per Pack"
-                      type="number"
-                      value={qtyPerPack}
-                      setValue={setQtyPerPack}
-                    />
-                    <InputField
-                      label="Auto Unit Child Sale Price (₦)"
-                      type="number"
-                      value={childSalePrice}
-                      setValue={setChildSalePrice}
-                    />
-                  </>
-                )}
-              </div>
-            )}
-            {!isLinkedChild && packType === "pack" && Number(qtyPerPack) > 1 && (
-              <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-700 space-y-2">
-                <p>
-                  <strong>Pack of {qtyPerPack}:</strong> Cost per unit = {formatCurrency((Number(costPrice) || 0) / (Number(qtyPerPack) || 1))}
-                  {childSalePrice ? ` | Auto unit child sale price = ${formatCurrency(Number(childSalePrice))}` : ""}
-                </p>
-                {!(props._id && props.packType === "pack" && Number(props.qtyPerPack) > 1) && (
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={autoCreateUnitChild}
-                      onChange={(e) => setAutoCreateUnitChild(e.target.checked)}
-                    />
-                    <span>
-                      Auto-create a new &quot;{name || "Product"} (Unit)&quot; child product
-                      {props._id ? " (leave unticked to link existing products below instead)" : ""}
-                    </span>
-                  </label>
-                )}
-              </div>
-            )}
-            {props._id ? (
-              <ProductPackLinks productId={props._id} onRelationsChange={handleRelationsChange} />
-            ) : (
-              <p className="mt-3 text-xs text-gray-500">
-                Save this product first to link existing products to it as children, or to link it to a parent pack.
-              </p>
-            )}
-          </Section>
-
-      {/* Promotion */}
-      <Section title="Promotion">
-        <label className="flex items-center gap-2 mb-4">
-          <input
-            type="checkbox"
-            checked={isPromotion}
-            onChange={(e) => setIsPromotion(e.target.checked)}
-          />
-          <span className="text-gray-700">Enable Promotion</span>
-        </label>
-        {isPromotion && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-            <div>
-              <InputField
-                label="Promo Price (₦)"
-                type="number"
-                value={promoPrice}
-                setValue={setPromoPrice}
-              />
-              {promoPrice && (
-                <p
-                  className={`text-sm mt-1 ${
-                    promoWarning ? "text-red-600" : "text-gray-700"
-                  }`}
-                >
-                  Promo Margin: {promoMargin}%{" "}
-                  {promoWarning && "- Warning: higher than sale price!"}
-                </p>
-              )}
-            </div>
-            <InputField
-              label="Start Date"
-              type="date"
-              value={promoStart}
-              setValue={setPromoStart}
-            />
-            <InputField
-              label="End Date"
-              type="date"
-              value={promoEnd}
-              setValue={setPromoEnd}
-            />
-          </div>
-        )}
-      </Section>
-
-      {/* Properties */}
-      <Section title="Properties">
-        {properties.map((p, i) => (
-          <div key={i} className="flex gap-3 mb-2">
-            <input
-              className="w-1/2 border rounded-md px-3 py-2"
-              value={p.propName}
-              onChange={(e) => {
-                const newProps = [...properties];
-                newProps[i].propName = e.target.value;
-                setProperties(newProps);
-              }}
-              placeholder="Property name"
-            />
-            <input
-              className="w-1/2 border rounded-md px-3 py-2"
-              value={p.propValue}
-              onChange={(e) => {
-                const newProps = [...properties];
-                newProps[i].propValue = e.target.value;
-                setProperties(newProps);
-              }}
-              placeholder="Property value"
-            />
-            <button
-              type="button"
-              className="text-red-500"
-              onClick={() =>
-                setProperties(properties.filter((_, idx) => idx !== i))
-              }
-            >
-              <FontAwesomeIcon icon={faTrash} />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() =>
-            setProperties([...properties, { propName: "", propValue: "" }])
-          }
-          className="btn-action-primary"
-        >
-          + Add Property
-        </button>
-      </Section>
-
-      {/* Images */}
-      <Section title="Images">
-        <div className="flex gap-2 md:gap-3 flex-wrap">
-          <label className="w-24 h-24 md:w-28 md:h-28 flex items-center justify-center border-2 border-dashed rounded-md cursor-pointer bg-gray-50 text-gray-400 hover:bg-gray-100 text-xs md:text-sm text-center p-1">
-            + Upload
-            <input
-              type="file"
-              multiple
-              onChange={async (e) => {
-                const files = e.target.files;
-                if (!files?.length) return;
-                setIsUploading(true);
-                const formData = new FormData();
-                for (const f of files) formData.append("file", f);
-                const previews = Array.from(files).map((f) => ({
-                  full: URL.createObjectURL(f),
-                  thumb: URL.createObjectURL(f),
-                  isTemp: true,
-                }));
-                setImages((prev) => [...prev, ...previews]);
-                try {
-                  const res = await axios.post("/api/upload", formData);
-                  const uploaded = res.data?.links || [];
-                  setImages((prev) => [
-                    ...prev.filter((img) => !img.isTemp),
-                    ...uploaded,
-                  ]);
-                } catch {
-                  setImages((prev) => prev.filter((img) => !img.isTemp));
-                } finally {
-                  setIsUploading(false);
-                }
-              }}
-              className="hidden"
-            />
-          </label>
-
-          {images.map((img, i) => (
-            <div
-              key={i}
-              className="relative w-24 h-24 md:w-28 md:h-28 rounded-md overflow-hidden border"
-            >
-              <img
-                src={img.thumb || img.full}
-                alt="Product"
-                className="object-cover w-full h-full"
-              />
-              <button
-                type="button"
-                className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded"
-                onClick={() => setImages(images.filter((_, idx) => idx !== i))}
-              >
-                <FontAwesomeIcon icon={faTrash} />
-              </button>
-            </div>
-          ))}
-
-          {isUploading && (
-            <div className="w-24 h-24 md:w-28 md:h-28 flex items-center justify-center">
-              <Loader />
-            </div>
-          )}
-        </div>
-      </Section>
-
-      {/* Actions */}
-      <div className="flex flex-col sm:flex-row justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
-        <button
-          type="button"
-          onClick={handleCancel}
-          className="btn-action-secondary w-full sm:w-auto"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className={`btn-action-primary w-full sm:w-auto ${
-            isSaving || isUploading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-          disabled={isSaving || isUploading}
-        >
-          {isSaving ? `Saving... ${Math.round(saveProgress)}%` : "Save Product"}
-        </button>
       </div>
 
-      {errorMessage && <p className="text-red-600 mt-4">{errorMessage}</p>}
-      {successMessage && (
-        <p className="text-green-600 mt-4">{successMessage}</p>
-      )}
+      <div className="mx-auto max-w-7xl py-4 md:py-6">
+        <div className="mb-5">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+            {props._id ? "Edit Product" : "Add New Product"}
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {props._id ? name || "Update this product's details" : "Fill in the details, then save."}
+          </p>
+        </div>
+
+        {errorMessage && (
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
+
+        <div className="grid gap-5 lg:grid-cols-3 lg:grid-rows-[auto_1fr] lg:items-start">
+          {/* Main column (top) */}
+          <div className="space-y-5 lg:col-span-2">
+            <Card title="Basic information">
+              <div className="grid gap-4 md:grid-cols-2">
+                <InputField
+                  label="Name"
+                  value={name}
+                  setValue={(v) => {
+                    setName(v);
+                    if (!descriptionEdited || !String(description || "").trim()) {
+                      setDescription(v);
+                    }
+                    if (fieldErrors.name) {
+                      setFieldErrors((prev) => ({ ...prev, name: null }));
+                    }
+                  }}
+                  required
+                  error={fieldErrors.name}
+                />
+                <div className="form-group">
+                  <label className="form-label">Barcode</label>
+                  <div className="flex gap-2">
+                    <input
+                      name="barcode"
+                      type="text"
+                      className="form-input"
+                      value={barcode}
+                      onChange={(e) => setBarcode(e.target.value)}
+                      placeholder="Scan or type; separate several with commas"
+                    />
+                    <button
+                      type="button"
+                      onClick={generateBarcode}
+                      className="btn-action-secondary whitespace-nowrap"
+                    >
+                      <FontAwesomeIcon icon={faBarcode} className="mr-2" />
+                      Generate
+                    </button>
+                  </div>
+                </div>
+                <div className="md:col-span-2">
+                  <InputField
+                    label="Description"
+                    value={description}
+                    setValue={(v) => {
+                      setDescription(v);
+                      setDescriptionEdited(true);
+                      if (fieldErrors.description) {
+                        setFieldErrors((prev) => ({ ...prev, description: null }));
+                      }
+                    }}
+                    textarea
+                    required
+                    error={fieldErrors.description}
+                  />
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Side panel */}
+          <aside className="space-y-5 lg:col-start-3 lg:row-span-2 lg:row-start-1">
+            <Card title="Summary" className="hidden lg:block">
+              <p className="text-2xl font-bold tabular-nums text-gray-900">{formatCurrency(priceBreakdown.sale)}</p>
+              <p className="text-xs text-gray-500">{applyTax ? `Includes ${VAT_RATE}% VAT` : "No VAT"}</p>
+              <dl className="mt-4 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 border-t border-gray-100 pt-4 text-sm">
+                <dt className="text-gray-500">Margin</dt>
+                <dd className={priceBreakdown.marginAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
+                  {priceBreakdown.marginPercent.toFixed(2)}% ({formatCurrency(priceBreakdown.marginAmount)})
+                </dd>
+                <dt className="text-gray-500">Add-ons</dt>
+                <dd className="font-medium text-gray-900">{formatCurrency(priceBreakdown.totalAddOns)}</dd>
+                <dt className="text-gray-500">Stock</dt>
+                <dd className="font-medium text-gray-900">{stockSummary}</dd>
+                <dt className="text-gray-500">Promotion</dt>
+                <dd className="font-medium text-gray-900">
+                  {isPromotion && promoPriceNumber > 0
+                    ? `${formatCurrency(promoPriceNumber)}${promoEnd ? ` until ${formatShortDate(promoEnd)}` : ""}`
+                    : "Off"}
+                </dd>
+                <dt className="text-gray-500">Website</dt>
+                <dd className="font-medium text-gray-900">{showOnWeb ? "Visible" : "Hidden"}</dd>
+              </dl>
+            </Card>
+
+            <Card title="Organise">
+              <div className="space-y-4">
+                <div className="form-group">
+                  <label className="form-label">
+                    Category <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    className={`form-select ${
+                      fieldErrors.category ? "border-red-500 ring-1 ring-red-200" : ""
+                    }`}
+                    value={category}
+                    onChange={(e) => {
+                      setCategory(e.target.value);
+                      if (fieldErrors.category) {
+                        setFieldErrors((prev) => ({ ...prev, category: null }));
+                      }
+                    }}
+                  >
+                    {categoriesLoading && (
+                      <option value="" disabled>
+                        Loading categories...
+                      </option>
+                    )}
+                    <option value="Top Level">Top Level</option>
+                    {categories.map((cat) => (
+                      <option key={cat._id} value={cat._id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                  {fieldErrors.category && (
+                    <p className="mt-1 text-xs text-red-600">{fieldErrors.category}</p>
+                  )}
+                </div>
+
+                <ChipPicker
+                  label="Vendor(s)"
+                  placeholder={vendorsLoading ? "Loading vendors..." : "— Add a vendor —"}
+                  options={allVendors.map((v) => ({ value: v._id, label: v.companyName }))}
+                  selected={selectedVendors}
+                  onChange={setSelectedVendors}
+                  hint="Multiple vendors can supply the same product."
+                  chipClassName="bg-blue-100 text-blue-700"
+                />
+
+                <ChipPicker
+                  label="Location(s)"
+                  placeholder="— Add a location —"
+                  options={allLocations.map((loc) => ({ value: loc, label: loc }))}
+                  selected={selectedLocations}
+                  onChange={setSelectedLocations}
+                  hint="Store locations that sell this product."
+                  chipClassName="bg-emerald-100 text-emerald-700"
+                />
+
+                <div className="flex items-start justify-between gap-3 border-t border-gray-100 pt-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Show on website</p>
+                    <p className="text-xs text-gray-500">Visible on the online storefront.</p>
+                  </div>
+                  <Toggle checked={showOnWeb} onChange={setShowOnWeb} label="Show on website" />
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Images" description="The first image is the main one.">
+              <div className="grid grid-cols-3 gap-2">
+                <label className="flex aspect-square cursor-pointer items-center justify-center rounded-lg border-2 border-dashed bg-gray-50 p-1 text-center text-xs text-gray-500 hover:bg-gray-100">
+                  + Upload
+                  <input type="file" multiple onChange={handleImageUpload} className="hidden" />
+                </label>
+                {images.map((img, i) => (
+                  <div key={i} className="relative aspect-square overflow-hidden rounded-lg border">
+                    <img src={img.thumb || img.full} alt="Product" className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      aria-label="Remove image"
+                      className="absolute right-1 top-1 rounded bg-red-500 p-1 text-xs text-white"
+                      onClick={() => setImages(images.filter((_, idx) => idx !== i))}
+                    >
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </div>
+                ))}
+                {isUploading && (
+                  <div className="flex aspect-square items-center justify-center">
+                    <Loader />
+                  </div>
+                )}
+              </div>
+            </Card>
+          </aside>
+
+          {/* Main column (rest) */}
+          <div className="space-y-5 lg:col-span-2 lg:col-start-1 lg:row-start-2">
+            <Card
+              title="Pricing"
+              description="Enter the cost, then set either the margin or the sale price — the other updates itself."
+            >
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-4">
+                  <InputField
+                    label="Cost price"
+                    name="costPrice"
+                    type="number"
+                    prefix="₦"
+                    value={costPrice}
+                    setValue={handleCostPriceChange}
+                    required
+                    error={fieldErrors.costPrice}
+                  />
+                  <InputField
+                    label="Margin (on cost)"
+                    name="margin"
+                    type="number"
+                    suffix="%"
+                    value={margin}
+                    setValue={handleMarginChange}
+                  />
+                  <InputField
+                    label={applyTax ? `Sale price (inc. ${VAT_RATE}% VAT)` : "Sale price (no VAT)"}
+                    name="salePrice"
+                    type="number"
+                    prefix="₦"
+                    value={salePriceIncTax}
+                    setValue={handleSalePriceChange}
+                  />
+                  <VatChoice applyTax={applyTax} onChange={handleApplyTaxChange} />
+                  {props._id && (
+                    <AIPriceSuggestion
+                      productId={props._id}
+                      currentPrice={salePriceIncTax}
+                      onApplyPrice={(price) => handleSalePriceChange(String(price))}
+                    />
+                  )}
+                </div>
+                <PriceBuildUp breakdown={priceBreakdown} applyTax={applyTax} />
+              </div>
+            </Card>
+
+            <Card title="Stock & packs">
+              <div className="grid gap-4 sm:grid-cols-3">
+                {isAdmin && (
+                  <InputField
+                    label={isPack ? "Qty (packs)" : "Qty"}
+                    name="quantity"
+                    type="number"
+                    value={quantity}
+                    setValue={(v) => {
+                      setQuantity(v);
+                      setQuantityEdited(true);
+                    }}
+                    disabled={isLinkedChild}
+                    hint={isLinkedChild ? "Comes from the parent pack." : ""}
+                  />
+                )}
+                <InputField
+                  label="Min stock"
+                  name="minStock"
+                  type="number"
+                  value={minStock}
+                  setValue={setMinStock}
+                />
+                <InputField
+                  label="Expiry date"
+                  type="date"
+                  value={expiryDate}
+                  setValue={setExpiryDate}
+                />
+              </div>
+
+              <div className="mt-5 border-t border-gray-100 pt-5">
+                <h3 className="text-sm font-semibold text-gray-800">Pack & child products</h3>
+                {isLinkedChild ? (
+                  <p className="mt-1 text-sm text-gray-600">
+                    This product is a child of a pack. It has no stock of its own — see the parent below.
+                  </p>
+                ) : (
+                  <div className="mt-3 grid gap-4 sm:grid-cols-3">
+                    <div className="form-group">
+                      <label className="form-label">Pack type</label>
+                      <select
+                        className="form-select"
+                        value={packType}
+                        onChange={(e) => setPackType(e.target.value)}
+                      >
+                        <option value="unit">Unit (single item)</option>
+                        <option value="pack">Pack (multiple units)</option>
+                      </select>
+                    </div>
+                    {packType === "pack" && (
+                      <>
+                        <InputField
+                          label="Qty per pack"
+                          type="number"
+                          value={qtyPerPack}
+                          setValue={setQtyPerPack}
+                        />
+                        <InputField
+                          label="Auto unit child sale price"
+                          type="number"
+                          prefix="₦"
+                          value={childSalePrice}
+                          setValue={setChildSalePrice}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+                {isPack && (
+                  <div className="mt-3 space-y-2 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm text-purple-700">
+                    <p>
+                      <strong>Pack of {qtyPerPack}:</strong> cost per unit{" "}
+                      {formatCurrency((Number(costPrice) || 0) / (Number(qtyPerPack) || 1))}
+                      {childSalePrice ? ` · auto unit child sale price ${formatCurrency(Number(childSalePrice))}` : ""}
+                    </p>
+                    {!(props._id && props.packType === "pack" && Number(props.qtyPerPack) > 1) && (
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={autoCreateUnitChild}
+                          onChange={(e) => setAutoCreateUnitChild(e.target.checked)}
+                        />
+                        <span>
+                          Auto-create a new &quot;{name || "Product"} (Unit)&quot; child product
+                          {props._id ? " (leave unticked to link existing products below instead)" : ""}
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                )}
+                {props._id ? (
+                  <ProductPackLinks productId={props._id} onRelationsChange={handleRelationsChange} />
+                ) : (
+                  <p className="mt-3 text-xs text-gray-500">
+                    Save this product first to link existing products to it as children, or to link it to a parent pack.
+                  </p>
+                )}
+              </div>
+            </Card>
+
+            <Card
+              title="Promotion"
+              description={isPromotion ? "A temporary price for a set period." : "No promotion is running."}
+              action={<Toggle checked={isPromotion} onChange={handlePromotionToggle} label="Promotion" showState />}
+            >
+              {isPromotion && (
+                <div className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <InputField
+                      label="Promo price"
+                      type="number"
+                      prefix="₦"
+                      value={promoPrice}
+                      setValue={setPromoPrice}
+                      required
+                    />
+                    <InputField label="Starts" type="date" value={promoStart} setValue={setPromoStart} required />
+                    <InputField label="Ends" type="date" value={promoEnd} setValue={setPromoEnd} required />
+                  </div>
+
+                  {(promoBreakdown || promoDays > 0) && (
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      {promoDiscountPercent !== null && promoDiscountPercent > 0 && (
+                        <ImpactChip>
+                          {promoDiscountPercent.toFixed(1)}% off {formatCurrency(salePriceNumber)}
+                        </ImpactChip>
+                      )}
+                      {promoBreakdown && (
+                        <ImpactChip tone={promoBreakdown.marginAmount < 0 ? "danger" : "neutral"}>
+                          Profit {formatCurrency(promoBreakdown.marginAmount)} ({promoBreakdown.marginPercent.toFixed(2)}% on
+                          cost)
+                        </ImpactChip>
+                      )}
+                      {promoDays > 0 && (
+                        <ImpactChip>
+                          Runs {promoDays} day{promoDays === 1 ? "" : "s"} · {formatShortDate(promoStart)} →{" "}
+                          {formatShortDate(promoEnd)}
+                        </ImpactChip>
+                      )}
+                    </div>
+                  )}
+
+                  {promoIssues.map((issue) => (
+                    <p
+                      key={issue.text}
+                      className={`rounded-md px-3 py-2 text-sm ${
+                        issue.tone === "danger"
+                          ? "bg-red-50 text-red-700"
+                          : issue.tone === "warning"
+                          ? "bg-amber-50 text-amber-800"
+                          : "bg-gray-50 text-gray-600"
+                      }`}
+                    >
+                      {issue.tone === "info" ? "" : "⚠ "}
+                      {issue.text}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            <Card title="Properties" description="Extra details such as size, colour or flavour.">
+              <div className="space-y-2">
+                {properties.map((p, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      className="form-input"
+                      value={p.propName}
+                      onChange={(e) => {
+                        const newProps = [...properties];
+                        newProps[i].propName = e.target.value;
+                        setProperties(newProps);
+                      }}
+                      placeholder="Property name"
+                    />
+                    <input
+                      className="form-input"
+                      value={p.propValue}
+                      onChange={(e) => {
+                        const newProps = [...properties];
+                        newProps[i].propValue = e.target.value;
+                        setProperties(newProps);
+                      }}
+                      placeholder="Property value"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Remove property"
+                      className="px-2 text-red-500 hover:text-red-700"
+                      onClick={() =>
+                        setProperties(properties.filter((_, idx) => idx !== i))
+                      }
+                    >
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setProperties([...properties, { propName: "", propValue: "" }])
+                }
+                className="btn-action-secondary mt-3"
+              >
+                + Add property
+              </button>
+            </Card>
+          </div>
+        </div>
       </div>
     </form>
   );
 }
 
-function PriceBuildUp({ breakdown, applyTax, promoBreakdown }) {
+function PriceBuildUp({ breakdown, applyTax }) {
   const { cost, marginAmount, marginPercent, saleExTax, vatAmount, sale, totalAddOns, totalAddOnsPercent } = breakdown;
-  const lossClass = (value) => (value < 0 ? "text-red-600" : "text-gray-900");
+  const rows = [
+    { label: "Cost price", value: cost },
+    { label: `+ Margin (${marginPercent.toFixed(2)}%)`, value: marginAmount, loss: marginAmount < 0 },
+    { label: "= Price before VAT", value: saleExTax, divider: true },
+    { label: applyTax ? `+ VAT (${VAT_RATE}%)` : "+ VAT (not applied)", value: vatAmount },
+    { label: "= Sale price", value: sale, divider: true, strong: true },
+  ];
 
   return (
-    <div className="mt-4 p-4 bg-gray-50 border rounded-lg text-sm">
-      <h4 className="font-semibold text-gray-800 mb-2">Price Build-up</h4>
-      <dl className="space-y-1">
-        <div className="flex justify-between gap-4">
-          <dt className="text-gray-600">Cost price</dt>
-          <dd className="font-medium text-gray-900">{formatCurrency(cost)}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-gray-600">+ Margin ({marginPercent.toFixed(2)}% on cost)</dt>
-          <dd className={`font-medium ${lossClass(marginAmount)}`}>{formatCurrency(marginAmount)}</dd>
-        </div>
-        <div className="flex justify-between gap-4 border-t pt-1">
-          <dt className="text-gray-600">= Price before VAT</dt>
-          <dd className="font-medium text-gray-900">{formatCurrency(saleExTax)}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-gray-600">+ VAT ({applyTax ? `${VAT_RATE}%` : "not applied"})</dt>
-          <dd className="font-medium text-gray-900">{formatCurrency(vatAmount)}</dd>
-        </div>
-        <div className="flex justify-between gap-4 border-t pt-1">
-          <dt className="font-semibold text-gray-800">= Sale price</dt>
-          <dd className="font-semibold text-gray-900">{formatCurrency(sale)}</dd>
-        </div>
-        <div className="flex justify-between gap-4 mt-2 rounded-md bg-blue-50 px-2 py-1.5">
-          <dt className="font-semibold text-blue-900">Total add-ons (margin + VAT)</dt>
-          <dd className={`font-semibold ${totalAddOns < 0 ? "text-red-600" : "text-blue-900"}`}>
-            {formatCurrency(totalAddOns)} ({totalAddOnsPercent.toFixed(2)}% of cost)
-          </dd>
-        </div>
+    <div className="self-start rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+      <h3 className="mb-3 font-semibold text-gray-800">Price build-up</h3>
+      <dl className="grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1.5">
+        {rows.map((row) => (
+          <Fragment key={row.label}>
+            {row.divider && <div className="col-span-2 border-t border-gray-200" />}
+            <dt className={row.strong ? "font-semibold text-gray-900" : "text-gray-600"}>{row.label}</dt>
+            <dd
+              className={`text-right tabular-nums ${row.strong ? "font-semibold" : "font-medium"} ${
+                row.loss ? "text-red-600" : "text-gray-900"
+              }`}
+            >
+              {formatCurrency(row.value)}
+            </dd>
+          </Fragment>
+        ))}
       </dl>
-      {promoBreakdown && (
-        <p className="mt-2 text-xs text-gray-600">
-          At the promo price of {formatCurrency(promoBreakdown.sale)}: profit{" "}
-          <span className={lossClass(promoBreakdown.marginAmount)}>{formatCurrency(promoBreakdown.marginAmount)}</span>{" "}
-          ({promoBreakdown.marginPercent.toFixed(2)}% on cost), VAT {formatCurrency(promoBreakdown.vatAmount)}, total
-          add-ons {formatCurrency(promoBreakdown.totalAddOns)}.
-        </p>
-      )}
+      <div className="mt-4 inline-flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md bg-blue-50 px-3 py-2 text-blue-900">
+        <span className="font-semibold">Total add-ons</span>
+        <span className={`font-bold tabular-nums ${totalAddOns < 0 ? "text-red-600" : ""}`}>
+          {formatCurrency(totalAddOns)}
+        </span>
+        <span className="text-xs">{totalAddOnsPercent.toFixed(2)}% of cost · margin + VAT</span>
+      </div>
     </div>
   );
 }
 
-// InputField & Section
+function VatChoice({ applyTax, onChange }) {
+  const choices = [
+    { value: true, label: `${VAT_RATE}% VAT` },
+    { value: false, label: "No VAT" },
+  ];
+  return (
+    <div className="form-group">
+      <span className="form-label">VAT</span>
+      <div role="radiogroup" aria-label="VAT" className="inline-flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1">
+        {choices.map((choice) => {
+          const active = applyTax === choice.value;
+          return (
+            <button
+              key={choice.label}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(choice.value)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                active ? "bg-white text-blue-700 shadow-sm ring-1 ring-gray-200" : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              {choice.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ImpactChip({ tone = "neutral", children }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
+        tone === "danger" ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-800"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function ChipPicker({ label, placeholder, options, selected, onChange, hint, chipClassName }) {
+  const labelFor = (value) => options.find((option) => option.value === value)?.label || value;
+  return (
+    <div className="form-group">
+      <label className="form-label">{label}</label>
+      <select
+        className="form-select"
+        value=""
+        onChange={(e) => {
+          const value = e.target.value;
+          if (value && !selected.includes(value)) onChange([...selected, value]);
+        }}
+      >
+        <option value="">{placeholder}</option>
+        {options
+          .filter((option) => !selected.includes(option.value))
+          .map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+      </select>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {selected.map((value) => (
+            <span
+              key={value}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${chipClassName}`}
+            >
+              {labelFor(value)}
+              <button
+                type="button"
+                aria-label={`Remove ${labelFor(value)}`}
+                onClick={() => onChange(selected.filter((item) => item !== value))}
+                className="transition-colors hover:text-red-500"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {hint && <p className="text-xs text-gray-400">{hint}</p>}
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label, showState = false }) {
+  return (
+    <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 text-sm font-medium text-gray-700">
+      {showState && <span>{checked ? "On" : "Off"}</span>}
+      <input
+        type="checkbox"
+        className="peer sr-only"
+        aria-label={label}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="relative h-6 w-11 rounded-full bg-gray-300 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition-transform after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-300" />
+    </label>
+  );
+}
+
+function Card({ title, description, action, className = "", children }) {
+  return (
+    <section className={`content-card ${className}`}>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+          {description && <p className="mt-0.5 text-xs text-gray-500">{description}</p>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function InputField({
   label,
   value,
@@ -1007,47 +1143,53 @@ function InputField({
   error,
   disabled,
   hint,
+  prefix,
+  suffix,
 }) {
+  const errorClass = error ? "border-red-500 ring-1 ring-red-200" : "";
   return (
     <div className="form-group">
-      <label className="form-label">{label}</label>
+      <label className="form-label">
+        {label}
+        {required && <span className="text-red-500"> *</span>}
+      </label>
       {textarea ? (
         <textarea
           name={name}
-          className={`form-input min-h-[80px] ${
-            error ? "border-red-500 ring-1 ring-red-200" : ""
-          }`}
+          rows={3}
+          className={`form-input min-h-[80px] ${errorClass}`}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           required={required}
         />
       ) : (
-        <input
-          name={name}
-          type={type}
-          className={`form-input ${error ? "border-red-500 ring-1 ring-red-200" : ""} ${
-            disabled ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""
-          }`}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onWheel={type === "number" ? (e) => e.currentTarget.blur() : undefined}
-          required={required}
-          disabled={disabled}
-        />
+        <div className="relative">
+          {prefix && (
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-gray-500">
+              {prefix}
+            </span>
+          )}
+          <input
+            name={name}
+            type={type}
+            className={`form-input ${prefix ? "!pl-8" : ""} ${suffix ? "!pr-9" : ""} ${errorClass} ${
+              disabled ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""
+            }`}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onWheel={type === "number" ? (e) => e.currentTarget.blur() : undefined}
+            required={required}
+            disabled={disabled}
+          />
+          {suffix && (
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-500">
+              {suffix}
+            </span>
+          )}
+        </div>
       )}
       {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-    </div>
-  );
-}
-
-function Section({ title, children }) {
-  return (
-    <div className="mb-6 pb-6 border-b border-gray-100 last:border-b-0">
-      <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">
-        {title}
-      </h3>
-      {children}
     </div>
   );
 }

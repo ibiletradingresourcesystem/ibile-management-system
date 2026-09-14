@@ -37,7 +37,7 @@ export default async function handler(req, res) {
       Store.findOne({}).select("locations").lean(),
     ]);
 
-    // Merge closed EOD cash tender data — sum all EOD reports per day+location
+    // Merge closed EOD cash tender data for days without a manual DailyCash entry
     const locMap = {};
     if (store?.locations) {
       for (const loc of store.locations) locMap[String(loc._id)] = loc.name;
@@ -48,27 +48,21 @@ export default async function handler(req, res) {
       return `${r.location}|${d.toISOString().split("T")[0]}`;
     }));
 
-    // Group EOD reports by day+location and sum their cash
-    const eodGrouped = {};
     for (const rpt of eodReports) {
       const locName = locMap[String(rpt.locationId)];
       if (!locName || (location && locName !== location)) continue;
       const d = new Date(rpt.date); d.setHours(0, 0, 0, 0);
       const key = `${locName}|${d.toISOString().split("T")[0]}`;
       if (seen.has(key)) continue;
-      if (!eodGrouped[key]) eodGrouped[key] = { date: d, location: locName, amount: 0, staffName: rpt.staffName || "" };
-      eodGrouped[key].amount += (rpt.tenderBreakdown?.CASH || 0);
-    }
-
-    for (const [key, entry] of Object.entries(eodGrouped)) {
-      if (entry.amount <= 0) continue;
+      const cashAmount = rpt.tenderBreakdown?.CASH || 0;
+      if (cashAmount <= 0) continue;
       seen.add(key);
       records.push({
-        _id: `eod-${key}`,
-        date: entry.date,
-        amount: entry.amount,
-        location: entry.location,
-        staffName: entry.staffName,
+        _id: `eod-${rpt._id}`,
+        date: d,
+        amount: cashAmount,
+        location: locName,
+        staffName: rpt.staffName || "",
         source: "pos",
       });
     }
@@ -78,7 +72,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
-    const { date, amount, location, staffName, source, posSessionId, mode } = req.body;
+    const { date, amount, location, staffName, source, posSessionId } = req.body;
     if (!date || amount == null || !location) {
       return res.status(400).json({ error: "Date, amount, and location are required" });
     }
@@ -88,13 +82,10 @@ export default async function handler(req, res) {
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
 
+    // Upsert: one record per location per day
     const existing = await DailyCash.findOne({ date: { $gte: dayStart, $lt: dayEnd }, location });
     if (existing) {
-      if (mode === "add") {
-        existing.amount = Number(existing.amount || 0) + Number(amount);
-      } else {
-        existing.amount = Number(amount);
-      }
+      existing.amount = Number(amount);
       existing.staffName = staffName || existing.staffName;
       if (source) existing.source = source;
       if (posSessionId) existing.posSessionId = posSessionId;
