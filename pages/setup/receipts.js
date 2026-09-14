@@ -706,7 +706,7 @@ export default function Receipts() {
                 <h2 className="text-lg font-bold mb-4 text-gray-800">Receipt Preview</h2>
               <div 
                 className="bg-white rounded border border-gray-300 overflow-y-auto max-h-[700px]"
-                style={{ fontSize: `${fontSize}pt`, fontFamily: fontFamily === 'Mono' || fontFamily === 'Courier New' ? '"Courier New", monospace' : fontFamily === 'Times New Roman' ? '"Times New Roman", serif' : `"${fontFamily}", sans-serif`, lineHeight: '1.18', padding: '2mm 0' }}
+                style={{ fontSize: `${fontSize}pt`, fontFamily: fontFamily === 'Mono' || fontFamily === 'Courier New' ? '"Courier New", monospace' : fontFamily === 'Times New Roman' ? '"Times New Roman", serif' : `"${fontFamily}", sans-serif`, lineHeight: '1.18', padding: '4mm 0 6mm' }}
               >
                 <div className="mx-auto w-full max-w-[340px] text-gray-900" style={{ fontWeight: fontWeight === 'light' ? '300' : fontWeight === 'bold' ? '700' : '400' }}>
                   {companyLogo && (
@@ -780,13 +780,16 @@ export default function Receipts() {
                     </div>
                   </div>
 
-                  <div className="text-left" style={{ borderTop: '0.5px dashed #444', padding: '1mm 0' }}>
-                    <div className="font-bold uppercase">Payment</div>
-                    <div className="flex justify-between">
-                      <span>CASH</span>
-                      <span>₦3,500.00</span>
+                  {/* Unpaid receipts (printed before payment) have no payment section on the POS */}
+                  {paymentStatus !== 'unpaid' && (
+                    <div className="text-left" style={{ borderTop: '0.5px dashed #444', padding: '1mm 0' }}>
+                      <div className="font-bold uppercase">Payment</div>
+                      <div className="flex justify-between">
+                        <span>CASH</span>
+                        <span>₦3,500.00</span>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="text-center" style={{ borderTop: '0.5px dashed #444', paddingTop: '1mm', fontSize: '0.84em' }}>
                     {refundDays > 0 ? (
