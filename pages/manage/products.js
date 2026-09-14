@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { ExternalLink, Pencil, Search, Trash2 } from "lucide-react";
+import { Search } from "lucide-react";
 import Layout from "@/components/Layout";
 import { formatCurrency as formatCurrencyValue } from "@/lib/format";
 import axios from "axios";
@@ -787,9 +787,8 @@ export default function Products() {
                                 handleEditClick(realIndex, p);
                               }}
                               title="Quick edit in the table"
-                              className="inline-flex items-center gap-1 rounded border border-blue-600 px-2 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-600 hover:text-white"
+                              className="rounded border border-blue-600 px-2 py-1 text-xs font-semibold uppercase text-blue-700 transition hover:bg-blue-600 hover:text-white"
                             >
-                              <Pencil className="h-3 w-3" aria-hidden="true" />
                               Edit
                             </button>
                             <Link
@@ -801,10 +800,9 @@ export default function Products() {
                                 sessionStorage.setItem("products:highlight", p._id);
                               }}
                               title="Open the full product page"
-                              className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                              className="rounded border border-gray-300 px-2 py-1 text-xs font-semibold uppercase text-gray-700 transition hover:bg-gray-100"
                             >
-                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                              Open
+                              Advanced
                             </Link>
                           </div>
                         )}
@@ -1031,9 +1029,9 @@ export default function Products() {
                           }}
                           title="Archive product"
                           aria-label={`Archive ${p.name}`}
-                          className="inline-flex items-center justify-center rounded border border-red-200 bg-red-50 p-1.5 text-red-600 transition hover:bg-red-600 hover:text-white"
+                          className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-600 hover:text-white"
                         >
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          X
                         </button>
                       </td>
                     </tr>
