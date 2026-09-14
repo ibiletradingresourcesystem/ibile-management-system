@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Search } from "lucide-react";
+import { ExternalLink, Pencil, Search, Trash2 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { formatCurrency as formatCurrencyValue } from "@/lib/format";
 import axios from "axios";
@@ -701,34 +701,35 @@ export default function Products() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="!px-2"></th>
-                <th className="!px-2">Adv</th>
-                <th>Name</th>
-                <th className="hidden sm:table-cell">Description</th>
-                <th>Cost</th>
-                <th>Tax %</th>
-                <th>Sale</th>
-                <th className="hidden sm:table-cell">Margin</th>
-                <th className="hidden lg:table-cell">Barcode</th>
-                <th>Min Stock</th>
-                <th className="hidden lg:table-cell">Properties</th>
-                <th>Category</th>
-                <th className="hidden xl:table-cell">Locations</th>
-                <th className="hidden sm:table-cell">Promo</th>
-                <th className="!px-2">Del</th>
+                <th className="!px-3 whitespace-nowrap">Actions</th>
+                <th className="whitespace-nowrap">Name</th>
+                <th className="hidden sm:table-cell whitespace-nowrap">Description</th>
+                <th className="!text-right whitespace-nowrap">Cost</th>
+                <th className="whitespace-nowrap">VAT</th>
+                <th className="!text-right whitespace-nowrap">Sale</th>
+                <th className="hidden sm:table-cell !text-right whitespace-nowrap">Margin</th>
+                <th className="hidden lg:table-cell whitespace-nowrap">Barcode</th>
+                <th className="!text-right whitespace-nowrap">Min Stock</th>
+                <th className="hidden lg:table-cell whitespace-nowrap">Properties</th>
+                <th className="whitespace-nowrap">Category</th>
+                <th className="hidden xl:table-cell whitespace-nowrap">Locations</th>
+                <th className="hidden sm:table-cell whitespace-nowrap">Promo</th>
+                <th className="!px-3">
+                  <span className="sr-only">Archive</span>
+                </th>
               </tr>
             </thead>
 
             <tbody className="bg-white divide-y divide-gray-100">
               {productsLoading ? (
                 <tr>
-                  <td colSpan={15} className="p-8 text-center">
+                  <td colSpan={14} className="p-8 text-center">
                     <Loader size="sm" text="Loading product list..." />
                   </td>
                 </tr>
               ) : visibleProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="p-6 text-center text-gray-500 italic">
+                  <td colSpan={14} className="p-6 text-center text-gray-500 italic">
                     No products found.
                   </td>
                 </tr>
@@ -737,6 +738,13 @@ export default function Products() {
                   // calculate the real index inside filteredProducts (useful for editIndex)
                   const realIndex = pageStartIndex + idx;
                   const isHighlighted = highlightedId && highlightedId === p._id;
+                  const isEditing = editIndex === realIndex;
+                  const aiPrice = aiPriceMap[String(p._id)];
+                  const marginValue = Number(p.margin);
+                  const hasVat = normalizeTaxRate(p.taxRate) > 0;
+                  const propertiesLabel = p.properties?.length > 0
+                    ? p.properties.map((pr) => `${pr.propName}: ${pr.propValue}`).join(", ")
+                    : "";
                   return (
                     <tr
                       key={p._id}
@@ -745,8 +753,8 @@ export default function Products() {
                       }`}
                       onClick={() => setExpandedRow(expandedRow === realIndex ? null : realIndex)}
                     >
-                      <td className="p-2">
-                        {editIndex === realIndex ? (
+                      <td className="!px-3">
+                        {isEditing ? (
                           <div className="flex flex-col gap-1">
                             <button
                               type="button"
@@ -771,38 +779,39 @@ export default function Products() {
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditClick(realIndex, p);
-                            }}
-                            className="py-1 px-2 md:px-3 border border-blue-600 text-blue-700 hover:bg-blue-600 hover:text-white rounded text-xs"
-                          >
-                            Edit
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditClick(realIndex, p);
+                              }}
+                              title="Quick edit in the table"
+                              className="inline-flex items-center gap-1 rounded border border-blue-600 px-2 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-600 hover:text-white"
+                            >
+                              <Pencil className="h-3 w-3" aria-hidden="true" />
+                              Edit
+                            </button>
+                            <Link
+                              href={`/products/edit/${p._id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                rememberListPosition();
+                                // persist highlight so when returning the row is still highlighted
+                                sessionStorage.setItem("products:highlight", p._id);
+                              }}
+                              title="Open the full product page"
+                              className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-100"
+                            >
+                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                              Open
+                            </Link>
+                          </div>
                         )}
                       </td>
 
-                      <td className="p-2">
-                        <Link
-                          href={`/products/edit/${p._id}`}
-                          onClick={() => {
-                            rememberListPosition();
-                            // persist highlight so when returning the row is still highlighted
-                            sessionStorage.setItem("products:highlight", p._id);
-                          }}
-                        >
-                          <button
-                            onClick={(e) => e.stopPropagation()}
-                            className="py-1 px-2 md:px-3 border border-gray-300 text-blue-600 hover:bg-blue-600 hover:text-white rounded text-xs transition"
-                          >
-                            Adv
-                          </button>
-                        </Link>
-                      </td>
-
-                      <td className="p-2 font-semibold text-xs md:text-sm">
-                        {editIndex === realIndex ? (
+                      <td className="min-w-[10rem]">
+                        {isEditing ? (
                           <input
                             name="name"
                             value={editableProduct.name || ""}
@@ -811,22 +820,24 @@ export default function Products() {
                             className="w-32 md:w-36 border p-1 rounded text-xs"
                           />
                         ) : (
-                          <span>
-                            {p.name}
-                            {p.isChildProduct && p.packType !== "pack" && (
-                              <span className="ml-1 text-[10px] text-blue-500 font-normal">
-                                ({getUnitsPerChild(p) > 1 ? `${getUnitsPerChild(p)} units` : "unit"} from pack)
-                              </span>
+                          <div className="max-w-[16rem]">
+                            <TruncatedText text={p.name} lines={2} className="font-semibold text-gray-900" />
+                            {(p.packType === "pack" || (p.isChildProduct && p.packType !== "pack")) && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {p.packType === "pack" && <Badge tone="purple">Pack of {p.qtyPerPack}</Badge>}
+                                {p.isChildProduct && p.packType !== "pack" && (
+                                  <Badge tone="blue">
+                                    {getUnitsPerChild(p) > 1 ? `${getUnitsPerChild(p)} units` : "1 unit"} from pack
+                                  </Badge>
+                                )}
+                              </div>
                             )}
-                            {p.packType === "pack" && (
-                              <span className="ml-1 text-[10px] text-purple-500 font-normal">(pack of {p.qtyPerPack})</span>
-                            )}
-                          </span>
+                          </div>
                         )}
                       </td>
 
-                      <td className="p-2 hidden sm:table-cell max-w-[190px] text-xs align-top">
-                        {editIndex === realIndex ? (
+                      <td className="hidden sm:table-cell">
+                        {isEditing ? (
                           <textarea
                             name="description"
                             value={editableProduct.description || ""}
@@ -836,13 +847,12 @@ export default function Products() {
                             className="w-full min-w-[180px] border p-1 rounded text-xs resize-none"
                           />
                         ) : (
-                          <div className="truncate">{p.description}</div>
+                          <TruncatedText text={p.description} className="max-w-[14rem] text-gray-600" />
                         )}
                       </td>
 
-
-                      <td className="p-2 text-xs md:text-sm">
-                        {editIndex === realIndex ? (
+                      <td className="!text-right whitespace-nowrap tabular-nums">
+                        {isEditing ? (
                           <input
                             name="costPrice"
                             value={editableProduct.costPrice || ""}
@@ -857,8 +867,8 @@ export default function Products() {
                         )}
                       </td>
 
-                      <td className="p-2 text-xs md:text-sm">
-                        {editIndex === realIndex ? (
+                      <td className="whitespace-nowrap">
+                        {isEditing ? (
                           <select
                             name="taxRate"
                             value={String(normalizeTaxRate(editableProduct.taxRate))}
@@ -870,13 +880,13 @@ export default function Products() {
                             <option value="0">None</option>
                           </select>
                         ) : (
-                          normalizeTaxRate(p.taxRate) > 0 ? `${VAT_RATE}%` : "None"
+                          <Badge tone={hasVat ? "blue" : "gray"}>{hasVat ? `${VAT_RATE}%` : "None"}</Badge>
                         )}
                       </td>
 
-                      <td className="p-2 text-gray-900 font-semibold text-xs md:text-sm">
-                        {editIndex === realIndex ? (
-                          <div>
+                      <td className="!text-right whitespace-nowrap tabular-nums font-semibold !text-gray-900">
+                        {isEditing ? (
+                          <div className="flex flex-col items-end">
                             <input
                               name="salePriceIncTax"
                               value={editableProduct.salePriceIncTax || ""}
@@ -886,31 +896,31 @@ export default function Products() {
                               type="number"
                               className="w-16 md:w-20 border p-1 rounded text-xs"
                             />
-                            {aiPriceMap[String(p._id)] && (
+                            {aiPrice && (
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); handleChange({ target: { name: "salePriceIncTax", value: String(aiPriceMap[String(p._id)].recommendedPrice) } }); }}
+                                onClick={(e) => { e.stopPropagation(); handleChange({ target: { name: "salePriceIncTax", value: String(aiPrice.recommendedPrice) } }); }}
                                 className="block text-[9px] text-purple-600 hover:text-purple-800 mt-0.5"
-                                title={`AI suggests ${formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)} — ${aiPriceMap[String(p._id)].reason || ""}`}
+                                title={`AI suggests ${formatCurrency(aiPrice.recommendedPrice)} — ${aiPrice.reason || ""}`}
                               >
-                                Apply AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
+                                Apply AI: {formatCurrency(aiPrice.recommendedPrice)}
                               </button>
                             )}
                           </div>
                         ) : (
                           <div>
                             {formatCurrency(p.salePriceIncTax)}
-                            {aiPriceMap[String(p._id)] && Math.abs(Number(aiPriceMap[String(p._id)].recommendedPrice) - Number(p.salePriceIncTax)) > 1 && (
-                              <span className="block text-[9px] text-purple-500 font-normal" title={aiPriceMap[String(p._id)].reason || "AI recommendation"}>
-                                 AI: {formatCurrency(aiPriceMap[String(p._id)].recommendedPrice)}
+                            {aiPrice && Math.abs(Number(aiPrice.recommendedPrice) - Number(p.salePriceIncTax)) > 1 && (
+                              <span className="block text-[10px] text-purple-500 font-normal" title={aiPrice.reason || "AI recommendation"}>
+                                AI: {formatCurrency(aiPrice.recommendedPrice)}
                               </span>
                             )}
                           </div>
                         )}
                       </td>
 
-                      <td className="p-2 hidden sm:table-cell text-xs">
-                        {editIndex === realIndex ? (
+                      <td className="hidden sm:table-cell !text-right whitespace-nowrap tabular-nums">
+                        {isEditing ? (
                           <input
                             name="margin"
                             value={editableProduct.margin || ""}
@@ -920,12 +930,17 @@ export default function Products() {
                             type="number"
                             className="w-14 md:w-16 border p-1 rounded text-xs"
                           />
+                        ) : Number.isFinite(marginValue) && p.margin !== null && p.margin !== "" ? (
+                          <span className={marginValue < 0 ? "font-medium text-red-600" : ""}>
+                            {marginValue.toFixed(2)}%
+                          </span>
                         ) : (
-                          p.margin
+                          <span className="text-gray-400">—</span>
                         )}
                       </td>
-                      <td className="p-2 hidden lg:table-cell text-xs">
-                        {editIndex === realIndex ? (
+
+                      <td className="hidden lg:table-cell">
+                        {isEditing ? (
                           <input
                             name="barcode"
                             value={editableProduct.barcode || ""}
@@ -934,12 +949,12 @@ export default function Products() {
                             className="w-28 border p-1 rounded text-xs"
                           />
                         ) : (
-                          p.barcode
+                          <TruncatedText text={p.barcode} className="max-w-[9rem] font-mono text-xs" />
                         )}
                       </td>
 
-                      <td className="p-2 text-xs md:text-sm">
-                        {editIndex === realIndex ? (
+                      <td className="!text-right whitespace-nowrap tabular-nums">
+                        {isEditing ? (
                           <input
                             name="minStock"
                             value={editableProduct.minStock ?? ""}
@@ -950,12 +965,12 @@ export default function Products() {
                             className="w-16 md:w-20 border p-1 rounded text-xs"
                           />
                         ) : (
-                          p.minStock ?? ""
+                          p.minStock ?? <span className="text-gray-400">—</span>
                         )}
                       </td>
 
-                      <td className="p-2 hidden lg:table-cell text-gray-600 text-xs align-top">
-                        {editIndex === realIndex ? (
+                      <td className="hidden lg:table-cell !text-gray-600">
+                        {isEditing ? (
                           <textarea
                             value={propertiesText}
                             onChange={(e) => setPropertiesText(e.target.value)}
@@ -965,14 +980,12 @@ export default function Products() {
                             className="w-full min-w-[180px] border p-1 rounded text-xs resize-none"
                           />
                         ) : (
-                          p.properties?.length > 0
-                            ? p.properties.map((pr) => `${pr.propName}: ${pr.propValue}`).join(", ")
-                            : ""
+                          <TruncatedText text={propertiesLabel} className="max-w-[12rem] text-xs" />
                         )}
                       </td>
 
-                      <td className="p-2 text-xs md:text-sm">
-                        {editIndex === realIndex ? (
+                      <td>
+                        {isEditing ? (
                           <select
                             name="category"
                             value={editableProduct.category || ""}
@@ -993,33 +1006,34 @@ export default function Products() {
                             )}
                           </select>
                         ) : (
-                          categoryMap[p.category] || p.category || ""
+                          <TruncatedText text={categoryMap[p.category] || p.category} className="max-w-[10rem]" />
                         )}
                       </td>
 
-                      <td className="p-2 hidden xl:table-cell text-xs text-gray-600 align-top">
-                        {Array.isArray(p.locations) && p.locations.length > 0
-                          ? p.locations.join(", ")
-                          : "Unassigned"}
+                      <td className="hidden xl:table-cell !text-gray-600">
+                        <TruncatedText
+                          text={Array.isArray(p.locations) ? p.locations.join(", ") : ""}
+                          empty="Unassigned"
+                          className="max-w-[10rem] text-xs"
+                        />
                       </td>
 
-                      <td className="p-2 hidden sm:table-cell text-xs">
-                        {p.isPromotion ? (
-                          <span className="text-green-600 font-semibold">Yes</span>
-                        ) : (
-                          <span className="text-gray-400">No</span>
-                        )}
+                      <td className="hidden sm:table-cell">
+                        {p.isPromotion ? <Badge tone="green">On</Badge> : <Badge tone="gray">Off</Badge>}
                       </td>
 
-                      <td className="p-2">
+                      <td className="!px-3">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteClick(p._id);
                           }}
-                          className="py-1 px-2 md:px-3 bg-red-50 text-red-700 border border-red-300 hover:bg-red-600 hover:text-white rounded text-xs"
+                          title="Archive product"
+                          aria-label={`Archive ${p.name}`}
+                          className="inline-flex items-center justify-center rounded border border-red-200 bg-red-50 p-1.5 text-red-600 transition hover:bg-red-600 hover:text-white"
                         >
-                          X
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       </td>
                     </tr>
@@ -1102,4 +1116,31 @@ export default function Products() {
   );
 }
 
+// Long values are cut off with "…"; hovering shows the full text
+function TruncatedText({ text, lines = 1, className = "", empty = "—" }) {
+  const value = String(text ?? "").trim();
+  if (!value) return <span className="text-gray-400">{empty}</span>;
+  return (
+    <span title={value} className={`${lines > 1 ? "line-clamp-2 break-words" : "block truncate"} ${className}`}>
+      {value}
+    </span>
+  );
+}
+
+const BADGE_TONES = {
+  gray: "bg-gray-100 text-gray-600 ring-gray-200",
+  blue: "bg-blue-50 text-blue-700 ring-blue-200",
+  green: "bg-green-50 text-green-700 ring-green-200",
+  purple: "bg-purple-50 text-purple-700 ring-purple-200",
+};
+
+function Badge({ tone = "gray", children }) {
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${BADGE_TONES[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
 
