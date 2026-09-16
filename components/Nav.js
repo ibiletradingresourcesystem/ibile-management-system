@@ -342,6 +342,7 @@ export default function Sidebar() {
                 </div>
                 {renderSubMenu([
                   { href: "/manage/products", label: "Product List" },
+                  { href: "/manage/product-import", label: "Import Products" },
                   { href: "/manage/archived", label: "Archived Products" },
                   { href: "/products/price-tags", label: "Price Tags" },
                   { href: "/manage/categories", label: "Categories" },
@@ -352,6 +353,7 @@ export default function Sidebar() {
                 ].filter(item => {
                   const permMap = {
                     "/manage/products": "manage.products",
+                    "/manage/product-import": "manage.products",
                     "/manage/archived": "manage.archived",
                     "/products/price-tags": "manage.products",
                     "/manage/categories": "manage.categories",
@@ -833,6 +835,13 @@ export default function Sidebar() {
                   <li onClick={closeMenu}>
                     <Link href="/manage/products" className={`block px-8 py-3 text-sm transition-all ${(pathname === "/manage/products" || pathname.startsWith("/products")) ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
                       Product List
+                    </Link>
+                  </li>
+                  )}
+                  {canAccess("manage.products") && (
+                  <li onClick={closeMenu}>
+                    <Link href="/manage/product-import" className={`block px-8 py-3 text-sm transition-all ${pathname === "/manage/product-import" ? "bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-600" : "text-gray-700 hover:bg-blue-50 hover:text-blue-600 border-l-4 border-transparent"}`}>
+                      Import Products
                     </Link>
                   </li>
                   )}

@@ -23,6 +23,7 @@ const ROUTE_PERMISSIONS = {
   "/manage/vendors": "manage.vendors",
   "/manage/purchase-orders": "manage.purchase-orders",
   "/manage/products": "manage.products",
+  "/manage/product-import": "manage.products",
   "/manage/archived": "manage.archived",
   "/manage/categories": "manage.categories",
   "/manage/promotions-management": "manage.customer-promotions",

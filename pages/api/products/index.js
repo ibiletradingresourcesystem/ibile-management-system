@@ -7,6 +7,7 @@ import { deleteProductImages } from "@/lib/s3";
 import { deriveChildrenForParent } from "@/lib/syncPackQty";
 import { deriveChildQuantity, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
 import { calculateMarginPercent, normalizeTaxRate, roundMoney, VAT_RATE } from "@/lib/pricing";
+import { repairStoredBarcodes, suffixBarcodes } from "@/lib/barcodes";
 import {
   sanitizeMultilineText,
   sanitizePlainText,
@@ -129,7 +130,9 @@ function sanitizeProductPayload(payload = {}) {
     nextPayload.description = sanitizeMultilineText(nextPayload.description);
   }
   if (Object.prototype.hasOwnProperty.call(nextPayload, "barcode")) {
-    nextPayload.barcode = sanitizePlainText(nextPayload.barcode);
+    // Tidy as well as sanitise: a code saved broken up ("5012 3456 78901") can never be scanned,
+    // so it is re-joined here the same way the product import repairs seeded barcodes.
+    nextPayload.barcode = repairStoredBarcodes(sanitizePlainText(nextPayload.barcode)).barcode;
   }
   if (Object.prototype.hasOwnProperty.call(nextPayload, "category")) {
     nextPayload.category = sanitizePlainText(nextPayload.category);
@@ -370,7 +373,7 @@ export default async function handler(req, res) {
           name: `${product.name} (Unit)`,
           description: `${product.description || product.name} - Single unit from pack of ${product.qtyPerPack}`,
           ...buildAutoUnitChildPricing(product, body.childSalePrice),
-          barcode: product.barcode ? `${product.barcode}-U` : "",
+          barcode: suffixBarcodes(product.barcode, "-U"),
           category: product.category || "Top Level",
           images: product.images || [],
           properties: product.properties || [],
@@ -608,7 +611,7 @@ export default async function handler(req, res) {
               name: `${updated.name} (Unit)`,
               description: `${updated.description || updated.name} - Single unit from pack of ${updated.qtyPerPack}`,
               ...buildAutoUnitChildPricing(updated, updateData.childSalePrice),
-              barcode: updated.barcode ? `${updated.barcode}-U` : "",
+              barcode: suffixBarcodes(updated.barcode, "-U"),
               category: updated.category || "Top Level",
               images: updated.images || [],
               properties: updated.properties || [],

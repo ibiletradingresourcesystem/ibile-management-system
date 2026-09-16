@@ -1,12 +1,14 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import Layout from "@/components/Layout";
+import apiClient from "@/lib/api-client";
+import { useAuth } from "@/lib/useAuth";
 import { getCachedSetup } from "@/lib/setupCache";
 import { clearCache } from "@/lib/useIndexedDBCache";
 import { formatCurrency } from "@/lib/format";
 import { IMPORT_TEMPLATE_HEADERS, parseDelimitedText, rowsFromTable } from "@/lib/productImport";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFileExcel, faDownload, faUpload, faCheck, faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
+import { faFileExcel, faDownload, faUpload, faCheck, faExclamationTriangle, faBarcode } from "@fortawesome/free-solid-svg-icons";
 
 const MAX_ROWS = 5000;
 const MAX_VISIBLE_ROWS = 300;
@@ -15,7 +17,7 @@ const COLUMN_HELP = [
   ["Name", "Required. Existing products are matched by name, then by barcode."],
   ["Description", "Optional. Defaults to the name."],
   ["Cost / Sale", "Prices. For existing products only these are updated when they differ."],
-  ["Barcode", "Optional. Several codes in one cell: separate with , ; | or a new line."],
+  ["Barcode", "Optional. Several codes in one cell: separate with , ; | or a new line. Codes a spreadsheet broke apart are repaired."],
   ["Category", "Optional. Missing categories are created for new products."],
   ["Qty", "Stock quantity (in packs for a pack product). Ignored for child products."],
   ["Pack Qty", "Makes the row a mother/pack product holding this many units, e.g. 24."],
@@ -70,6 +72,7 @@ export default function ProductImportPage() {
   const [parsedRows, setParsedRows] = useState([]);
   const [fileInfo, setFileInfo] = useState(null);
   const [updateExistingQty, setUpdateExistingQty] = useState(false);
+  const [fixBarcodes, setFixBarcodes] = useState(true);
   const [preview, setPreview] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -94,14 +97,12 @@ export default function ProductImportPage() {
   }, []);
 
   const postImport = useCallback(async (payload) => {
-    const res = await fetch("/api/products/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Import failed");
-    return data;
+    try {
+      const { data } = await apiClient.post("/api/products/import", payload);
+      return data;
+    } catch (err) {
+      throw new Error(err.response?.data?.error || err.message || "Import failed");
+    }
   }, []);
 
   // Preview (dry run) whenever the file or the qty option changes
@@ -113,7 +114,7 @@ export default function ProductImportPage() {
     let active = true;
     setAnalyzing(true);
     setError("");
-    postImport({ products: parsedRows, updateExistingQty, dryRun: true })
+    postImport({ products: parsedRows, updateExistingQty, fixBarcodes, dryRun: true })
       .then((data) => {
         if (active) setPreview(data);
       })
@@ -129,7 +130,7 @@ export default function ProductImportPage() {
     return () => {
       active = false;
     };
-  }, [parsedRows, updateExistingQty, postImport]);
+  }, [parsedRows, updateExistingQty, fixBarcodes, postImport]);
 
   const handleFileUpload = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -188,6 +189,7 @@ export default function ProductImportPage() {
         products: parsedRows,
         location: selectedLocation,
         updateExistingQty,
+        fixBarcodes,
         dryRun: false,
       });
       await Promise.allSettled([clearCache("products_cache"), clearCache("stock_products_cache")]);
@@ -326,6 +328,23 @@ export default function ProductImportPage() {
                   Also update stock <strong>Qty</strong> of existing products from the file
                   <span className="block text-xs text-gray-500">
                     Off: existing products only get cost &amp; sale price updates. New products always get their Qty.
+                  </span>
+                </span>
+              </label>
+            )}
+
+            {preview && (
+              <label className="mt-3 flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={fixBarcodes}
+                  onChange={(e) => setFixBarcodes(e.target.checked)}
+                />
+                <span>
+                  Repair <strong>disjointed barcodes</strong> on existing products and add the file&apos;s codes
+                  <span className="block text-xs text-gray-500">
+                    Re-joins codes a spreadsheet broke apart (e.g. &quot;5012 3456 78901&quot;). No barcode is ever removed.
                   </span>
                 </span>
               </label>
@@ -470,6 +489,7 @@ export default function ProductImportPage() {
               </div>
             </div>
           )}
+          <BarcodeRepairCard />
         </div>
       </div>
     </Layout>
@@ -481,6 +501,140 @@ function SummaryTile({ label, value, tone }) {
     <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
       <p className="text-xs text-gray-500">{label}</p>
       <p className={`text-lg font-bold ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+/**
+ * Clean-up for products that were seeded before, whose barcode the spreadsheet broke apart.
+ * Checking is always safe — nothing is saved until "Fix Barcodes" is clicked.
+ */
+function BarcodeRepairCard() {
+  const { isAdmin } = useAuth();
+  const [report, setReport] = useState(null);
+  const [running, setRunning] = useState("");
+  const [error, setError] = useState("");
+
+  const run = async (dryRun) => {
+    setRunning(dryRun ? "check" : "fix");
+    setError("");
+    try {
+      const { data } = await apiClient.post("/api/products/repair-barcodes", { dryRun });
+      if (!dryRun) {
+        await Promise.allSettled([clearCache("products_cache"), clearCache("stock_products_cache")]);
+        if (typeof window !== "undefined") sessionStorage.setItem("products:refresh", "1");
+      }
+      setReport(data);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || "Barcode check failed");
+      setReport(null);
+    } finally {
+      setRunning("");
+    }
+  };
+
+  if (!isAdmin) return null;
+
+  const toFix = report ? report.summary.toFix ?? report.summary.fixed : 0;
+
+  return (
+    <div className="content-card mb-6">
+      <div className="flex items-center gap-2 mb-1">
+        <FontAwesomeIcon icon={faBarcode} className="w-4 h-4 text-gray-500" />
+        <h3 className="text-sm font-bold text-gray-700">Disjointed Barcodes</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">
+        Products seeded earlier can hold a barcode a spreadsheet broke apart (e.g. &quot;5012 3456 78901&quot; or
+        &quot;5012345678901.0&quot;), which stops them being scanned. This re-joins those codes. No barcode is
+        ever removed, and products that would end up sharing a code are left for you to fix by hand.
+      </p>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => run(true)}
+          disabled={Boolean(running)}
+          className="btn-action btn-action-secondary text-xs"
+        >
+          {running === "check" ? "Checking..." : "Check Barcodes"}
+        </button>
+        {report?.dryRun && toFix > 0 && (
+          <button
+            onClick={() => run(false)}
+            disabled={Boolean(running)}
+            className="btn-action btn-action-primary text-xs"
+          >
+            {running === "fix" ? "Fixing..." : `Fix ${toFix} Barcode(s)`}
+          </button>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
+
+      {report && (
+        <div className="mt-4 text-xs text-gray-700 space-y-2">
+          <p>
+            Scanned <strong>{report.summary.scanned}</strong> product(s) with a barcode.{" "}
+            {report.dryRun ? (
+              <>
+                <strong>{toFix}</strong> can be repaired.
+              </>
+            ) : (
+              <span className="text-green-700 font-semibold">{toFix} barcode(s) repaired.</span>
+            )}
+            {report.summary.conflicts > 0 && (
+              <> {report.summary.conflicts} skipped because another product already uses the repaired code.</>
+            )}
+          </p>
+
+          {report.samples.length > 0 && (
+            <div className="overflow-x-auto max-h-64">
+              <table className="data-table text-xs">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Stored</th>
+                    <th>{report.dryRun ? "Would become" : "Now"}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.samples.map((sample, i) => (
+                    <tr key={i}>
+                      <td className="font-medium">
+                        {sample.name}
+                        {sample.archived && <span className="block text-[10px] text-gray-400">archived</span>}
+                      </td>
+                      <td className="text-gray-500 line-through">{sample.from}</td>
+                      <td className="font-mono">{sample.to}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {report.conflicts.length > 0 && (
+            <div className="text-orange-600 space-y-0.5">
+              <p className="font-semibold">Fix these by hand — the repaired code is already in use:</p>
+              {report.conflicts.map((conflict, i) => (
+                <p key={i}>
+                  {conflict.name}: {conflict.code} also on &quot;{conflict.conflictsWith}&quot;
+                </p>
+              ))}
+            </div>
+          )}
+
+          {report.unrecoverable.length > 0 && (
+            <div className="text-orange-600 space-y-0.5">
+              <p className="font-semibold">Re-scan these — the code was shortened by a spreadsheet and is lost:</p>
+              {report.unrecoverable.map((item, i) => (
+                <p key={i}>
+                  {item.name}: {item.code}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

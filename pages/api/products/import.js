@@ -2,13 +2,15 @@
  * API: POST /api/products/import
  * Seeds products from parsed spreadsheet rows.
  *
- * Body: { products: rawRows[], location, dryRun, updateExistingQty }
+ * Body: { products: rawRows[], location, dryRun, updateExistingQty, fixBarcodes }
  *   dryRun=true  → returns the plan (what would be created/updated) without saving anything
  *   dryRun=false → applies the plan
  *
  * - New products are created in `location` (categories auto-created) with 7.5% VAT.
  * - Existing products (matched by name, then barcode) only get cost & sale price updates;
  *   stock qty is updated only when `updateExistingQty` is true. Other details stay the same.
+ * - `fixBarcodes` (on by default) repairs barcodes a spreadsheet broke apart on products that
+ *   were already seeded, and merges in the codes from the file. No barcode is ever removed.
  * - "Pack Qty" / "Parent" / "Units" columns set up mother (pack) and child products.
  *   Children have no stock of their own — it is derived from the parent after the import.
  */
@@ -70,7 +72,7 @@ export default async function handler(req, res) {
 
   await mongooseConnect();
 
-  const { products, location, dryRun = false, updateExistingQty = false } = req.body || {};
+  const { products, location, dryRun = false, updateExistingQty = false, fixBarcodes = true } = req.body || {};
 
   if (!Array.isArray(products) || products.length === 0) {
     return res.status(400).json({ error: "No products provided" });
@@ -88,7 +90,11 @@ export default async function handler(req, res) {
     const plan = buildImportPlan({
       rows,
       existingProducts,
-      options: { canSeedQty, updateExistingQty: Boolean(updateExistingQty) },
+      options: {
+        canSeedQty,
+        updateExistingQty: Boolean(updateExistingQty),
+        fixBarcodes: fixBarcodes !== false,
+      },
     });
 
     const { missing: categoriesToCreate } = await resolveCategoryIds(plan.categoriesToCreate, location, true);
