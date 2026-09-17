@@ -123,7 +123,11 @@ export default function TimeComparisons() {
       setLoading(true);
       start();
       onFetch();
-      const res = await fetch("/api/transactions/transactions");
+      const from = [dateRange1Start, dateRange2Start].filter(Boolean).sort()[0];
+      const to = [dateRange1End, dateRange2End].filter(Boolean).sort().pop();
+      const res = await fetch(
+        `/api/transactions/transactions?all=true&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+      );
       const txRes = await res.json();
       if (!txRes.success || !txRes.transactions) { setData(null); setLoading(false); return; }
 

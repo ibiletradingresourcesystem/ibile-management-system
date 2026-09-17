@@ -5,14 +5,32 @@
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import Staff from "@/models/Staff";
+import bcrypt from "bcryptjs";
+import { createToken } from "@/lib/jwt";
 import crypto from "crypto";
 
-function verifyPassword(password, stored) {
-  if (!stored || !stored.includes(":")) return false;
-  const [salt, hash] = stored.split(":");
-  const attempt = crypto.pbkdf2Sync(password, salt, 10000, 64, "sha512").toString("hex");
-  return attempt === hash;
+/**
+ * Staff passwords are set with bcrypt (see /api/staff), which is what a mobile sign-in has to
+ * check against — comparing them as pbkdf2 never matched, so no one could open a mobile count.
+ * The old "salt:hash" form is still accepted for any account saved before that.
+ */
+async function verifyPassword(password, stored) {
+  if (!stored) return false;
+
+  if (stored.startsWith("$2")) {
+    return bcrypt.compare(password, stored);
+  }
+
+  if (stored.includes(":")) {
+    const [salt, hash] = stored.split(":");
+    const attempt = crypto.pbkdf2Sync(password, salt, 10000, 64, "sha512").toString("hex");
+    return attempt === hash;
+  }
+
+  return false;
 }
+
+const MOBILE_SCOPE = "stock-take-mobile";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -42,18 +60,20 @@ export default async function handler(req, res) {
     }
 
     // Verify password
-    if (!staff.password || !verifyPassword(password, staff.password)) {
+    if (!staff.password || !(await verifyPassword(password, staff.password))) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // Generate a session token
-    const payload = JSON.stringify({
-      staffId: staff._id,
-      staffName: staff.name,
-      stockTakeId: stockTakeId || null,
-      ts: Date.now(),
-    });
-    const token = Buffer.from(payload).toString("base64url");
+    // A signed session token — a plain base64 payload could be written by anyone
+    const token = createToken(
+      {
+        staffId: String(staff._id),
+        staffName: staff.name,
+        stockTakeId: stockTakeId ? String(stockTakeId) : null,
+        scope: MOBILE_SCOPE,
+      },
+      "12h"
+    );
 
     return res.status(200).json({
       success: true,

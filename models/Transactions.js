@@ -118,6 +118,8 @@ const TransactionSchema = new mongoose.Schema({
 
 TransactionSchema.index({ externalId: 1 }, { unique: true, sparse: true });
 TransactionSchema.index({ dedupeKey: 1 }, { unique: true, sparse: true });
+// Every list and report sorts by date, most of them over a date range
+TransactionSchema.index({ createdAt: -1 });
 TransactionSchema.index({ salesChannel: 1, createdAt: -1 });
 TransactionSchema.index({ sourceOrderId: 1 }, { sparse: true });
 TransactionSchema.index({ status: 1, creditStatus: 1, createdAt: -1 });

@@ -2,7 +2,7 @@ import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { isInTimeRange, REPORT_TIME_ZONE } from "@/lib/dateFilter";
+import { isInTimeRange, REPORT_TIME_ZONE, timeRangeQuery } from "@/lib/dateFilter";
 import { aggregateProductSales } from "@/lib/product-sales-report";
 import {
   getAllocatedLineItems,
@@ -136,7 +136,7 @@ export default function ProductsSales() {
       setLoading(true);
       start();
       onFetch();
-      const res = await fetch("/api/transactions/transactions");
+      const res = await fetch(`/api/transactions/transactions?${timeRangeQuery(timeRange)}`);
       const txRes = await res.json();
       if (!txRes.success || !txRes.transactions) { setData(null); setLoading(false); return; }
 

@@ -2,7 +2,7 @@ import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { isInTimeRange } from "@/lib/dateFilter";
+import { isInTimeRange, timeRangeQuery } from "@/lib/dateFilter";
 import {
   getReportLocation,
   getTransactionItemQuantity,
@@ -50,14 +50,10 @@ export default function LocationsSales() {
 
   async function fetchAllLocations() {
     try {
-      const res = await fetch("/api/transactions/transactions");
+      const res = await fetch("/api/transactions/transactions?filters=true");
       const txRes = await res.json();
-      if (txRes.success && txRes.transactions) {
-        const locSet = new Set();
-        txRes.transactions.forEach((tx) => {
-          const txLocation = getReportLocation(tx);
-          if (txLocation && txLocation !== "online") locSet.add(txLocation);
-        });
+      if (txRes.success) {
+        const locSet = new Set((txRes.locations || []).filter((name) => name !== "online"));
         locSet.add("online");
         setAllLocations(Array.from(locSet).sort((a, b) => a === "online" ? -1 : b === "online" ? 1 : a.localeCompare(b)));
       }
@@ -69,7 +65,7 @@ export default function LocationsSales() {
       setLoading(true);
       start();
       onFetch();
-      const res = await fetch("/api/transactions/transactions");
+      const res = await fetch(`/api/transactions/transactions?${timeRangeQuery(timeRange)}`);
       const txRes = await res.json();
       if (!txRes.success || !txRes.transactions) { setData(null); setLoading(false); return; }
 

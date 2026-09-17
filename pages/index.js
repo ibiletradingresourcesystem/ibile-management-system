@@ -54,6 +54,50 @@ ChartJS.register(
   Filler
 );
 
+/**
+ * How far back the dashboard has to read for a period. Each one covers the period itself and the
+ * earlier period it is compared with, so both halves of every "vs last week" figure are complete.
+ * The dashboard used to read the most recent 50 sales whatever the period, which is what made the
+ * older periods look empty.
+ */
+const PERIOD_LOOKBACK_DAYS = {
+  today: 3,
+  yesterday: 4,
+  week: 21,
+  lastWeek: 28,
+  month: 75,
+  lastMonth: 100,
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function toDateKey(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+  return parts;
+}
+
+function getDashboardRange(period, customRange) {
+  const now = new Date();
+
+  if (period === "custom" && customRange?.startDate && customRange?.endDate) {
+    const start = new Date(customRange.startDate);
+    const end = new Date(customRange.endDate);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+      // Reach back by the length of the range again, to cover the comparison period
+      const span = Math.max(DAY_MS, end.getTime() - start.getTime());
+      return { from: toDateKey(new Date(start.getTime() - span)), to: toDateKey(end) };
+    }
+  }
+
+  const days = PERIOD_LOOKBACK_DAYS[period] ?? 75;
+  return { from: toDateKey(new Date(now.getTime() - days * DAY_MS)), to: toDateKey(now) };
+}
+
 const PERIOD_LABELS = {
   today: "Today",
   yesterday: "Yesterday",
@@ -274,12 +318,14 @@ export default function Home() {
       setStoreInfo(setupData?.store || {});
       setSelectedUser(setupData?.user?.name || "Admin");
 
-      // Fetch transactional data in parallel (cannot cache - changes frequently)
+      // Fetch transactional data in parallel (cannot cache - changes frequently).
+      // Everything in the window the chosen period needs, rather than the most recent page.
       onFetch();
+      const params = { all: "true", ...getDashboardRange(selectedPeriod, customDateRange) };
       const [txRes, expenseRes, orderRes] = await Promise.all([
-        apiClient.get("/api/transactions/transactions"),
-        apiClient.get("/api/expenses"),
-        apiClient.get("/api/orders"),
+        apiClient.get("/api/transactions/transactions", { params }),
+        apiClient.get("/api/expenses", { params }),
+        apiClient.get("/api/orders", { params }),
       ]);
 
       onProcess();
@@ -306,9 +352,10 @@ export default function Home() {
     }
   }
 
+  // Re-read when the period changes — each one needs a different window of history
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [selectedPeriod, customDateRange.startDate, customDateRange.endDate]);
 
   /* =======================
      DATE FILTER

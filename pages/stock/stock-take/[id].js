@@ -136,7 +136,14 @@ export default function StockTakeDetail() {
   const [bulkReason, setBulkReason] = useState(REASON_OPTIONS[0]);
   const countInputRefs = useRef({});
 
-  const isEditable = Boolean(stockTake && ["draft", "in-progress"].includes(stockTake.status));
+  // Anyone can count while a stock take is open. Once it is completed or approved it is locked,
+  // except for admins, who can still change counts (zero them, correct them) at any point.
+  const isOpen = Boolean(stockTake && ["draft", "in-progress"].includes(stockTake.status));
+  const isEditable = Boolean(
+    stockTake && (isOpen || (isAdmin && ["completed", "approved"].includes(stockTake.status)))
+  );
+  const isAdminEdit = isEditable && !isOpen;
+  const reviewOpenedFor = useRef(null);
   const hasItems = Boolean(stockTake?.items?.length);
 
   const fetchStockTake = useCallback(async () => {
@@ -231,10 +238,16 @@ export default function StockTakeDetail() {
       return;
     }
 
+    if (!isOpen && reviewOpenedFor.current !== stockTake._id) {
+      reviewOpenedFor.current = stockTake._id;
+      setViewMode(VIEW_MODES.REVIEW);
+      return;
+    }
+
     if (!hasItems) {
       setViewMode(VIEW_MODES.COUNT);
     }
-  }, [stockTake, isEditable, hasItems]);
+  }, [stockTake, isEditable, isOpen, hasItems]);
 
   const getEffectiveItem = useCallback((item) => {
     const pending = pendingChanges[item._id] || {};
@@ -579,6 +592,16 @@ export default function StockTakeDetail() {
                 </span>
               </div>
               {stockTake.description && <p className="text-sm text-gray-500 mt-1">{stockTake.description}</p>}
+              {isAdminEdit && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2 inline-block">
+                  Admin edit: this stock take is {stockTake.status}.{" "}
+                  {stockTake.adjustmentApplied
+                    ? "Count changes you save update stock straight away."
+                    : stockTake.status === "approved"
+                      ? "Count changes are used when you apply adjustments."
+                      : "Count changes are kept for approval."}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -612,7 +635,7 @@ export default function StockTakeDetail() {
                   className="btn-action flex items-center gap-2 text-sm"
                 >
                   <FontAwesomeIcon icon={faPlay} className="w-3.5 h-3.5" />
-                  Resume
+                  {isOpen ? "Resume" : "Edit Counts"}
                 </button>
               )}
               {stockTake.status === "draft" && hasItems && !isReviewMode && (
@@ -625,12 +648,14 @@ export default function StockTakeDetail() {
                   Start Counting
                 </button>
               )}
-              {isAdmin && !isReviewMode && (stockTake.status === "draft" || stockTake.status === "in-progress") && (
+              {isAdmin && isEditable && (
                 <button
                   onClick={async () => {
                     const shouldZero = await showConfirmDialog({
                       title: "Zero all counts?",
-                      message: "This sets every item's counted quantity to 0.",
+                      message: stockTake.adjustmentApplied
+                        ? "This sets every item's counted quantity to 0 and updates stock to 0 straight away, because adjustments were already applied."
+                        : "This sets every item's counted quantity to 0.",
                       tone: "danger",
                       confirmLabel: "Zero all counts",
                       cancelLabel: "Keep counts",
@@ -701,7 +726,7 @@ export default function StockTakeDetail() {
                   Adjustments Applied
                 </span>
               )}
-              {hasItems && (
+              {hasItems && isOpen && (
                 <button
                   onClick={() => {
                     const url = `${window.location.origin}/stock-take-mobile/${id}`;
@@ -806,7 +831,8 @@ export default function StockTakeDetail() {
                   </button>
                   <button
                     onClick={handleClearList}
-                    disabled={!hasItems || !!actionLoading}
+                    disabled={!hasItems || !!actionLoading || stockTake.adjustmentApplied}
+                    title={stockTake.adjustmentApplied ? "Stock was already adjusted from this list" : undefined}
                     className="btn-action flex items-center gap-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <FontAwesomeIcon icon={faTimes} className="w-3.5 h-3.5" />
@@ -814,7 +840,8 @@ export default function StockTakeDetail() {
                   </button>
                   <button
                     onClick={() => setShowCreateListModal(true)}
-                    disabled={!!actionLoading}
+                    disabled={!!actionLoading || stockTake.adjustmentApplied}
+                    title={stockTake.adjustmentApplied ? "Stock was already adjusted from this list" : undefined}
                     className="btn-action-primary flex items-center gap-2 text-sm"
                   >
                     <FontAwesomeIcon icon={faClipboardList} className="w-3.5 h-3.5" />

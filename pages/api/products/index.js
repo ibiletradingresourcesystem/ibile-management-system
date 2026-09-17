@@ -17,6 +17,10 @@ import {
 
 const CHILD_FILTER = { isChildProduct: true, packType: { $ne: "pack" } };
 
+// Expired promotions and expiry flags only need sweeping periodically, not on every request
+const MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
+let lastMaintenanceRun = 0;
+
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
@@ -181,8 +185,10 @@ export default async function handler(req, res) {
         lookup,
       } = req.query;
 
-      // Skip maintenance tasks for minimal/fast queries
-      if (!minimal && lookup !== "true") {
+      // Expiry/promotion sweeps touch the whole collection, so they run on a timer rather than on
+      // every read — the products list is the most requested endpoint in the app.
+      if (!minimal && lookup !== "true" && Date.now() - lastMaintenanceRun > MAINTENANCE_INTERVAL_MS) {
+        lastMaintenanceRun = Date.now();
         await disableExpiredPromotions();
         await markExpiredProducts();
       }
@@ -272,6 +278,19 @@ export default async function handler(req, res) {
         } else {
           filter.$or = childCondition;
         }
+      }
+
+      // Just the low-stock badge count. Counted in the database over every product, rather than
+      // downloading a page of products and counting them in the browser.
+      if (req.query.lowStockCount === "true") {
+        const count = await Product.countDocuments({
+          ...filter,
+          isStockManaged: true,
+          minStock: { $gt: 0 },
+          $expr: { $lt: [{ $ifNull: ["$quantity", 0] }, "$minStock"] },
+        });
+        res.setHeader("Cache-Control", "private, max-age=60");
+        return res.json({ success: true, count });
       }
 
       // Minimal mode for stock management - only essential fields

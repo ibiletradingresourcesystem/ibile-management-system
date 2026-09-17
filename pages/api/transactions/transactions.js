@@ -9,9 +9,64 @@ import {
   toSafeNumber,
 } from "@/lib/transaction-utils";
 import { postCreditRecoveryEntry, postCreditSaleEntry, postSaleEntry } from "@/lib/accounting";
+import { buildDateRangeFilter, MAX_RANGE_RECORDS, wantsEveryRecord } from "@/lib/apiRange";
 
 async function connectDB() {
   await mongooseConnect();
+}
+
+/** Totals, top products and per-staff/location splits. Heavy, so only when asked for. */
+async function buildReportSummary(filter) {
+  const [results] = await Transaction.aggregate([
+    { $match: { ...filter, status: "completed" } },
+    { $facet: {
+      totals: [
+        { $group: { _id: null, totalSales: { $sum: "$total" }, count: { $sum: 1 } } }
+      ],
+      byStaff: [
+        { $group: {
+          _id: { $cond: { if: { $in: ["$staffName", [null, ""]] }, then: "Unknown", else: "$staffName" } },
+          total: { $sum: "$total" }
+        }}
+      ],
+      byLocation: [
+        { $group: {
+          _id: { $ifNull: ["$location", "Unknown"] },
+          total: { $sum: "$total" }
+        }}
+      ],
+      topProducts: [
+        { $unwind: "$items" },
+        { $group: {
+          _id: { $toString: { $ifNull: ["$items.productId", "unknown"] } },
+          name: { $first: "$items.name" },
+          qty: { $sum: { $ifNull: ["$items.qty", { $ifNull: ["$items.quantity", 0] }] } },
+          total: { $sum: { $multiply: [
+            { $ifNull: ["$items.salePriceIncTax", { $ifNull: ["$items.price", 0] }] },
+            { $ifNull: ["$items.qty", { $ifNull: ["$items.quantity", 0] }] }
+          ]}}
+        }},
+        { $sort: { qty: -1 } },
+        { $limit: 10 },
+        { $project: { _id: 0, productId: "$_id", name: 1, qty: 1, total: 1 } }
+      ]
+    }}
+  ]);
+
+  const summaryData = results || {};
+  const totalSales = summaryData.totals?.[0]?.totalSales || 0;
+  const totalTransactions = summaryData.totals?.[0]?.count || 0;
+
+  return {
+    summary: {
+      totalSales,
+      totalTransactions,
+      averageTransactionValue: totalTransactions > 0 ? totalSales / totalTransactions : 0,
+    },
+    topProducts: summaryData.topProducts || [],
+    byStaff: (summaryData.byStaff || []).map((item) => ({ staff: item._id, total: item.total })),
+    byLocation: (summaryData.byLocation || []).map((item) => ({ location: item._id, total: item.total })),
+  };
 }
 
 function isOnlineTransaction(tx = {}) {
@@ -289,57 +344,12 @@ async function handleGET(req, res) {
   try {
     await connectDB();
 
-    const requestedPage = Math.max(1, Number(req.query.page) || 1);
-    const requestedLimit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
-    const skip = (requestedPage - 1) * requestedLimit;
+    const filter = buildDateRangeFilter(req.query);
+    // Reports pass all=true and read every row in their range; lists stay paginated
+    const wantsEverything = wantsEveryRecord(req.query);
+    const wantsSummary = req.query.summary === "true";
 
-    // Paginated fetch + global summary via aggregation in parallel
-    const [transactions, totalRecords, summaryResults] = await Promise.all([
-      Transaction.find()
-        .populate("staff", "name")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(requestedLimit)
-        .lean(),
-      Transaction.countDocuments({}),
-      Transaction.aggregate([
-        { $match: { status: "completed" } },
-        { $facet: {
-          totals: [
-            { $group: { _id: null, totalSales: { $sum: "$total" }, count: { $sum: 1 } } }
-          ],
-          byStaff: [
-            { $group: {
-              _id: { $cond: { if: { $in: ["$staffName", [null, ""]] }, then: "Unknown", else: "$staffName" } },
-              total: { $sum: "$total" }
-            }}
-          ],
-          byLocation: [
-            { $group: {
-              _id: { $ifNull: ["$location", "Unknown"] },
-              total: { $sum: "$total" }
-            }}
-          ],
-          topProducts: [
-            { $unwind: "$items" },
-            { $group: {
-              _id: { $toString: { $ifNull: ["$items.productId", "unknown"] } },
-              name: { $first: "$items.name" },
-              qty: { $sum: { $ifNull: ["$items.qty", { $ifNull: ["$items.quantity", 0] }] } },
-              total: { $sum: { $multiply: [
-                { $ifNull: ["$items.salePriceIncTax", { $ifNull: ["$items.price", 0] }] },
-                { $ifNull: ["$items.qty", { $ifNull: ["$items.quantity", 0] }] }
-              ]}}
-            }},
-            { $sort: { qty: -1 } },
-            { $limit: 10 },
-            { $project: { _id: 0, productId: "$_id", name: 1, qty: 1, total: 1 } }
-          ]
-        }}
-      ])
-    ]);
-
-    const enrichedTransactions = transactions.map((tx) => ({
+    const enrich = (tx) => ({
       ...tx,
       location: tx.location || (isOnlineTransaction(tx) ? "online" : "Unknown"),
       staffName: getNormalizedStaffName(tx),
@@ -348,43 +358,87 @@ async function handleGET(req, res) {
         : isOnlineTransaction(tx)
           ? { name: "Online" }
           : tx.staff,
-    }));
+    });
 
-    const summaryData = summaryResults[0] || {};
-    const totalSales = summaryData.totals?.[0]?.totalSales || 0;
-    const totalTransactions = summaryData.totals?.[0]?.count || 0;
+    // Just the values a report's dropdowns offer. Built from every transaction, not from one
+    // page of them, and it sends back a few strings instead of the transactions themselves.
+    if (req.query.filters === "true") {
+      const [facets] = await Transaction.aggregate([
+        { $match: filter },
+        { $group: {
+          _id: null,
+          locations: { $addToSet: { $ifNull: ["$location", "online"] } },
+          staff: { $addToSet: { $ifNull: ["$staffName", "Unknown"] } },
+          devices: { $addToSet: { $ifNull: ["$device", "POS"] } },
+        }},
+      ]);
 
-    const summary = {
-      totalSales,
-      totalTransactions,
-      averageTransactionValue:
-        totalTransactions > 0 ? totalSales / totalTransactions : 0,
-    };
+      const clean = (values) => [...new Set((values || []).map((value) => String(value).trim()).filter(Boolean))].sort();
+      return res.status(200).json({
+        success: true,
+        locations: clean(facets?.locations),
+        staff: clean(facets?.staff),
+        devices: clean(facets?.devices),
+      });
+    }
 
-    const pagination = {
-      enabled: true,
-      page: requestedPage,
-      limit: requestedLimit,
-      totalRecords,
-      totalPages: requestedLimit > 0 ? Math.ceil(totalRecords / requestedLimit) : 1,
-      hasMore: skip + enrichedTransactions.length < totalRecords,
-      loadedRecords: Math.min(skip + enrichedTransactions.length, totalRecords),
-    };
+    if (wantsEverything) {
+      const rows = await Transaction.find(filter)
+        .populate("staff", "name")
+        .sort({ createdAt: -1 })
+        .limit(MAX_RANGE_RECORDS + 1)
+        .lean();
+
+      const truncated = rows.length > MAX_RANGE_RECORDS;
+      const transactions = (truncated ? rows.slice(0, MAX_RANGE_RECORDS) : rows).map(enrich);
+
+      return res.status(200).json({
+        success: true,
+        transactions,
+        pagination: {
+          enabled: false,
+          page: 1,
+          limit: MAX_RANGE_RECORDS,
+          totalRecords: transactions.length,
+          totalPages: 1,
+          hasMore: false,
+          loadedRecords: transactions.length,
+          truncated,
+        },
+        ...(wantsSummary ? await buildReportSummary(filter) : {}),
+      });
+    }
+
+    const requestedPage = Math.max(1, Number(req.query.page) || 1);
+    const requestedLimit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+    const skip = (requestedPage - 1) * requestedLimit;
+
+    const [rows, totalRecords, summaryFields] = await Promise.all([
+      Transaction.find(filter)
+        .populate("staff", "name")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(requestedLimit)
+        .lean(),
+      Transaction.countDocuments(filter),
+      wantsSummary ? buildReportSummary(filter) : null,
+    ]);
+
+    const transactions = rows.map(enrich);
 
     return res.status(200).json({
       success: true,
-      transactions: enrichedTransactions,
-      summary,
-      topProducts: summaryData.topProducts || [],
-      pagination,
-      byStaff: (summaryData.byStaff || []).map((item) => ({
-        staff: item._id,
-        total: item.total,
-      })),
-      byLocation: (summaryData.byLocation || []).map((item) => ({
-        location: item._id,
-        total: item.total,
-      })),
+      transactions,
+      pagination: {
+        enabled: true,
+        page: requestedPage,
+        limit: requestedLimit,
+        totalRecords,
+        totalPages: requestedLimit > 0 ? Math.ceil(totalRecords / requestedLimit) : 1,
+        hasMore: skip + transactions.length < totalRecords,
+        loadedRecords: Math.min(skip + transactions.length, totalRecords),
+      },
+      ...(summaryFields || {}),
     });
   } catch (err) {
     console.error("Transaction GET API error:", err);

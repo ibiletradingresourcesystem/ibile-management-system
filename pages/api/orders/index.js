@@ -3,6 +3,7 @@ import Order from "@/models/Order";
 import mongoose from "mongoose";
 import Customer from "@/models/Customer";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { buildDateRangeFilter, MAX_RANGE_RECORDS, wantsEveryRecord } from "@/lib/apiRange";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -24,9 +25,10 @@ export default async function handler(req, res) {
     } = req.query;
 
     try {
-      let query = {};
-      const numericLimit = Math.max(1, Number(limit) || 10);
-      const numericPage = Math.max(1, Number(page) || 1);
+      const everyRecord = wantsEveryRecord(req.query);
+      let query = { ...buildDateRangeFilter(req.query) };
+      const numericLimit = everyRecord ? MAX_RANGE_RECORDS : Math.max(1, Number(limit) || 10);
+      const numericPage = everyRecord ? 1 : Math.max(1, Number(page) || 1);
 
       if (locationId && mongoose.Types.ObjectId.isValid(locationId)) {
         query.locationId = locationId;

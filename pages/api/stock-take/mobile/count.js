@@ -5,15 +5,15 @@
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import StockTake from "@/models/StockTake";
+import { verifyToken } from "@/lib/jwt";
 
+const MOBILE_SCOPE = "stock-take-mobile";
+
+/** The signed token issued by /api/stock-take/mobile/auth. */
 function parseToken(authHeader) {
   if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-  try {
-    const token = authHeader.slice(7);
-    return JSON.parse(Buffer.from(token, "base64url").toString());
-  } catch {
-    return null;
-  }
+  const session = verifyToken(authHeader.slice(7));
+  return session && session.scope === MOBILE_SCOPE ? session : null;
 }
 
 export default async function handler(req, res) {
@@ -27,6 +27,10 @@ export default async function handler(req, res) {
   const stockTakeId = req.query.id || session.stockTakeId;
   if (!stockTakeId) {
     return res.status(400).json({ error: "Stock take ID is required" });
+  }
+  // A sign-in for one count can't be reused on another
+  if (session.stockTakeId && String(session.stockTakeId) !== String(stockTakeId)) {
+    return res.status(403).json({ error: "This sign-in is for a different stock take" });
   }
 
   if (req.method === "GET") {

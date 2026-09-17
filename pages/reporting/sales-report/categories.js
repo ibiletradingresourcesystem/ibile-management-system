@@ -1,6 +1,6 @@
 import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
-import { isInTimeRange, REPORT_TIME_ZONE } from "@/lib/dateFilter";
+import { isInTimeRange, REPORT_TIME_ZONE, timeRangeQuery } from "@/lib/dateFilter";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import {
@@ -58,19 +58,10 @@ export default function CategoriesSales() {
 
   async function fetchAllFilters() {
     try {
-      const res = await fetch("/api/transactions/transactions");
+      const res = await fetch("/api/transactions/transactions?filters=true");
       const data = await res.json();
-      const txs = data.transactions || [];
-      const locSet = new Set();
-      const staffSet = new Set();
-      txs.forEach((tx) => {
-        const txLocation = getReportLocation(tx);
-        const txStaff = getReportStaffName(tx);
-        if (txLocation) locSet.add(txLocation);
-        if (txStaff) staffSet.add(txStaff);
-      });
-      setAllLocations(Array.from(locSet).sort());
-      setAllStaff(Array.from(staffSet).sort());
+      setAllLocations([...(data.locations || [])].sort());
+      setAllStaff([...(data.staff || [])].sort());
     } catch (err) { console.error(err); }
   }
 
@@ -80,7 +71,7 @@ export default function CategoriesSales() {
       start();
       onFetch();
       const [transRes, prodRes, catRes] = await Promise.all([
-        fetch("/api/transactions/transactions"),
+        fetch(`/api/transactions/transactions?${timeRangeQuery(timeRange)}`),
         fetch("/api/products?listAll=true"),
         fetch("/api/categories"),
       ]);

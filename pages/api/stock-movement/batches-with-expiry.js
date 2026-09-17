@@ -79,6 +79,9 @@ function applyFifoDepletion(batchList, productId, locationName, quantity) {
   }
 }
 
+const BATCH_CACHE_TTL_MS = 60 * 1000;
+let batchCache = null;
+
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
   if (authError) return authError;
@@ -92,6 +95,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (batchCache && Date.now() < batchCache.expiresAt) {
+      return res.status(200).json({ success: true, data: batchCache.batches, count: batchCache.batches.length, cached: true });
+    }
+
     const batches = await withRetry(async () => {
       await mongooseConnect();
       const locationCache = await buildLocationCache();
@@ -247,6 +254,8 @@ export default async function handler(req, res) {
         }))
         .sort((left, right) => new Date(left.expiryDate) - new Date(right.expiryDate));
     });
+
+    batchCache = { batches, expiresAt: Date.now() + BATCH_CACHE_TTL_MS };
 
     return res.status(200).json({
       success: true,

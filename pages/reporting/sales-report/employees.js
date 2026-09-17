@@ -1,7 +1,7 @@
 import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { isInTimeRange } from "@/lib/dateFilter";
+import { isInTimeRange, timeRangeQuery } from "@/lib/dateFilter";
 import useProgress from "@/lib/useProgress";
 import {
   getReportDevice,
@@ -34,19 +34,13 @@ export default function EmployeesSales() {
 
   async function fetchAllFilters() {
     try {
-      const res = await fetch("/api/transactions/transactions");
+      const res = await fetch("/api/transactions/transactions?filters=true");
       const txRes = await res.json();
-      if (txRes.success && txRes.transactions) {
-        const locSet = new Set(); const staffSet = new Set();
-        txRes.transactions.forEach((tx) => {
-          const txLocation = getReportLocation(tx);
-          const txStaff = getReportStaffName(tx);
-          if (txLocation && txLocation !== "online") locSet.add(txLocation);
-          if (txStaff) staffSet.add(txStaff);
-        });
+      if (txRes.success) {
+        const locSet = new Set((txRes.locations || []).filter((name) => name !== "online"));
         locSet.add("online");
         setAllLocations(Array.from(locSet).sort((a, b) => a === "online" ? -1 : b === "online" ? 1 : a.localeCompare(b)));
-        setAllStaff(Array.from(staffSet).sort());
+        setAllStaff([...(txRes.staff || [])].sort());
       }
     } catch (err) { console.error("Error fetching filters:", err); }
   }
@@ -55,7 +49,7 @@ export default function EmployeesSales() {
     try {
       setLoading(true);
       start();
-      const res = await fetch("/api/transactions/transactions");
+      const res = await fetch(`/api/transactions/transactions?${timeRangeQuery(timeRange)}`);
       onFetch();
       const txRes = await res.json();
       if (!txRes.success || !txRes.transactions) { setData(null); setLoading(false); complete(); return; }

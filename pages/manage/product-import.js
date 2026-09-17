@@ -20,9 +20,9 @@ const COLUMN_HELP = [
   ["Barcode", "Optional. Several codes in one cell: separate with , ; | or a new line. Codes a spreadsheet broke apart are repaired."],
   ["Category", "Optional. Missing categories are created for new products."],
   ["Qty", "Stock quantity (in packs for a pack product). Ignored for child products."],
-  ["Pack Qty", "Makes the row a mother/pack product holding this many units, e.g. 24."],
-  ["Parent", "Name or barcode of the mother/pack product this row is a child of."],
-  ["Units", "Units of the parent's pack in one of this child, e.g. 6, 2 or 1."],
+  ["Pack Qty", "Makes the row a mother/pack product holding this many units, e.g. 24. \"none\" turns a pack back into an ordinary product and detaches its children."],
+  ["Parent", "Name or barcode of the mother/pack product this row is a child of — part of the name is enough, and the match is shown below. \"none\" detaches a child from its pack."],
+  ["Units", "Units of the parent's pack in one of this child, e.g. 6, 2 or 1. Change it to re-cut an existing child."],
 ];
 
 const TEMPLATE_ROWS = [
@@ -257,6 +257,13 @@ export default function ProductImportPage() {
               Mother &amp; child example: &quot;Pack of 24&quot; has <strong>Pack Qty</strong> 24 and its stock in{" "}
               <strong>Qty</strong>. &quot;Pack of 6&quot;, &quot;Pack of 2&quot; and &quot;Single&quot; name it in{" "}
               <strong>Parent</strong> with <strong>Units</strong> 6, 2 and 1 — their stock is worked out from the pack.
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              The same columns <strong>edit</strong> products that already exist: point <strong>Parent</strong> at a
+              different pack to move a child, change <strong>Units</strong> to re-cut it, or put{" "}
+              <strong>none</strong> in <strong>Parent</strong> to detach it and in <strong>Pack Qty</strong> to un-pack
+              a mother product. Stock is re-worked across every pack and child the file touches. A blank cell always
+              means &quot;leave as it is&quot;, so re-importing an old file changes nothing.
             </p>
             <button onClick={downloadTemplate} className="mt-3 btn-action btn-action-secondary flex items-center gap-2 text-xs">
               <FontAwesomeIcon icon={faDownload} className="w-3.5 h-3.5" />

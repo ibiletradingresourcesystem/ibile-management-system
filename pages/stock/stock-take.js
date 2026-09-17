@@ -405,6 +405,7 @@ export default function StockTakeList() {
                             </td>
                             <td className="py-3 px-3 text-right">
                               <div className="flex items-center justify-end gap-1">
+                                {canResume && (
                                 <button
                                   onClick={() => {
                                     const url = `${window.location.origin}/stock-take-mobile/${st._id}`;
@@ -420,6 +421,7 @@ export default function StockTakeList() {
                                   <FontAwesomeIcon icon={faLink} className="w-3.5 h-3.5" />
                                   <span className="hidden md:inline text-xs font-semibold uppercase tracking-wide">Link</span>
                                 </button>
+                                )}
                                 <button
                                   onClick={() => router.push(`/stock/stock-take/${st._id}`)}
                                   className="inline-flex items-center gap-2 theme-accent-text transition-opacity hover:opacity-75 px-2 py-1 rounded"

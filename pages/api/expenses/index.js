@@ -4,6 +4,7 @@ import Expense from "@/models/Expense";
 import ExpenseCategory from "@/models/ExpenseCategory";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { postExpenseEntry } from "@/lib/accounting";
+import { buildDateRangeFilter, MAX_RANGE_RECORDS, wantsEveryRecord } from "@/lib/apiRange";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -18,17 +19,21 @@ export default async function handler(req, res) {
   try {
     /* ---------------- GET EXPENSES ---------------- */
     if (req.method === "GET") {
-      const pageNum = Math.max(1, parseInt(req.query.page) || 1);
-      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 50));
+      // An expense is dated by hand where it has one, otherwise by when it was entered
+      const filter = buildDateRangeFilter(req.query, ["expenseDate", "createdAt"]);
+      const everyRecord = wantsEveryRecord(req.query);
+
+      const pageNum = everyRecord ? 1 : Math.max(1, parseInt(req.query.page) || 1);
+      const limit = everyRecord ? MAX_RANGE_RECORDS : Math.min(500, Math.max(1, parseInt(req.query.limit) || 50));
       const skip = (pageNum - 1) * limit;
 
       const [expenses, total] = await Promise.all([
-        Expense.find()
+        Expense.find(filter)
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
           .lean(),
-        Expense.countDocuments()
+        Expense.countDocuments(filter)
       ]);
 
       // Backfill categoryName for old entries that have category ObjectId but no categoryName

@@ -27,17 +27,11 @@ const TopBar = ({ user, logout }) => {
     // Fetch notifications data periodically
     const fetchNotifications = async () => {
       try {
-        // Fetch low stock from products
-        const productsRes = await fetch("/api/products");
+        // Counted in the database over every product — a page of them gave the wrong number
+        const productsRes = await fetch("/api/products?lowStockCount=true");
         if (productsRes.ok) {
           const data = await productsRes.json();
-          const productList = data.data || data;
-          const products = Array.isArray(productList) ? productList : [];
-
-          const nextLowStockCount = products.filter(
-            (product) => product.minStock > 0 && product.quantity < product.minStock
-          ).length;
-          setLowStockCount(nextLowStockCount);
+          setLowStockCount(Number(data.count) || 0);
         }
 
         // Fetch expiring batches from the same endpoint as expiration-report
@@ -85,10 +79,25 @@ const TopBar = ({ user, logout }) => {
       }
     };
 
-    fetchNotifications();
-    // Refresh every 2 minutes
-    const interval = setInterval(fetchNotifications, 120000);
-    return () => clearInterval(interval);
+    // These badges sit on every page, so they refresh slowly and only while the tab is watched
+    const REFRESH_MS = 10 * 60 * 1000;
+    let lastRun = 0;
+
+    const refreshIfDue = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (Date.now() - lastRun < REFRESH_MS) return;
+      lastRun = Date.now();
+      fetchNotifications();
+    };
+
+    refreshIfDue();
+    const interval = setInterval(refreshIfDue, 60000);
+    document.addEventListener("visibilitychange", refreshIfDue);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshIfDue);
+    };
   }, []);
 
   // Function to get initials

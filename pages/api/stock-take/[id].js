@@ -32,6 +32,99 @@ function getProductFilter({ vendorIds = [], categoryIds = [], shelfLines = [], p
   return filter;
 }
 
+const OPEN_STATUSES = ["draft", "in-progress"];
+// Once counting is finished, only an admin may still change the counts. Cancelled stays closed.
+const ADMIN_EDITABLE_STATUSES = ["completed", "approved"];
+
+function canEditCounts(req, stockTake) {
+  if (OPEN_STATUSES.includes(stockTake.status)) return true;
+  return isAdmin(req) && ADMIN_EDITABLE_STATUSES.includes(stockTake.status);
+}
+
+function rejectLockedEdit(res, req, stockTake) {
+  if (stockTake.status === "cancelled") {
+    return res.status(400).json({ success: false, message: "This stock take was cancelled and can no longer be changed" });
+  }
+  return res.status(403).json({
+    success: false,
+    message: `This stock take is ${stockTake.status} — only an admin can change it now`,
+  });
+}
+
+/**
+ * Sets each product's stock to what the stock take counted (full packs plus loose units), then
+ * re-works its child products. With productIds, only those products are touched.
+ * @returns {Promise<number>} how many products' stock changed
+ */
+async function applyCountsToInventory(stockTake, productIds = null) {
+  const only = productIds ? new Set([...productIds].map(String)) : null;
+  const productQtyMap = new Map();
+
+  for (const item of stockTake.items || []) {
+    if (item.status !== "counted" || item.countedQty === null) continue;
+
+    const productId = String(item.productId);
+    if (only && !only.has(productId)) continue;
+    if (!productQtyMap.has(productId)) {
+      productQtyMap.set(productId, { packs: null, looseUnits: 0, looseUnitsCounted: false, qtyPerPack: 1 });
+    }
+    const entry = productQtyMap.get(productId);
+
+    if (item.countType === "loose-units") {
+      entry.looseUnits = item.countedQty || 0;
+      entry.looseUnitsCounted = true;
+      entry.qtyPerPack = item.qtyPerPack || 1;
+    } else {
+      entry.packs = item.countedQty;
+    }
+  }
+
+  const ids = [...productQtyMap.keys()].filter((productId) => isValidObjectId(productId));
+  if (ids.length === 0) return 0;
+
+  // One read for every product rather than one per product
+  const products = await Product.find({ _id: { $in: ids } }).select("_id quantity").lean();
+  const currentQty = new Map(products.map((product) => [String(product._id), product.quantity]));
+
+  const bulkOps = [];
+  for (const productId of ids) {
+    const { packs, looseUnits, looseUnitsCounted, qtyPerPack } = productQtyMap.get(productId);
+    if (packs === null && !looseUnitsCounted) continue;
+    if (!currentQty.has(productId)) continue;
+
+    const finalQty = (packs ?? 0) + (looseUnits / qtyPerPack);
+    if (currentQty.get(productId) === finalQty) continue;
+
+    bulkOps.push({
+      updateOne: {
+        filter: { _id: productId },
+        update: { $set: { quantity: finalQty } },
+      },
+    });
+  }
+
+  if (bulkOps.length > 0) {
+    await Product.bulkWrite(bulkOps);
+    for (const productId of ids) {
+      await deriveChildQty(productId);
+    }
+  }
+
+  return bulkOps.length;
+}
+
+/**
+ * When an admin changes counts on a stock take whose adjustments were already applied, stock
+ * follows straight away — otherwise the change (a zeroed count, say) would never reach the shelf.
+ * @returns {Promise<string>} text to add to the success message
+ */
+async function syncAppliedCounts(stockTake, productIds) {
+  if (!stockTake.adjustmentApplied) return "";
+  const changed = await applyCountsToInventory(stockTake, productIds);
+  stockTake.adjustedAt = new Date();
+  return changed > 0 ? ` — stock updated for ${changed} product(s)` : "";
+}
+
 function isDerivedChildProduct(product) {
   return Boolean(product?.isChildProduct && product?.packType !== "pack");
 }
@@ -326,8 +419,12 @@ export default async function handler(req, res) {
       }
 
       if (action === "create-list") {
-        if (!["draft", "in-progress"].includes(stockTake.status)) {
-          return res.status(400).json({ success: false, message: "Cannot create a list in the current status" });
+        if (!canEditCounts(req, stockTake)) return rejectLockedEdit(res, req, stockTake);
+        if (stockTake.adjustmentApplied) {
+          return res.status(400).json({
+            success: false,
+            message: "Stock has already been adjusted from this list — start a new stock take to count a different list",
+          });
         }
 
         const vendorIds = Array.isArray(req.body.vendorIds)
@@ -363,9 +460,7 @@ export default async function handler(req, res) {
       }
 
       if (action === "add-items") {
-        if (!["draft", "in-progress"].includes(stockTake.status)) {
-          return res.status(400).json({ success: false, message: "Cannot add items in the current status" });
-        }
+        if (!canEditCounts(req, stockTake)) return rejectLockedEdit(res, req, stockTake);
 
         const productIds = Array.isArray(req.body.productIds)
           ? req.body.productIds.map((value) => String(value || "").trim()).filter(Boolean)
@@ -400,8 +495,12 @@ export default async function handler(req, res) {
       }
 
       if (action === "clear-list") {
-        if (!["draft", "in-progress"].includes(stockTake.status)) {
-          return res.status(400).json({ success: false, message: "Cannot clear the list in the current status" });
+        if (!canEditCounts(req, stockTake)) return rejectLockedEdit(res, req, stockTake);
+        if (stockTake.adjustmentApplied) {
+          return res.status(400).json({
+            success: false,
+            message: "Stock has already been adjusted from this list — start a new stock take to count a different list",
+          });
         }
 
         stockTake.items = [];
@@ -416,9 +515,7 @@ export default async function handler(req, res) {
       }
 
       if (action === "update-counts") {
-        if (!["draft", "in-progress"].includes(stockTake.status)) {
-          return res.status(400).json({ success: false, message: "Cannot update counts in current status" });
-        }
+        if (!canEditCounts(req, stockTake)) return rejectLockedEdit(res, req, stockTake);
 
         if (stockTake.status === "draft") {
           stockTake.status = "in-progress";
@@ -443,21 +540,26 @@ export default async function handler(req, res) {
 
         completePartiallyCountedPackGroups(stockTake, req.user?.name || "System");
 
+        const changedProductIds = (Array.isArray(items) ? items : [])
+          .map((update) => stockTake.items.id(update._id)?.productId)
+          .filter(Boolean);
+        const stockNote = await syncAppliedCounts(stockTake, changedProductIds);
+
         recalcSummary(stockTake);
         await stockTake.save();
-        return res.status(200).json({ success: true, message: "Counts updated", stockTake: stockTake.toObject() });
+        return res.status(200).json({ success: true, message: `Counts updated${stockNote}`, stockTake: stockTake.toObject() });
       }
 
       if (action === "zero-uncounted") {
-        if (!["draft", "in-progress"].includes(stockTake.status)) {
-          return res.status(400).json({ success: false, message: "Cannot zero uncounted items in the current status" });
-        }
+        if (!canEditCounts(req, stockTake)) return rejectLockedEdit(res, req, stockTake);
 
         await refreshOpenStockTakeSystemQuantities(stockTake);
 
         let updatedCount = 0;
+        const zeroedProductIds = [];
         for (const item of stockTake.items) {
           if (item.countedQty !== null) continue;
+          zeroedProductIds.push(item.productId);
 
           item.countedQty = 0;
           item.variance = 0 - item.systemQty;
@@ -473,19 +575,19 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, message: "There are no uncounted items to zero" });
         }
 
+        const zeroNote = await syncAppliedCounts(stockTake, zeroedProductIds);
+
         recalcSummary(stockTake);
         await stockTake.save();
         return res.status(200).json({
           success: true,
-          message: `${updatedCount} uncounted item(s) set to zero`,
+          message: `${updatedCount} uncounted item(s) set to zero${zeroNote}`,
           stockTake: stockTake.toObject(),
         });
       }
 
       if (action === "remove-uncounted") {
-        if (!["draft", "in-progress"].includes(stockTake.status)) {
-          return res.status(400).json({ success: false, message: "Cannot remove uncounted items in the current status" });
-        }
+        if (!canEditCounts(req, stockTake)) return rejectLockedEdit(res, req, stockTake);
 
         const originalLength = Array.isArray(stockTake.items) ? stockTake.items.length : 0;
         stockTake.items = (stockTake.items || []).filter((item) => item.countedQty !== null);
@@ -548,47 +650,7 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, message: "Adjustments already applied" });
         }
 
-        const productQtyMap = new Map();
-        for (const item of stockTake.items) {
-          if (item.status !== "counted" || item.countedQty === null) continue;
-
-          const productId = String(item.productId);
-          if (!productQtyMap.has(productId)) {
-            productQtyMap.set(productId, { packs: null, looseUnits: 0, looseUnitsCounted: false, qtyPerPack: 1 });
-          }
-          const entry = productQtyMap.get(productId);
-
-          if (item.countType === "loose-units") {
-            entry.looseUnits = item.countedQty || 0;
-            entry.looseUnitsCounted = true;
-            entry.qtyPerPack = item.qtyPerPack || 1;
-          } else {
-            entry.packs = item.countedQty;
-          }
-        }
-
-        const bulkOps = [];
-        for (const [productId, { packs, looseUnits, looseUnitsCounted, qtyPerPack }] of productQtyMap.entries()) {
-          if (packs === null && !looseUnitsCounted) continue;
-
-          const finalQty = (packs ?? 0) + (looseUnits / qtyPerPack);
-          const current = await Product.findById(productId).select("quantity").lean();
-          if (!current || current.quantity === finalQty) continue;
-
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: productId },
-              update: { $set: { quantity: finalQty } },
-            },
-          });
-        }
-
-        if (bulkOps.length > 0) {
-          await Product.bulkWrite(bulkOps);
-          for (const [productId] of productQtyMap.entries()) {
-            await deriveChildQty(productId);
-          }
-        }
+        const adjustedCount = await applyCountsToInventory(stockTake);
 
         stockTake.adjustmentApplied = true;
         stockTake.adjustedAt = new Date();
@@ -596,8 +658,8 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
           success: true,
-          message: `Adjustments applied to ${bulkOps.length} product(s)`,
-          adjustedCount: bulkOps.length,
+          message: `Adjustments applied to ${adjustedCount} product(s)`,
+          adjustedCount,
           stockTake: stockTake.toObject(),
         });
       }
@@ -616,9 +678,7 @@ export default async function handler(req, res) {
         if (!isAdmin(req)) {
           return res.status(403).json({ success: false, message: "Only admins can zero all stock" });
         }
-        if (!["draft", "in-progress"].includes(stockTake.status)) {
-          return res.status(400).json({ success: false, message: "Cannot zero counts in current status" });
-        }
+        if (!canEditCounts(req, stockTake)) return rejectLockedEdit(res, req, stockTake);
 
         if (stockTake.status === "draft") {
           stockTake.status = "in-progress";
@@ -645,11 +705,13 @@ export default async function handler(req, res) {
           item.countedBy = req.body.countedBy || req.user?.name || "System";
         }
 
+        const allZeroNote = await syncAppliedCounts(stockTake, stockTake.items.map((item) => item.productId));
+
         recalcSummary(stockTake);
         await stockTake.save();
         return res.status(200).json({
           success: true,
-          message: `All ${stockTake.items.length} items set to zero`,
+          message: `All ${stockTake.items.length} items set to zero${allZeroNote}`,
           stockTake: stockTake.toObject(),
         });
       }

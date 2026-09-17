@@ -181,17 +181,33 @@ export default async function handler(req, res) {
         }
         set.parentProduct = parentIdFor(entry);
       }
-      updateOps.push({ updateOne: { filter: { _id: entry.product._id }, update: { $set: set } } });
+      const update = { $set: set };
+      if (entry.unset) update.$unset = entry.unset;
+      updateOps.push({ updateOne: { filter: { _id: entry.product._id }, update } });
     }
     if (updateOps.length > 0) {
       await Product.bulkWrite(updateOps, { ordered: false });
     }
 
-    // 4. Children take their stock from the parent
+    // 4. Detach the children of any pack that is no longer a pack (before deriving, so they are
+    //    out of the way). Their stock stayed with the pack, so they start at none of their own.
+    const childIdsToDetach = updates
+      .filter((entry) => !skippedUpdates.has(entry))
+      .flatMap((entry) => entry.unlinkChildIds || []);
+    if (childIdsToDetach.length > 0) {
+      await Product.updateMany(
+        { _id: { $in: childIdsToDetach.map((id) => new mongoose.Types.ObjectId(id)) } },
+        { $set: { isChildProduct: false, unitsPerChild: 1, quantity: 0 }, $unset: { parentProduct: "" } }
+      );
+    }
+
+    // 5. Every pack touched by this import pushes its stock back down to its children — including
+    //    the pack a product was moved away from, so both sides end up correct.
     const parentIds = new Set();
     for (const entry of [...creates, ...updates]) {
       if (failedCreates.has(entry) || skippedUpdates.has(entry)) continue;
       if (entry.parent) parentIds.add(String(parentIdFor(entry)));
+      if (entry.product?.parentProduct) parentIds.add(String(entry.product.parentProduct));
       const packType = entry.doc?.packType || entry.set?.packType || entry.product?.packType;
       if (packType === "pack") parentIds.add(String(productIdFor(entry)));
     }
