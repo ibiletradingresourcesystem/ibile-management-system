@@ -601,9 +601,9 @@ export default function ProductForm(props) {
                 <dd className={priceBreakdown.marginAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
                   {priceBreakdown.marginPercent.toFixed(2)}% ({formatCurrency(priceBreakdown.marginAmount)})
                 </dd>
-                <dt className="text-gray-500">Profit margin</dt>
+                <dt className="text-gray-500">Mark-up</dt>
                 <dd className={priceBreakdown.marginAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
-                  {priceBreakdown.profitMarginPercent.toFixed(2)}% of the sale
+                  {priceBreakdown.markupPercent.toFixed(2)}% on cost
                 </dd>
                 <dt className="text-gray-500">Add-ons</dt>
                 <dd className="font-medium text-gray-900">{formatCurrency(priceBreakdown.totalAddOns)}</dd>
@@ -717,7 +717,7 @@ export default function ProductForm(props) {
           <div className="space-y-5 lg:col-span-2 lg:col-start-1 lg:row-start-2">
             <Card
               title="Pricing"
-              description="Enter the cost, then set either the margin or the sale price — the other updates itself."
+              description="Enter the cost, then set either the margin or the sale price — the other updates itself. Margin is the share of the sale price, once VAT is taken off, that the sale keeps."
             >
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-4">
@@ -732,7 +732,7 @@ export default function ProductForm(props) {
                     error={fieldErrors.costPrice}
                   />
                   <InputField
-                    label="Margin (on cost)"
+                    label="Margin (of sale, after VAT)"
                     name="margin"
                     type="number"
                     suffix="%"
@@ -977,11 +977,11 @@ export default function ProductForm(props) {
 }
 
 function PriceBuildUp({ breakdown, applyTax }) {
-  const { cost, marginAmount, marginPercent, profitMarginPercent, saleExTax, vatAmount, sale, totalAddOns, totalAddOnsPercent } =
+  const { cost, marginAmount, marginPercent, markupPercent, saleExTax, vatAmount, sale, totalAddOns, totalAddOnsPercent } =
     breakdown;
   const rows = [
     { label: "Cost price", value: cost },
-    { label: `+ Margin (${marginPercent.toFixed(2)}%)`, value: marginAmount, loss: marginAmount < 0 },
+    { label: "+ Profit", value: marginAmount, loss: marginAmount < 0 },
     { label: "= Price before VAT", value: saleExTax, divider: true },
     { label: applyTax ? `+ VAT (${VAT_RATE}%)` : "+ VAT (not applied)", value: vatAmount },
     { label: "= Sale price", value: sale, divider: true, strong: true },
@@ -1013,14 +1013,14 @@ function PriceBuildUp({ breakdown, applyTax }) {
         <span className="text-xs">{totalAddOnsPercent.toFixed(2)}% of cost · margin + VAT</span>
       </div>
 
-      {/* The same product reads differently as an add-on to cost and as a share of the sale */}
+      {/* The same profit read two ways: against the sale (margin) and against cost (mark-up) */}
       <dl className="mt-3 grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1 text-xs text-gray-600">
-        <dt>Margin on cost</dt>
+        <dt>Margin (profit ÷ price before VAT)</dt>
         <dd className="text-right font-medium tabular-nums text-gray-900">{marginPercent.toFixed(2)}%</dd>
         <dt>VAT</dt>
         <dd className="text-right font-medium tabular-nums text-gray-900">{applyTax ? `${VAT_RATE}%` : "None"}</dd>
-        <dt>Profit margin (of the sale)</dt>
-        <dd className="text-right font-medium tabular-nums text-gray-900">{profitMarginPercent.toFixed(2)}%</dd>
+        <dt>Mark-up (profit ÷ cost)</dt>
+        <dd className="text-right font-medium tabular-nums text-gray-900">{markupPercent.toFixed(2)}%</dd>
       </dl>
     </div>
   );
