@@ -601,6 +601,10 @@ export default function ProductForm(props) {
                 <dd className={priceBreakdown.marginAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
                   {priceBreakdown.marginPercent.toFixed(2)}% ({formatCurrency(priceBreakdown.marginAmount)})
                 </dd>
+                <dt className="text-gray-500">Profit margin</dt>
+                <dd className={priceBreakdown.marginAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
+                  {priceBreakdown.profitMarginPercent.toFixed(2)}% of the sale
+                </dd>
                 <dt className="text-gray-500">Add-ons</dt>
                 <dd className="font-medium text-gray-900">{formatCurrency(priceBreakdown.totalAddOns)}</dd>
                 <dt className="text-gray-500">Stock</dt>
@@ -973,7 +977,8 @@ export default function ProductForm(props) {
 }
 
 function PriceBuildUp({ breakdown, applyTax }) {
-  const { cost, marginAmount, marginPercent, saleExTax, vatAmount, sale, totalAddOns, totalAddOnsPercent } = breakdown;
+  const { cost, marginAmount, marginPercent, profitMarginPercent, saleExTax, vatAmount, sale, totalAddOns, totalAddOnsPercent } =
+    breakdown;
   const rows = [
     { label: "Cost price", value: cost },
     { label: `+ Margin (${marginPercent.toFixed(2)}%)`, value: marginAmount, loss: marginAmount < 0 },
@@ -1007,6 +1012,16 @@ function PriceBuildUp({ breakdown, applyTax }) {
         </span>
         <span className="text-xs">{totalAddOnsPercent.toFixed(2)}% of cost · margin + VAT</span>
       </div>
+
+      {/* The same product reads differently as an add-on to cost and as a share of the sale */}
+      <dl className="mt-3 grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1 text-xs text-gray-600">
+        <dt>Margin on cost</dt>
+        <dd className="text-right font-medium tabular-nums text-gray-900">{marginPercent.toFixed(2)}%</dd>
+        <dt>VAT</dt>
+        <dd className="text-right font-medium tabular-nums text-gray-900">{applyTax ? `${VAT_RATE}%` : "None"}</dd>
+        <dt>Profit margin (of the sale)</dt>
+        <dd className="text-right font-medium tabular-nums text-gray-900">{profitMarginPercent.toFixed(2)}%</dd>
+      </dl>
     </div>
   );
 }
