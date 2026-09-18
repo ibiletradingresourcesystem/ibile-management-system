@@ -979,14 +979,8 @@ export default function ProductForm(props) {
 
 function PriceBuildUp({ breakdown, applyTax, onUseValue }) {
   const [showCalculator, setShowCalculator] = useState(false);
-  const { cost, profitAmount, marginPercent, vatAmount, sale } = breakdown;
-
-  const rows = [
-    { label: "Cost price", value: cost },
-    { label: "+ Profit", value: profitAmount, loss: profitAmount < 0 },
-    { label: "= Sale price", value: sale, divider: true, strong: true },
-    { label: applyTax ? `of which VAT (${VAT_RATE}%)` : "of which VAT (not applied)", value: vatAmount, muted: true },
-  ];
+  const { cost, profitAmount, profitAfterVat, marginPercent, marginAfterVatPercent, vatAmount, sale } = breakdown;
+  const atALoss = profitAmount < 0;
 
   return (
     <div className="self-start rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
@@ -1005,39 +999,48 @@ function PriceBuildUp({ breakdown, applyTax, onUseValue }) {
         <PriceCalculator onUseValue={onUseValue} />
       ) : (
         <>
-          <dl className="grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1.5">
-            {rows.map((row) => (
-              <Fragment key={row.label}>
-                {row.divider && <div className="col-span-2 border-t border-gray-200" />}
-                <dt className={row.strong ? "font-semibold text-gray-900" : row.muted ? "text-gray-400" : "text-gray-600"}>
-                  {row.label}
-                </dt>
-                <dd
-                  className={`text-right tabular-nums ${row.strong ? "font-semibold" : "font-medium"} ${
-                    row.loss ? "text-red-600" : row.muted ? "text-gray-400" : "text-gray-900"
-                  }`}
-                >
-                  {formatCurrency(row.value)}
-                </dd>
-              </Fragment>
-            ))}
+          <dl className="grid grid-cols-[minmax(0,1fr)_max-content] items-baseline gap-x-6 gap-y-1.5">
+            <dt className="text-gray-600">Cost price</dt>
+            <dd className="text-right font-medium tabular-nums text-gray-900">{formatCurrency(cost)}</dd>
+
+            <dt className="text-gray-600">Profit</dt>
+            <dd className={`text-right font-medium tabular-nums ${atALoss ? "text-red-600" : "text-gray-900"}`}>
+              {formatCurrency(profitAmount)}
+            </dd>
+
+            {applyTax && (
+              <>
+                <dt className="pl-3 text-xs text-gray-400">of that, VAT ({VAT_RATE}%)</dt>
+                <dd className="text-right text-xs font-medium tabular-nums text-gray-400">{formatCurrency(vatAmount)}</dd>
+              </>
+            )}
+
+            <div className="col-span-2 mt-1 border-t border-gray-300" />
+
+            <dt className="font-semibold text-gray-900">Sale price</dt>
+            <dd className="text-right font-semibold tabular-nums text-gray-900">{formatCurrency(sale)}</dd>
           </dl>
 
-          <div className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-blue-900">
-            <div className="flex items-baseline justify-between gap-3">
-              <span className="text-xs font-semibold">Profit margin</span>
-              <span className={`text-lg font-bold tabular-nums ${profitAmount < 0 ? "text-red-600" : ""}`}>
-                {marginPercent.toFixed(2)}%
-              </span>
-            </div>
-            <p className="mt-0.5 text-[11px] text-blue-800">
-              {formatCurrency(profitAmount)} profit ÷ {formatCurrency(sale)} sale price
+          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3">
+            <p className={`text-3xl font-bold leading-none tabular-nums ${atALoss ? "text-red-600" : "text-blue-900"}`}>
+              {marginPercent.toFixed(2)}%
             </p>
-            <p className="mt-1 text-[11px] text-blue-800">
-              {applyTax
-                ? `Includes ${VAT_RATE}% VAT of ${formatCurrency(vatAmount)} in the sale price`
-                : "No VAT on this product"}
+            <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-blue-800">Profit margin</p>
+            <p className="mt-0.5 text-[11px] text-blue-700">
+              {formatCurrency(profitAmount)} on every {formatCurrency(sale)} sold
             </p>
+
+            {applyTax && (
+              <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-blue-100 pt-2">
+                <span className="text-[11px] text-blue-800">Margin after VAT</span>
+                <span className={`text-sm font-semibold tabular-nums ${profitAfterVat < 0 ? "text-red-600" : "text-blue-900"}`}>
+                  {marginAfterVatPercent.toFixed(2)}%
+                  <span className="ml-1.5 text-[11px] font-normal text-blue-700">
+                    ({formatCurrency(profitAfterVat)} kept)
+                  </span>
+                </span>
+              </div>
+            )}
           </div>
         </>
       )}
