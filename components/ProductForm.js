@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faBarcode } from "@fortawesome/free-solid-svg-icons";
 import Loader from "./Loader";
 import useProgress from "@/lib/useProgress";
+import { evaluateExpression, formatCalculatorValue } from "@/lib/calculator";
 import { formatCurrency } from "@/lib/format";
 import { getCachedCategories } from "@/lib/categoriesCache";
 import { clearCache } from "@/lib/useIndexedDBCache";
@@ -601,12 +602,6 @@ export default function ProductForm(props) {
                 <dd className={priceBreakdown.profitAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
                   {priceBreakdown.marginPercent.toFixed(2)}% ({formatCurrency(priceBreakdown.profitAmount)})
                 </dd>
-                <dt className="text-gray-500">Mark-up</dt>
-                <dd className={priceBreakdown.profitAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
-                  {priceBreakdown.markupPercent.toFixed(2)}% on cost
-                </dd>
-                <dt className="text-gray-500">Add-ons</dt>
-                <dd className="font-medium text-gray-900">{formatCurrency(priceBreakdown.totalAddOns)}</dd>
                 <dt className="text-gray-500">Stock</dt>
                 <dd className="font-medium text-gray-900">{stockSummary}</dd>
                 <dt className="text-gray-500">Promotion</dt>
@@ -756,7 +751,13 @@ export default function ProductForm(props) {
                     />
                   )}
                 </div>
-                <PriceBuildUp breakdown={priceBreakdown} applyTax={applyTax} />
+                <PriceBuildUp
+                  breakdown={priceBreakdown}
+                  applyTax={applyTax}
+                  onUseValue={(field, amount) =>
+                    field === "cost" ? handleCostPriceChange(amount) : handleSalePriceChange(amount)
+                  }
+                />
               </div>
             </Card>
 
@@ -976,8 +977,10 @@ export default function ProductForm(props) {
   );
 }
 
-function PriceBuildUp({ breakdown, applyTax }) {
-  const { cost, profitAmount, marginPercent, markupPercent, vatAmount, sale } = breakdown;
+function PriceBuildUp({ breakdown, applyTax, onUseValue }) {
+  const [showCalculator, setShowCalculator] = useState(false);
+  const { cost, profitAmount, marginPercent, vatAmount, sale } = breakdown;
+
   const rows = [
     { label: "Cost price", value: cost },
     { label: "+ Profit", value: profitAmount, loss: profitAmount < 0 },
@@ -987,33 +990,161 @@ function PriceBuildUp({ breakdown, applyTax }) {
 
   return (
     <div className="self-start rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-      <h3 className="mb-3 font-semibold text-gray-800">Price build-up</h3>
-      <dl className="grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1.5">
-        {rows.map((row) => (
-          <Fragment key={row.label}>
-            {row.divider && <div className="col-span-2 border-t border-gray-200" />}
-            <dt className={row.strong ? "font-semibold text-gray-900" : row.muted ? "text-gray-400" : "text-gray-600"}>
-              {row.label}
-            </dt>
-            <dd
-              className={`text-right tabular-nums ${row.strong ? "font-semibold" : "font-medium"} ${
-                row.loss ? "text-red-600" : row.muted ? "text-gray-400" : "text-gray-900"
-              }`}
-            >
-              {formatCurrency(row.value)}
-            </dd>
-          </Fragment>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="font-semibold text-gray-800">{showCalculator ? "Calculator" : "Price build-up"}</h3>
+        <button
+          type="button"
+          onClick={() => setShowCalculator((open) => !open)}
+          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 transition-colors hover:border-blue-400 hover:text-blue-600"
+        >
+          {showCalculator ? "Price build-up" : "Calculator"}
+        </button>
+      </div>
+
+      {showCalculator ? (
+        <PriceCalculator onUseValue={onUseValue} />
+      ) : (
+        <>
+          <dl className="grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1.5">
+            {rows.map((row) => (
+              <Fragment key={row.label}>
+                {row.divider && <div className="col-span-2 border-t border-gray-200" />}
+                <dt className={row.strong ? "font-semibold text-gray-900" : row.muted ? "text-gray-400" : "text-gray-600"}>
+                  {row.label}
+                </dt>
+                <dd
+                  className={`text-right tabular-nums ${row.strong ? "font-semibold" : "font-medium"} ${
+                    row.loss ? "text-red-600" : row.muted ? "text-gray-400" : "text-gray-900"
+                  }`}
+                >
+                  {formatCurrency(row.value)}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+
+          <div className="mt-4 rounded-md bg-blue-50 px-3 py-2 text-blue-900">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-xs font-semibold">Profit margin</span>
+              <span className={`text-lg font-bold tabular-nums ${profitAmount < 0 ? "text-red-600" : ""}`}>
+                {marginPercent.toFixed(2)}%
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-blue-800">
+              {formatCurrency(profitAmount)} profit ÷ {formatCurrency(sale)} sale price
+            </p>
+            <p className="mt-1 text-[11px] text-blue-800">
+              {applyTax
+                ? `Includes ${VAT_RATE}% VAT of ${formatCurrency(vatAmount)} in the sale price`
+                : "No VAT on this product"}
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const CALCULATOR_KEYS = [
+  ["7", "8", "9", "÷"],
+  ["4", "5", "6", "×"],
+  ["1", "2", "3", "-"],
+  ["0", ".", "(", ")"],
+];
+
+/**
+ * A plain calculator, with two buttons that drop the answer straight into the cost or sale price.
+ * Type into the box or use the keys — both go through the same sum.
+ */
+function PriceCalculator({ onUseValue }) {
+  const [expression, setExpression] = useState("");
+  const { value, error } = evaluateExpression(expression);
+  const answer = formatCalculatorValue(value);
+
+  const append = (key) => setExpression((current) => current + key);
+  const useAnswer = (field) => {
+    if (value === null) return;
+    onUseValue(field, formatCalculatorValue(Math.round(value * 100) / 100));
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        inputMode="text"
+        value={expression}
+        onChange={(event) => setExpression(event.target.value)}
+        placeholder="e.g. 15274.99 / 12"
+        aria-label="Calculation"
+        className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-right font-mono text-sm text-gray-900 focus:border-blue-400 focus:outline-none"
+      />
+      <div className="mt-1 flex min-h-[1.25rem] items-baseline justify-end gap-2 text-right">
+        {error ? (
+          <span className="text-xs text-red-600">{error}</span>
+        ) : (
+          answer !== "" && <span className="text-lg font-bold tabular-nums text-gray-900">= {answer}</span>
+        )}
+      </div>
+
+      <div className="mt-2 grid grid-cols-4 gap-1.5">
+        {CALCULATOR_KEYS.flat().map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => append(key)}
+            className="rounded-md border border-gray-300 bg-white py-2 text-sm font-medium text-gray-800 transition-colors hover:border-blue-400 hover:text-blue-600"
+          >
+            {key}
+          </button>
         ))}
-      </dl>
-      {/* The same profit read two ways: against the sale (margin) and against cost (mark-up) */}
-      <dl className="mt-4 grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1.5 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-900">
-        <dt>Margin (profit ÷ sale price)</dt>
-        <dd className="text-right font-bold tabular-nums">{marginPercent.toFixed(2)}%</dd>
-        <dt>Mark-up (profit ÷ cost)</dt>
-        <dd className="text-right font-medium tabular-nums">{markupPercent.toFixed(2)}%</dd>
-        <dt>VAT</dt>
-        <dd className="text-right font-medium tabular-nums">{applyTax ? `${VAT_RATE}%` : "None"}</dd>
-      </dl>
+        <button
+          type="button"
+          onClick={() => setExpression("")}
+          className="rounded-md border border-gray-300 bg-white py-2 text-sm font-medium text-gray-600 transition-colors hover:border-red-300 hover:text-red-600"
+        >
+          C
+        </button>
+        <button
+          type="button"
+          onClick={() => setExpression((current) => current.slice(0, -1))}
+          className="rounded-md border border-gray-300 bg-white py-2 text-sm font-medium text-gray-600 transition-colors hover:border-blue-400 hover:text-blue-600"
+        >
+          ⌫
+        </button>
+        <button
+          type="button"
+          onClick={() => append("+")}
+          className="rounded-md border border-gray-300 bg-white py-2 text-sm font-medium text-gray-800 transition-colors hover:border-blue-400 hover:text-blue-600"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => answer !== "" && setExpression(answer)}
+          className="rounded-md border border-blue-300 bg-blue-50 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+        >
+          =
+        </button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => useAnswer("cost")}
+          disabled={value === null}
+          className="rounded-md bg-gray-800 py-2 text-xs font-semibold text-white transition-colors hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Use as cost
+        </button>
+        <button
+          type="button"
+          onClick={() => useAnswer("sale")}
+          disabled={value === null}
+          className="rounded-md bg-blue-600 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Use as sale price
+        </button>
+      </div>
     </div>
   );
 }

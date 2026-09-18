@@ -101,7 +101,7 @@ export default function AIPriceSuggestion({ productId, currentPrice, onApplyPric
       )}
 
       <div className="flex items-center gap-2 text-[10px] text-gray-500 mb-2">
-        <span>Margin: {suggestion.recommendedMargin || 0}%</span>
+        <span>Mark-up: {suggestion.recommendedMarkup ?? suggestion.recommendedMargin ?? 0}%</span>
         <span>•</span>
         <span>Strategy: {suggestion.strategy || "maintain"}</span>
         <span>•</span>
