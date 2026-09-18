@@ -281,10 +281,10 @@ export default function ProductForm(props) {
         text: `Promo price should be lower than the sale price (${formatCurrency(salePriceNumber)}).`,
       });
     }
-    if (promoBreakdown && promoBreakdown.marginAmount < 0) {
+    if (promoBreakdown && promoBreakdown.profitAmount < 0) {
       promoIssues.push({
         tone: "danger",
-        text: `Below cost: you lose ${formatCurrency(-promoBreakdown.marginAmount)} on every sale.`,
+        text: `Below cost: you lose ${formatCurrency(-promoBreakdown.profitAmount)} on every sale.`,
       });
     }
     if (promoDays !== null && promoDays <= 0) {
@@ -598,11 +598,11 @@ export default function ProductForm(props) {
               <p className="text-xs text-gray-500">{applyTax ? `Includes ${VAT_RATE}% VAT` : "No VAT"}</p>
               <dl className="mt-4 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 border-t border-gray-100 pt-4 text-sm">
                 <dt className="text-gray-500">Margin</dt>
-                <dd className={priceBreakdown.marginAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
-                  {priceBreakdown.marginPercent.toFixed(2)}% ({formatCurrency(priceBreakdown.marginAmount)})
+                <dd className={priceBreakdown.profitAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
+                  {priceBreakdown.marginPercent.toFixed(2)}% ({formatCurrency(priceBreakdown.profitAmount)})
                 </dd>
                 <dt className="text-gray-500">Mark-up</dt>
-                <dd className={priceBreakdown.marginAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
+                <dd className={priceBreakdown.profitAmount < 0 ? "font-medium text-red-600" : "font-medium text-gray-900"}>
                   {priceBreakdown.markupPercent.toFixed(2)}% on cost
                 </dd>
                 <dt className="text-gray-500">Add-ons</dt>
@@ -717,7 +717,7 @@ export default function ProductForm(props) {
           <div className="space-y-5 lg:col-span-2 lg:col-start-1 lg:row-start-2">
             <Card
               title="Pricing"
-              description="Enter the cost, then set either the margin or the sale price — the other updates itself. Margin is the share of the sale price, once VAT is taken off, that the sale keeps."
+              description="Enter the cost, then set either the margin or the sale price — the other updates itself. Margin is the share of the sale price that is profit; VAT sits inside that price."
             >
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-4">
@@ -732,7 +732,7 @@ export default function ProductForm(props) {
                     error={fieldErrors.costPrice}
                   />
                   <InputField
-                    label="Margin (of sale, after VAT)"
+                    label="Margin (of sale price)"
                     name="margin"
                     type="number"
                     suffix="%"
@@ -889,9 +889,9 @@ export default function ProductForm(props) {
                         </ImpactChip>
                       )}
                       {promoBreakdown && (
-                        <ImpactChip tone={promoBreakdown.marginAmount < 0 ? "danger" : "neutral"}>
-                          Profit {formatCurrency(promoBreakdown.marginAmount)} ({promoBreakdown.marginPercent.toFixed(2)}% on
-                          cost)
+                        <ImpactChip tone={promoBreakdown.profitAmount < 0 ? "danger" : "neutral"}>
+                          Profit {formatCurrency(promoBreakdown.profitAmount)} ({promoBreakdown.marginPercent.toFixed(2)}%
+                          margin)
                         </ImpactChip>
                       )}
                       {promoDays > 0 && (
@@ -977,14 +977,12 @@ export default function ProductForm(props) {
 }
 
 function PriceBuildUp({ breakdown, applyTax }) {
-  const { cost, marginAmount, marginPercent, markupPercent, saleExTax, vatAmount, sale, totalAddOns, totalAddOnsPercent } =
-    breakdown;
+  const { cost, profitAmount, marginPercent, markupPercent, vatAmount, sale } = breakdown;
   const rows = [
     { label: "Cost price", value: cost },
-    { label: "+ Profit", value: marginAmount, loss: marginAmount < 0 },
-    { label: "= Price before VAT", value: saleExTax, divider: true },
-    { label: applyTax ? `+ VAT (${VAT_RATE}%)` : "+ VAT (not applied)", value: vatAmount },
+    { label: "+ Profit", value: profitAmount, loss: profitAmount < 0 },
     { label: "= Sale price", value: sale, divider: true, strong: true },
+    { label: applyTax ? `of which VAT (${VAT_RATE}%)` : "of which VAT (not applied)", value: vatAmount, muted: true },
   ];
 
   return (
@@ -994,10 +992,12 @@ function PriceBuildUp({ breakdown, applyTax }) {
         {rows.map((row) => (
           <Fragment key={row.label}>
             {row.divider && <div className="col-span-2 border-t border-gray-200" />}
-            <dt className={row.strong ? "font-semibold text-gray-900" : "text-gray-600"}>{row.label}</dt>
+            <dt className={row.strong ? "font-semibold text-gray-900" : row.muted ? "text-gray-400" : "text-gray-600"}>
+              {row.label}
+            </dt>
             <dd
               className={`text-right tabular-nums ${row.strong ? "font-semibold" : "font-medium"} ${
-                row.loss ? "text-red-600" : "text-gray-900"
+                row.loss ? "text-red-600" : row.muted ? "text-gray-400" : "text-gray-900"
               }`}
             >
               {formatCurrency(row.value)}
@@ -1005,22 +1005,14 @@ function PriceBuildUp({ breakdown, applyTax }) {
           </Fragment>
         ))}
       </dl>
-      <div className="mt-4 inline-flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md bg-blue-50 px-3 py-2 text-blue-900">
-        <span className="font-semibold">Total add-ons</span>
-        <span className={`font-bold tabular-nums ${totalAddOns < 0 ? "text-red-600" : ""}`}>
-          {formatCurrency(totalAddOns)}
-        </span>
-        <span className="text-xs">{totalAddOnsPercent.toFixed(2)}% of cost · margin + VAT</span>
-      </div>
-
       {/* The same profit read two ways: against the sale (margin) and against cost (mark-up) */}
-      <dl className="mt-3 grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1 text-xs text-gray-600">
-        <dt>Margin (profit ÷ price before VAT)</dt>
-        <dd className="text-right font-medium tabular-nums text-gray-900">{marginPercent.toFixed(2)}%</dd>
-        <dt>VAT</dt>
-        <dd className="text-right font-medium tabular-nums text-gray-900">{applyTax ? `${VAT_RATE}%` : "None"}</dd>
+      <dl className="mt-4 grid grid-cols-[max-content_max-content] items-baseline gap-x-5 gap-y-1.5 rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-900">
+        <dt>Margin (profit ÷ sale price)</dt>
+        <dd className="text-right font-bold tabular-nums">{marginPercent.toFixed(2)}%</dd>
         <dt>Mark-up (profit ÷ cost)</dt>
-        <dd className="text-right font-medium tabular-nums text-gray-900">{markupPercent.toFixed(2)}%</dd>
+        <dd className="text-right font-medium tabular-nums">{markupPercent.toFixed(2)}%</dd>
+        <dt>VAT</dt>
+        <dd className="text-right font-medium tabular-nums">{applyTax ? `${VAT_RATE}%` : "None"}</dd>
       </dl>
     </div>
   );

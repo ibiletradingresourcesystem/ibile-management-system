@@ -23,13 +23,11 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
-// margin % = (sale - VAT - cost) / (sale - VAT), the same sum the app uses
-function marginPercent(cost, sale, taxRate) {
+// margin % = (sale price - cost price) / sale price, the same sum the app uses
+function marginPercent(cost, sale) {
   if (sale <= 0) return 0;
   if (cost <= 0) return 100;
-  const saleExTax = taxRate > 0 ? sale / (1 + taxRate / 100) : sale;
-  if (saleExTax <= 0) return 0;
-  return Math.round((((saleExTax - cost) / saleExTax) * 100 + Number.EPSILON) * 100) / 100;
+  return Math.round((((sale - cost) / sale) * 100 + Number.EPSILON) * 100) / 100;
 }
 
 async function run() {

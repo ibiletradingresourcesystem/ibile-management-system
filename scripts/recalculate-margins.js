@@ -1,7 +1,7 @@
 /**
  * Re-works every product's stored margin to the definition the app now uses:
  *
- *   margin % = (sale price - VAT - cost price) / (sale price - VAT) x 100
+ *   margin % = (sale price - cost price) / sale price x 100
  *
  * Products saved before this held a mark-up on cost instead — the same profit divided by the cost
  * price, which always reads higher. Cost and sale prices are NEVER changed; only the margin field.
@@ -21,14 +21,12 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function marginPercent(cost, sale, taxRate) {
+// margin % = (sale price - cost price) / sale price, the same sum the app uses
+function marginPercent(cost, sale) {
   if (sale <= 0) return 0;
   if (cost <= 0) return 100;
 
-  const saleExTax = taxRate > 0 ? sale / (1 + taxRate / 100) : sale;
-  if (saleExTax <= 0) return 0;
-
-  return Math.round((((saleExTax - cost) / saleExTax) * 100 + Number.EPSILON) * 100) / 100;
+  return Math.round((((sale - cost) / sale) * 100 + Number.EPSILON) * 100) / 100;
 }
 
 async function run() {
@@ -45,11 +43,7 @@ async function run() {
 
     for await (const product of cursor) {
       scanned += 1;
-      const nextMargin = marginPercent(
-        toNumber(product.costPrice),
-        toNumber(product.salePriceIncTax),
-        toNumber(product.taxRate)
-      );
+      const nextMargin = marginPercent(toNumber(product.costPrice), toNumber(product.salePriceIncTax));
 
       if (Math.abs(toNumber(product.margin) - nextMargin) <= 0.005 && typeof product.margin === "number") continue;
 
