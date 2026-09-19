@@ -97,7 +97,11 @@ export default async function handler(req, res) {
 
       for (const acc of accounts) {
         const bal = balances[acc._id.toString()] || { debit: 0, credit: 0 };
-        const amount = Math.round(Math.abs(bal.credit - bal.debit) * 100) / 100;
+        // Signed by the account's normal balance. Math.abs() here used to turn
+        // a contra balance (a refund debited to revenue, a credited expense)
+        // into a positive figure, which inflated both sides of the statement.
+        const raw = acc.type === "REVENUE" ? bal.credit - bal.debit : bal.debit - bal.credit;
+        const amount = Math.round(raw * 100) / 100;
         if (amount === 0) continue;
 
         const row = { code: acc.code, name: acc.name, subType: acc.subType, amount };
@@ -194,10 +198,14 @@ export default async function handler(req, res) {
           totalAssets += amount;
         } else if (acc.type === "LIABILITY") {
           liabilities.push(row);
-          totalLiabilities += Math.abs(amount);
+          // Liabilities and equity are credit-normal, so their signed balance is
+          // negative. Negating gives the positive figure a statement shows.
+          // Math.abs() used to be applied instead, so a liability sitting in a
+          // debit position (an overpaid supplier) still increased liabilities.
+          totalLiabilities -= amount;
         } else {
           equity.push(row);
-          totalEquity += Math.abs(amount);
+          totalEquity -= amount;
         }
       }
 
@@ -214,17 +222,30 @@ export default async function handler(req, res) {
 
       if (netIncome !== 0) {
         equity.push({ code: "", name: "Net Income (Current Period)", subType: "Retained Earnings", amount: -netIncome });
-        totalEquity += Math.abs(netIncome);
+        // A loss has to reduce equity. Math.abs() used to be added here, so a
+        // loss-making period inflated equity instead and the balance sheet
+        // could not balance.
+        totalEquity += netIncome;
       }
+
+      const roundedAssets = Math.round(totalAssets * 100) / 100;
+      const roundedLiabilities = Math.round(totalLiabilities * 100) / 100;
+      const roundedEquity = Math.round(totalEquity * 100) / 100;
 
       return res.status(200).json({
         success: true,
         assets,
         liabilities,
         equity,
-        totalAssets: Math.round(totalAssets * 100) / 100,
-        totalLiabilities: Math.round(totalLiabilities * 100) / 100,
-        totalEquity: Math.round(totalEquity * 100) / 100,
+        totalAssets: roundedAssets,
+        totalLiabilities: roundedLiabilities,
+        totalEquity: roundedEquity,
+        // Assets must equal liabilities plus equity. Surfacing the gap makes a
+        // broken or half-synced ledger visible instead of silently wrong.
+        balanceCheck: {
+          balanced: Math.abs(roundedAssets - (roundedLiabilities + roundedEquity)) < 0.01,
+          difference: Math.round((roundedAssets - (roundedLiabilities + roundedEquity)) * 100) / 100,
+        },
       });
     }
 

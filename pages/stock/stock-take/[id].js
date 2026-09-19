@@ -9,6 +9,7 @@ import { formatCurrency } from "@/lib/format";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { showToastMessage } from "@/lib/toast-state";
 import { useAuth } from "@/lib/useAuth";
+import ExportMenu from "@/components/ExportMenu";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
@@ -17,9 +18,7 @@ import {
   faThumbsUp,
   faSyncAlt,
   faTimes,
-  faSearch,
-  faDownload,
-  faSave,
+  faSearch,  faSave,
   faExclamationTriangle,
   faCheckCircle,
   faBalanceScale,
@@ -507,30 +506,17 @@ export default function StockTakeDetail() {
     setPendingChanges({});
   };
 
-  const exportCSV = () => {
-    if (!stockTake?.items) return;
-    const header = "Product,Barcode,System Qty,Counted Qty,Variance,Variance Value,Status,Reason,Notes\n";
-    const rows = stockTake.items.map((item) => [
-      `"${item.productName}"`,
-      item.barcode,
-      item.systemQty,
-      item.countedQty ?? "",
-      item.variance,
-      item.varianceValue?.toFixed(2),
-      item.status,
-      `"${item.reason || ""}"`,
-      `"${item.notes || ""}"`,
-    ].join(","));
-
-    const csv = header + rows.join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `stock-take-${stockTake.reference}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const stockTakeExportColumns = [
+    { key: "productName", label: "Product", width: 2.6 },
+    { key: "barcode", label: "Barcode", width: 1.4 },
+    { key: "systemQty", label: "System Qty", type: "number", align: "right", width: 1 },
+    { key: "countedQty", label: "Counted Qty", type: "number", align: "right", width: 1 },
+    { key: "variance", label: "Variance", type: "number", align: "right", width: 1 },
+    { key: "varianceValue", label: "Variance Value", type: "currency", align: "right", width: 1.3 },
+    { key: "status", label: "Status", width: 1 },
+    { key: "reason", label: "Reason", width: 1.4 },
+    { key: "notes", label: "Notes", width: 1.8 },
+  ];
 
   const handlePrint = () => {
     window.print();
@@ -743,10 +729,19 @@ export default function StockTakeDetail() {
                 </button>
               )}
               {hasItems && (
-                <button onClick={exportCSV} className="btn-action flex items-center gap-2 text-sm">
-                  <FontAwesomeIcon icon={faDownload} className="w-3.5 h-3.5" />
-                  Export CSV
-                </button>
+                <ExportMenu
+                  title={"Stock Take " + (stockTake?.reference || "")}
+                  subtitle={stockTake?.title || ""}
+                  period={stockTake?.locationName || ""}
+                  columns={stockTakeExportColumns}
+                  rows={stockTake?.items || []}
+                  summary={[
+                    { label: "Items", value: String(stockTake?.items?.length || 0) },
+                    { label: "Counted", value: String((stockTake?.items || []).filter((i) => i.status === "counted").length) },
+                    { label: "Status", value: stockTake?.status || "" },
+                  ]}
+                  orientation="l"
+                />
               )}
               {!isReviewMode && !stockTake.adjustmentApplied && !["approved", "cancelled"].includes(stockTake.status) && (
                 <button

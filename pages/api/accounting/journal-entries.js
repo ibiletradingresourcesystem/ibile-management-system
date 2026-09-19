@@ -1,7 +1,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import JournalEntry, { createJournalEntry } from "@/models/JournalEntry";
-import Account from "@/models/Account";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { resolveAndValidateLines } from "@/lib/journalValidation";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -42,35 +42,12 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: "Description and at least 2 journal lines are required" });
       }
 
-      // Validate accounts exist and resolve names
-      const resolvedLines = [];
-      for (const line of lines) {
-        const account = await Account.findById(line.account).lean();
-        if (!account) {
-          return res.status(400).json({ success: false, message: `Account not found: ${line.account}` });
-        }
-        if (!account.isActive) {
-          return res.status(400).json({ success: false, message: `Account "${account.name}" is inactive` });
-        }
-        resolvedLines.push({
-          account: account._id,
-          accountCode: account.code,
-          accountName: account.name,
-          debit: parseFloat(line.debit) || 0,
-          credit: parseFloat(line.credit) || 0,
-          description: line.description || "",
-        });
+      // Resolve accounts and confirm the entry balances
+      const validation = await resolveAndValidateLines(lines);
+      if (!validation.ok) {
+        return res.status(400).json({ success: false, message: validation.message });
       }
-
-      // Validate debits = credits
-      const totalDebit = Math.round(resolvedLines.reduce((s, l) => s + l.debit, 0) * 100) / 100;
-      const totalCredit = Math.round(resolvedLines.reduce((s, l) => s + l.credit, 0) * 100) / 100;
-      if (totalDebit !== totalCredit) {
-        return res.status(400).json({
-          success: false,
-          message: `Debits (${totalDebit.toLocaleString()}) must equal Credits (${totalCredit.toLocaleString()})`,
-        });
-      }
+      const resolvedLines = validation.lines;
 
       const VALID_REF_TYPES = ["SALE", "EXPENSE", "PURCHASE_ORDER", "SALARY", "REFUND", "OTHER"];
       const normalizedRefType = referenceType || "OTHER";

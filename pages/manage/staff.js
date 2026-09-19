@@ -11,6 +11,7 @@ import { apiClient } from "@/lib/api-client";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { STAFF_ROLE_OPTIONS, normalizeStaffRole, POS_PERMISSION_KEYS, POS_PERMISSION_LABELS, getDefaultPosPermissions, normalizePosPermissions } from "@/lib/pos-permissions";
 import { showToastMessage } from "@/lib/toast-state";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
 
 function toCamelCase(str) {
   return str
@@ -29,6 +30,9 @@ export default function StaffPage() {
   const [editingId, setEditingId] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [loadingStaffList, setLoadingStaffList] = useState(true);
+  const { sorted: sortedStaff, sortKey, sortDir, toggleSort } = useTableSort(staffList, "name", "asc", {
+    isActive: (s) => (s.isActive === false ? 1 : 0),
+  });
   const { progress, start, onFetch, onProcess, complete } = useProgress();
   const [locations, setLocations] = useState([]);
   const [expandedProfile, setExpandedProfile] = useState(null);
@@ -348,17 +352,17 @@ export default function StaffPage() {
                   <table className="w-full text-sm">
                     <thead className="table-header-gradient text-white text-xs uppercase tracking-wider">
                       <tr>
-                        <th className="text-left px-4 py-3 font-semibold">Staff</th>
-                        <th className="text-left px-4 py-3 font-semibold">Location</th>
-                        <th className="text-left px-4 py-3 font-semibold">Role</th>
+                        <SortableTh sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Staff</SortableTh>
+                        <SortableTh sortKey="location" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Location</SortableTh>
+                        <SortableTh sortKey="role" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Role</SortableTh>
                         <th className="text-center px-4 py-3 font-semibold">POS</th>
-                        <th className="text-left px-4 py-3 font-semibold">Status</th>
+                        <SortableTh sortKey="isActive" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Status</SortableTh>
                         <th className="text-left px-4 py-3 font-semibold">Onboarding</th>
                         <th className="text-right px-4 py-3 font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                  {staffList.map((staff) => (
+                  {sortedStaff.map((staff) => (
                     <React.Fragment key={staff._id}>
                     <tr className="border-b border-gray-100 hover:bg-gray-50">
                       {editingId === staff._id ? (

@@ -27,6 +27,27 @@ const SystemThemeSchema = new Schema(
     // Page background
     pageBg: { type: String, default: "#f9fafb" }, // gray-50
 
+    // Surfaces & borders
+    surfaceCard: { type: String, default: "#ffffff" },
+    borderColor: { type: String, default: "#e5e7eb" },
+
+    // Table rows. An empty tableRowHover means "derive a tint of the primary
+    // button colour", which keeps hover in step with the rest of the palette.
+    tableRowHover: { type: String, default: "" },
+    tableStriped: { type: Boolean, default: true },
+
+    // Shape & spacing
+    cornerStyle: {
+      type: String,
+      enum: ["sharp", "soft", "rounded", "pill"],
+      default: "soft",
+    },
+    density: {
+      type: String,
+      enum: ["compact", "comfortable", "spacious"],
+      default: "comfortable",
+    },
+
     // Accent colors
     successColor: { type: String, default: "#10b981" },
     warningColor: { type: String, default: "#f59e0b" },

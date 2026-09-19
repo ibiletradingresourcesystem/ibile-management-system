@@ -11,6 +11,8 @@ import { apiClient } from "@/lib/api-client";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/useAuth";
 import { getCachedSetup } from "@/lib/setupCache";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
+import ExportMenu from "@/components/ExportMenu";
 
 const STATUS_OPTIONS = [
   "Pending Payment",
@@ -274,6 +276,20 @@ export default function OrderInventoryPage() {
 
   const entriesPerPage = 10;
 
+  const { sorted: sortedOrders, sortKey, sortDir, toggleSort } = useTableSort(orders, "createdAt", "desc", {
+    orderId: (o) => o.orderId ?? o.orderNumber ?? o._id ?? "",
+    customerName: (o) => o.customerName || o.customer?.name || "",
+  });
+
+  const orderExportColumns = [
+    { key: "orderId", label: "Order ID", width: 1.3, value: (o) => o.orderId ?? o.orderNumber ?? o._id ?? "" },
+    { key: "customerName", label: "Customer", width: 2, value: (o) => o.customerName || o.customer?.name || "" },
+    { key: "location", label: "Location", width: 1.4 },
+    { key: "total", label: "Total", type: "currency", align: "right", width: 1.2 },
+    { key: "status", label: "Status", width: 1 },
+    { key: "createdAt", label: "Date", type: "datetime", width: 1.6 },
+  ];
+
   useEffect(() => {
     if (!message?.text) return undefined;
 
@@ -491,8 +507,17 @@ export default function OrderInventoryPage() {
         <div className="page-container">
           <div className="page-content">
             <div className="page-header">
-              <h1 className="page-title">Order Management</h1>
-              <p className="page-subtitle">Manage customer orders and review order details inline.</p>
+              <div>
+                <h1 className="page-title">Order Management</h1>
+                <p className="page-subtitle">Manage customer orders and review order details inline.</p>
+              </div>
+              <ExportMenu
+                title="Orders"
+                subtitle={search ? "Search: " + search : "All orders"}
+                columns={orderExportColumns}
+                rows={sortedOrders}
+                summary={[{ label: "Orders", value: String(sortedOrders.length) }]}
+              />
             </div>
 
             {message?.text && (
@@ -522,8 +547,24 @@ export default function OrderInventoryPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    {["Order ID", "Customer", "Location", "Total", "Status", "Date"].map((header) => (
-                      <th key={header}>{header}</th>
+                    {[
+                      { key: "orderId", label: "Order ID" },
+                      { key: "customerName", label: "Customer" },
+                      { key: "location", label: "Location" },
+                      { key: "total", label: "Total", align: "right" },
+                      { key: "status", label: "Status" },
+                      { key: "createdAt", label: "Date" },
+                    ].map((col) => (
+                      <SortableTh
+                        key={col.label}
+                        sortKey={col.key}
+                        activeKey={sortKey}
+                        dir={sortDir}
+                        onSort={toggleSort}
+                        align={col.align || "left"}
+                      >
+                        {col.label}
+                      </SortableTh>
                     ))}
                   </tr>
                 </thead>
@@ -537,7 +578,7 @@ export default function OrderInventoryPage() {
                       <td colSpan={6} className="text-center py-8 italic text-gray-400">No orders found.</td>
                     </tr>
                   ) : (
-                    orders.map((order, idx) => {
+                    sortedOrders.map((order, idx) => {
                       const isExpanded = expandedOrderId === order._id;
                       const customerDetails = getOrderCustomerDetails(order);
                       const products = Array.isArray(order.cartProducts) && order.cartProducts.length > 0

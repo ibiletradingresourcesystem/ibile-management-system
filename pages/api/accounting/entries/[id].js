@@ -1,6 +1,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import JournalEntry from "@/models/JournalEntry";
 import { authMiddleware, isStaff, isAdmin } from "@/lib/auth-middleware";
+import { resolveAndValidateLines } from "@/lib/journalValidation";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -28,6 +29,16 @@ export default async function handler(req, res) {
         if (entry.status !== "DRAFT") {
           return res.status(400).json({ success: false, message: "Only draft entries can be posted" });
         }
+        // Re-check at the moment of posting: an account can be deactivated, or
+        // the draft written before this validation existed.
+        const validation = await resolveAndValidateLines(entry.lines);
+        if (!validation.ok) {
+          return res.status(400).json({
+            success: false,
+            message: `This entry cannot be posted: ${validation.message}`,
+          });
+        }
+        entry.lines = validation.lines;
         entry.status = "POSTED";
         entry.postedAt = new Date();
         await entry.save();
@@ -53,11 +64,21 @@ export default async function handler(req, res) {
       }
 
       const { date, description, lines, reference, location } = req.body;
+
+      // Lines were assigned straight through here, so an edit could leave a
+      // draft unbalanced and it would post without complaint.
+      if (lines !== undefined) {
+        const validation = await resolveAndValidateLines(lines);
+        if (!validation.ok) {
+          return res.status(400).json({ success: false, message: validation.message });
+        }
+        entry.lines = validation.lines;
+      }
+
       if (date) entry.date = new Date(date);
       if (description) entry.description = description;
       if (reference !== undefined) entry.reference = reference;
       if (location !== undefined) entry.location = location;
-      if (lines && lines.length >= 2) entry.lines = lines;
 
       await entry.save();
       return res.status(200).json({ success: true, entry });

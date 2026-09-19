@@ -7,6 +7,8 @@ import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency } from "@/lib/format";
 import { showToastMessage } from "@/lib/toast-state";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
+import ExportMenu from "@/components/ExportMenu";
 
 const reasons = [
   "* All Reasons",
@@ -143,6 +145,31 @@ export default function StockMovement() {
     return true;
   });
 
+  const { sorted: sortedMovements, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredMovements,
+    "dateSent",
+    "desc",
+    { totalItems: (m) => (Array.isArray(m.products) ? m.products.length : Number(m.totalItems) || 0) }
+  );
+
+  const movementExportColumns = [
+    { key: "transRef", label: "Reference", width: 1.4 },
+    { key: "fromLocation", label: "From", width: 1.6 },
+    { key: "toLocation", label: "To", width: 1.6 },
+    { key: "reason", label: "Reason", width: 1.2 },
+    { key: "status", label: "Status", width: 1 },
+    { key: "dateSent", label: "Date Sent", type: "date", width: 1.3 },
+    {
+      key: "totalItems",
+      label: "Items",
+      type: "number",
+      align: "right",
+      width: 0.8,
+      value: (m) => (Array.isArray(m.products) ? m.products.length : Number(m.totalItems) || 0),
+    },
+    { key: "totalCostPrice", label: "Total Cost", type: "currency", align: "right", width: 1.2 },
+  ];
+
   const getStatusIcon = (status) => {
     switch(status) {
       case "Received":
@@ -179,12 +206,23 @@ export default function StockMovement() {
             <h1 className="page-title">Stock Movements</h1>
             <p className="page-subtitle">Track transfers, adjustments, and operational stock losses</p>
           </div>
-          <Link href="../stock/add">
-            <button className="btn-action btn-action-primary flex items-center gap-2">
-              <FontAwesomeIcon icon={faPlus} />
-              New Stock Movement
-            </button>
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <ExportMenu
+              title="Stock Movements"
+              subtitle={locationFilter !== "* All Locations" ? locationFilter : "All locations"}
+              period={fromDate || toDate ? [fromDate, toDate].filter(Boolean).join(" to ") : ""}
+              columns={movementExportColumns}
+              rows={sortedMovements}
+              summary={[{ label: "Movements", value: String(sortedMovements.length) }]}
+              orientation="l"
+            />
+            <Link href="../stock/add">
+              <button className="btn-action btn-action-primary flex items-center gap-2">
+                <FontAwesomeIcon icon={faPlus} />
+                New Stock Movement
+              </button>
+            </Link>
+          </div>
         </div>
 
         {loading ? (
@@ -301,21 +339,21 @@ export default function StockMovement() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Reference</th>
-                        <th>From Location</th>
-                        <th>To Location</th>
-                        <th>Reason</th>
-                        <th>Status</th>
-                        <th>Date Sent</th>
-                        <th>Total Items</th>
+                        <SortableTh sortKey="transRef" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Reference</SortableTh>
+                        <SortableTh sortKey="fromLocation" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>From Location</SortableTh>
+                        <SortableTh sortKey="toLocation" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>To Location</SortableTh>
+                        <SortableTh sortKey="reason" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Reason</SortableTh>
+                        <SortableTh sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Status</SortableTh>
+                        <SortableTh sortKey="dateSent" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Date Sent</SortableTh>
+                        <SortableTh sortKey="totalItems" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right">Total Items</SortableTh>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredMovements.map((item, index) => (
-                        <tr 
-                          key={index} 
+                      {sortedMovements.map((item, index) => (
+                        <tr
+                          key={index}
                           onClick={() => setSelectedMovement(item)}
-                          className="cursor-pointer hover:bg-sky-50 transition-colors"
+                          className="cursor-pointer"
                         >
                           <td className="font-mono font-medium text-gray-900">{item.transRef}</td>
                           <td className="text-gray-700">{item.fromLocation || "Vendor"}</td>

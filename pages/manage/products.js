@@ -16,6 +16,8 @@ import { getUnitsPerChild } from "@/lib/packUnits";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { Loader } from "@/components/ui";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
+import ExportMenu from "@/components/ExportMenu";
 
 const entriesPerPageDefault = 20;
 const entriesPerPageOptions = [10, 20, 50, 100];
@@ -521,14 +523,36 @@ export default function Products() {
 
   const formatCurrency = (num) => formatCurrencyValue(num || 0);
 
-  const totalFilteredProducts = Array.isArray(filteredProducts) ? filteredProducts.length : 0;
+  // Sorting runs over the whole filtered set before paging, so clicking a
+  // column header reorders every product rather than just the current page.
+  const { sorted: sortedProducts, sortKey, sortDir, toggleSort } = useTableSort(
+    Array.isArray(filteredProducts) ? filteredProducts : [],
+    null,
+    "asc",
+    {
+      category: (p) => p.category?.name || p.categoryName || "",
+      margin: (p) => Number(p.margin) || 0,
+      locations: (p) => (Array.isArray(p.locations) ? p.locations.length : 0),
+    }
+  );
+
+  const totalFilteredProducts = sortedProducts.length;
   const totalPages = Math.max(1, Math.ceil(totalFilteredProducts / entriesPerPage));
   const safeCurrentPage = clampPage(currentPage, totalPages);
   const pageStartIndex = totalFilteredProducts === 0 ? 0 : (safeCurrentPage - 1) * entriesPerPage;
   const pageEndIndex = Math.min(totalFilteredProducts, pageStartIndex + entriesPerPage);
-  const visibleProducts = Array.isArray(filteredProducts)
-    ? filteredProducts.slice(pageStartIndex, pageEndIndex)
-    : [];
+  const visibleProducts = sortedProducts.slice(pageStartIndex, pageEndIndex);
+
+  const exportColumns = [
+    { key: "name", label: "Product", width: 2.6 },
+    { key: "barcode", label: "Barcode", width: 1.3 },
+    { key: "category", label: "Category", width: 1.4, value: (p) => p.category?.name || p.categoryName || "" },
+    { key: "costPrice", label: "Cost", type: "currency", align: "right" },
+    { key: "salePriceIncTax", label: "Sale", type: "currency", align: "right" },
+    { key: "margin", label: "Margin", type: "percent", align: "right" },
+    { key: "quantity", label: "Qty", type: "number", align: "right" },
+    { key: "minStock", label: "Min Stock", type: "number", align: "right" },
+  ];
   const paginationPages = getPaginationPages(safeCurrentPage, totalPages);
 
   const goToPage = useCallback((pageNumber) => {
@@ -640,6 +664,14 @@ export default function Products() {
             >
                {isRefreshingList ? "Refreshing..." : "Refresh"}
             </button>
+            <ExportMenu
+              title="Product List"
+              subtitle={selectedCategory && selectedCategory !== "all" ? "Category: " + selectedCategory : "All categories"}
+              columns={exportColumns}
+              rows={sortedProducts}
+              summary={[{ label: "Products", value: String(sortedProducts.length) }]}
+              orientation="l"
+            />
             <button
               type="button"
               onClick={() => {
@@ -702,17 +734,17 @@ export default function Products() {
             <thead>
               <tr>
                 <th className="!px-3 whitespace-nowrap">Actions</th>
-                <th className="whitespace-nowrap">Name</th>
+                <SortableTh sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Name</SortableTh>
                 <th className="hidden sm:table-cell whitespace-nowrap">Description</th>
-                <th className="!text-right whitespace-nowrap">Cost</th>
-                <th className="whitespace-nowrap">VAT</th>
-                <th className="!text-right whitespace-nowrap">Sale</th>
-                <th className="hidden sm:table-cell !text-right whitespace-nowrap">Margin</th>
-                <th className="hidden lg:table-cell whitespace-nowrap">Barcode</th>
-                <th className="!text-right whitespace-nowrap">Min Stock</th>
+                <SortableTh sortKey="costPrice" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right">Cost</SortableTh>
+                <SortableTh sortKey="taxRate" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>VAT</SortableTh>
+                <SortableTh sortKey="salePriceIncTax" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right">Sale</SortableTh>
+                <SortableTh sortKey="margin" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="hidden sm:table-cell">Margin</SortableTh>
+                <SortableTh sortKey="barcode" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden lg:table-cell">Barcode</SortableTh>
+                <SortableTh sortKey="minStock" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right">Min Stock</SortableTh>
                 <th className="hidden lg:table-cell whitespace-nowrap">Properties</th>
-                <th className="whitespace-nowrap">Category</th>
-                <th className="hidden xl:table-cell whitespace-nowrap">Locations</th>
+                <SortableTh sortKey="category" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Category</SortableTh>
+                <SortableTh sortKey="locations" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="hidden xl:table-cell">Locations</SortableTh>
                 <th className="hidden sm:table-cell whitespace-nowrap">Promo</th>
                 <th className="!px-3">
                   <span className="sr-only">Archive</span>

@@ -7,8 +7,10 @@ import Link from "next/link";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { showToastMessage } from "@/lib/toast-state";
 import { formatCurrency } from "@/lib/format";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Search, Users, Megaphone } from "lucide-react";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
+import ExportMenu from "@/components/ExportMenu";
 
 const EMPTY_CUSTOMER_FORM = {
   name: "",
@@ -31,6 +33,41 @@ export default function CustomersPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Filtering used to live inside the JSX. It is lifted here so the sort hook
+  // (which cannot be called from inside a render callback) can see it.
+  const filteredCustomers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(
+      (c) =>
+        c.name?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q) ||
+        c.phone?.includes(searchQuery)
+    );
+  }, [customers, searchQuery]);
+
+  const { sorted: sortedCustomers, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredCustomers,
+    null,
+    "asc",
+    { creditBalance: (c) => Number(c.creditBalance ?? c.outstandingCredit ?? 0) }
+  );
+
+  const customerExportColumns = [
+    { key: "name", label: "Customer", width: 2 },
+    { key: "email", label: "Email", width: 2 },
+    { key: "phone", label: "Phone", width: 1.4 },
+    { key: "address", label: "Address", width: 2.2 },
+    { key: "type", label: "Type", width: 1 },
+    {
+      key: "creditBalance",
+      label: "Credit Balance",
+      type: "currency",
+      align: "right",
+      value: (c) => Number(c.creditBalance ?? c.outstandingCredit ?? 0),
+    },
+  ];
 
   useEffect(() => {
     fetchCustomers();
@@ -184,16 +221,25 @@ export default function CustomersPage() {
           {/* Header */}
           <div className="page-header flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h1 className="page-title">Customers</h1>
-            <button
-              onClick={() => {
-                setShowForm(!showForm);
-                setEditing(null);
-                setFormData(EMPTY_CUSTOMER_FORM);
-              }}
-              className="btn-action-primary w-full sm:w-auto"
-            >
-              + Add Customer
-            </button>
+            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+              <ExportMenu
+                title="Customer List"
+                subtitle={searchQuery ? "Search: " + searchQuery : "All customers"}
+                columns={customerExportColumns}
+                rows={sortedCustomers}
+                summary={[{ label: "Customers", value: String(sortedCustomers.length) }]}
+              />
+              <button
+                onClick={() => {
+                  setShowForm(!showForm);
+                  setEditing(null);
+                  setFormData(EMPTY_CUSTOMER_FORM);
+                }}
+                className="btn-action-primary flex-1 sm:flex-none"
+              >
+                + Add Customer
+              </button>
+            </div>
           </div>
 
           {/* Search Bar */}
@@ -352,12 +398,7 @@ export default function CustomersPage() {
                 <p className="empty-state-description">Create one to get started!</p>
               </div>
             ) : (() => {
-              const filtered = customers.filter(c =>
-                !searchQuery ||
-                c.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                c.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                c.phone?.includes(searchQuery)
-              );
+              const filtered = sortedCustomers;
               return filtered.length === 0 ? (
                 <div className="p-8 text-center">
                   <p className="text-gray-500 text-lg font-medium">No customers match &quot;{searchQuery}&quot;</p>
@@ -367,17 +408,17 @@ export default function CustomersPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th className="hidden sm:table-cell">Email</th>
-                    <th className="hidden lg:table-cell">Phone</th>
+                    <SortableTh sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Name</SortableTh>
+                    <SortableTh sortKey="email" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden sm:table-cell">Email</SortableTh>
+                    <SortableTh sortKey="phone" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden lg:table-cell">Phone</SortableTh>
                     <th className="hidden xl:table-cell">Address</th>
-                    <th>Type</th>
-                    <th className="hidden md:table-cell text-right">Credit Balance</th>
+                    <SortableTh sortKey="type" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Type</SortableTh>
+                    <SortableTh sortKey="creditBalance" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="hidden md:table-cell">Credit Balance</SortableTh>
                     <th className="text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((customer) => (
+                  {sortedCustomers.map((customer) => (
                     <tr key={customer._id}>
                       <td className="font-semibold text-gray-900">{customer.name}</td>
                       <td className="hidden sm:table-cell">{customer.email}</td>

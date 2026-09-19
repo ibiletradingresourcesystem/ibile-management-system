@@ -22,7 +22,7 @@ const THEMES = {
       secondary: {
         panel: "bg-cyan-100",
         icon: "text-cyan-600",
-        link: "text-cyan-600 hover:text-cyan-700",
+        link: "theme-link",
       },
     },
   },

@@ -6,11 +6,11 @@ import Layout from "@/components/Layout";
 import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency } from "@/lib/format";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
+import ExportMenu from "@/components/ExportMenu";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faChartBar,
-  faDownload,
-  faSearch,
+  faChartBar,  faSearch,
   faCalendarAlt,
   faExclamationTriangle,
   faCheckCircle,
@@ -86,6 +86,25 @@ export default function StockTakeReport() {
     });
   }, [stockTakes, dateFrom, dateTo, searchTerm]);
 
+  const { sorted: sortedHistory, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredData,
+    "createdAt",
+    "desc"
+  );
+
+  const historyExportColumns = [
+    { key: "reference", label: "Reference", width: 1.3 },
+    { key: "title", label: "Title", width: 2 },
+    { key: "locationName", label: "Location", width: 1.4 },
+    { key: "status", label: "Status", width: 1 },
+    { key: "totalItems", label: "Items", type: "number", align: "right", width: 0.8 },
+    { key: "countedItems", label: "Counted", type: "number", align: "right", width: 0.9 },
+    { key: "accuracyRate", label: "Accuracy", type: "percent", align: "right", width: 1 },
+    { key: "totalVariance", label: "Variance", type: "number", align: "right", width: 1 },
+    { key: "totalVarianceValue", label: "Variance Value", type: "currency", align: "right", width: 1.3 },
+    { key: "createdAt", label: "Date", type: "date", width: 1.2 },
+  ];
+
   // Aggregate stats across all filtered data
   const aggregateStats = useMemo(() => {
     const completed = filteredData.filter((st) => ["completed", "approved"].includes(st.status));
@@ -130,32 +149,20 @@ export default function StockTakeReport() {
       .slice(0, 15);
   }, [filteredData]);
 
-  const exportCSV = () => {
-    const header = "Reference,Title,Location,Status,Type,Date,Total Items,Counted,Accuracy %,Total Variance,Variance Value,Adjustments Applied\n";
-    const rows = filteredData.map((st) =>
-      [
-        st.reference,
-        `"${st.title}"`,
-        `"${st.locationName}"`,
-        st.status,
-        st.type,
-        new Date(st.createdAt).toLocaleDateString(),
-        st.totalItems,
-        st.countedItems,
-        st.accuracyRate,
-        st.totalVariance,
-        st.totalVarianceValue?.toFixed(2),
-        st.adjustmentApplied ? "Yes" : "No",
-      ].join(",")
-    );
-    const csv = header + rows.join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `stock-take-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Titles and locations containing a comma used to shift every column after
+  // them, because only two of the twelve fields were quoted. The shared
+  // exporter quotes everything and adds the business header.
+  const exportPayload = {
+    title: "Stock Take Report",
+    subtitle: statusFilter && statusFilter !== "all" ? "Status: " + statusFilter : "All stock takes",
+    period: dateFrom || dateTo ? [dateFrom, dateTo].filter(Boolean).join(" to ") : "",
+    columns: historyExportColumns,
+    rows: sortedHistory,
+    summary: [
+      { label: "Stock Takes", value: String(sortedHistory.length) },
+      { label: "Avg Accuracy", value: aggregateStats.avgAccuracy + "%" },
+      { label: "Variance Value", value: formatCurrency(aggregateStats.totalVarianceValue) },
+    ],
   };
 
   if (loading) {
@@ -180,10 +187,7 @@ export default function StockTakeReport() {
               </h1>
               <p className="text-sm text-gray-500 mt-1">Analyze inventory reconciliation history and variance trends</p>
             </div>
-            <button onClick={exportCSV} className="btn-action flex items-center gap-2 text-sm self-start">
-              <FontAwesomeIcon icon={faDownload} className="w-3.5 h-3.5" />
-              Export Report
-            </button>
+            <ExportMenu {...exportPayload} className="self-start" orientation="l" />
           </div>
 
           {/* Filters */}
@@ -346,21 +350,21 @@ export default function StockTakeReport() {
               <table className="w-full text-sm">
                 <thead className="table-header-gradient">
                   <tr className="text-left">
-                    <th className="py-2 px-2 font-semibold text-white">Reference</th>
-                    <th className="py-2 px-2 font-semibold text-white">Title</th>
-                    <th className="py-2 px-2 font-semibold text-white hidden md:table-cell">Location</th>
-                    <th className="py-2 px-2 font-semibold text-white text-center">Status</th>
-                    <th className="py-2 px-2 font-semibold text-white text-center">Accuracy</th>
-                    <th className="py-2 px-2 font-semibold text-white text-center">Items</th>
-                    <th className="py-2 px-2 font-semibold text-white text-center">Variance</th>
-                    <th className="py-2 px-2 font-semibold text-white text-right hidden lg:table-cell">Variance Value</th>
-                    <th className="py-2 px-2 font-semibold text-white">Date</th>
+                    <SortableTh sortKey="reference" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Reference</SortableTh>
+                    <SortableTh sortKey="title" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Title</SortableTh>
+                    <SortableTh sortKey="locationName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="hidden md:table-cell">Location</SortableTh>
+                    <SortableTh sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="center">Status</SortableTh>
+                    <SortableTh sortKey="accuracyRate" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="center">Accuracy</SortableTh>
+                    <SortableTh sortKey="totalItems" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="center">Items</SortableTh>
+                    <SortableTh sortKey="totalVariance" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="center">Variance</SortableTh>
+                    <SortableTh sortKey="totalVarianceValue" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="hidden lg:table-cell">Variance Value</SortableTh>
+                    <SortableTh sortKey="createdAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Date</SortableTh>
                     <th className="py-2 px-2 font-semibold text-white text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredData.map((st) => (
-                    <tr key={st._id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  {sortedHistory.map((st) => (
+                    <tr key={st._id} className="border-b border-gray-100 transition-colors">
                       <td className="py-2 px-2">
                         <span className="font-mono text-xs theme-accent-text">{st.reference}</span>
                       </td>

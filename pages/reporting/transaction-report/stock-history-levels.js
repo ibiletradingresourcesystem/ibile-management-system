@@ -3,6 +3,7 @@ import Loader from "@/components/Loader";
 import { formatCurrency } from "@/lib/format";
 import { useEffect, useMemo, useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
+import ExportMenu from "@/components/ExportMenu";
 
 const PERIODS = [
   { value: "monthly", label: "Monthly" },
@@ -21,11 +22,6 @@ function getInitialRange() {
   const today = new Date();
   const start = new Date(today.getFullYear(), today.getMonth(), 1);
   return { startDate: formatDateKey(start), endDate: formatDateKey(today) };
-}
-
-function csvEscape(value) {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function formatQty(value) {
@@ -103,52 +99,24 @@ export default function StockHistoryLevelsReport() {
     setFilters((prev) => ({ ...prev, startDate: formatDateKey(start), endDate: formatDateKey(end) }));
   };
 
-  const exportCsv = () => {
-    const headers = [
-      "Period",
-      "Product",
-      "Category",
-      "Location",
-      "Opening Stock",
-      "Stock In",
-      "Stock Out",
-      "Paid Units Sold",
-      "Credit Units Sold",
-      "Refunded Units",
-      "Adjustments/Loss",
-      "Closing Stock",
-      "Opening Cost Value",
-      "Closing Cost Value",
-      "Opening Sale Value",
-      "Closing Sale Value",
-    ];
-    const rows = (report.rows || []).map((row) => [
-      row.periodLabel,
-      row.productName,
-      row.category,
-      row.location,
-      row.openingStock,
-      row.stockIn,
-      row.stockOut,
-      row.paidUnitsSold,
-      row.creditUnitsSold,
-      row.refundedUnits,
-      row.adjustments,
-      row.closingStock,
-      row.openingCostValue,
-      row.closingCostValue,
-      row.openingSaleValue,
-      row.closingSaleValue,
-    ]);
-    const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `stock-history-levels-${filters.startDate}-to-${filters.endDate}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const historyLevelColumns = [
+    { key: "periodLabel", label: "Period", width: 1.4 },
+    { key: "productName", label: "Product", width: 2.4 },
+    { key: "category", label: "Category", width: 1.2 },
+    { key: "location", label: "Location", width: 1.2 },
+    { key: "openingStock", label: "Opening", type: "number", align: "right", width: 1 },
+    { key: "stockIn", label: "In", type: "number", align: "right", width: 0.8 },
+    { key: "stockOut", label: "Out", type: "number", align: "right", width: 0.8 },
+    { key: "paidUnitsSold", label: "Paid Sold", type: "number", align: "right", width: 1 },
+    { key: "creditUnitsSold", label: "Credit Sold", type: "number", align: "right", width: 1 },
+    { key: "refundedUnits", label: "Refunded", type: "number", align: "right", width: 1 },
+    { key: "adjustments", label: "Adj / Loss", type: "number", align: "right", width: 1 },
+    { key: "closingStock", label: "Closing", type: "number", align: "right", width: 1 },
+    { key: "openingCostValue", label: "Opening Cost", type: "currency", align: "right", width: 1.3 },
+    { key: "closingCostValue", label: "Closing Cost", type: "currency", align: "right", width: 1.3 },
+    { key: "openingSaleValue", label: "Opening Sale", type: "currency", align: "right", width: 1.3 },
+    { key: "closingSaleValue", label: "Closing Sale", type: "currency", align: "right", width: 1.3 },
+  ];
 
   const summary = report.summary || {};
 
@@ -200,13 +168,17 @@ export default function StockHistoryLevelsReport() {
                 >
                   <RefreshCw className="w-4 h-4" /> Apply
                 </button>
-                <button
-                  onClick={exportCsv}
+                <ExportMenu
+                  title="Stock History and Levels"
+                  subtitle="Opening and closing stock by period"
+                  period={[filters.startDate, filters.endDate].filter(Boolean).join(" to ")}
+                  columns={historyLevelColumns}
+                  rows={report.rows || []}
                   disabled={!report.rows?.length}
-                  className="btn-action-secondary min-w-[180px] flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
-                >
-                  <Download className="w-4 h-4" /> Download Stock Levels
-                </button>
+                  summary={[{ label: "Rows", value: String((report.rows || []).length) }]}
+                  orientation="l"
+                  className="min-w-[180px]"
+                />
               </div>
             </div>
 

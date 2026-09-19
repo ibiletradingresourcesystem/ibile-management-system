@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
+import ExportMenu from "@/components/ExportMenu";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { getDateTimeParts, getTodayDateKey, getWeekStartDateKey, isInTimeRange, timeRangeQuery } from "@/lib/dateFilter";
 import {
@@ -16,7 +17,6 @@ import {
 } from "@/lib/sales-report-utils";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { saveAs } from "file-saver";
 
 export default function TimeIntervals() {
   const [data, setData] = useState(null);
@@ -132,20 +132,20 @@ export default function TimeIntervals() {
   totals.netSales = totals.salesIncTax;
   totals.avgTransaction = totals.transactionQty > 0 ? totals.netSales / totals.transactionQty : 0;
 
-  function exportCSV() {
-    if (!tableData.length) return;
-    const headers = ["Date", "Txn Qty", "Refund Qty", "Refund Value", "No Sale", "Voided Qty", "Voided Value", "Item Qty", "Sales Inc Tax", "Discounts", "Avg Transaction", "Net Sales"];
-    const csvRows = [headers.join(",")];
-    tableData.forEach((r) => {
-      csvRows.push([
-        r.date, r.transactionQty, r.refundQty, r.refundValue.toFixed(2),
-        r.noSale, r.voidedQty, r.voidedValue.toFixed(2), r.itemQty,
-        r.salesIncTax.toFixed(2), r.discounts.toFixed(2), r.avgTransaction.toFixed(2), r.netSales.toFixed(2),
-      ].join(","));
-    });
-    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, `time-intervals-${getTodayDateKey() || "report"}.csv`);
-  }
+  const intervalExportColumns = [
+    { key: "date", label: "Date", width: 1.4 },
+    { key: "transactionQty", label: "Txn Qty", type: "number", align: "right", width: 0.9 },
+    { key: "refundQty", label: "Refund Qty", type: "number", align: "right", width: 1 },
+    { key: "refundValue", label: "Refund Value", type: "currency", align: "right", width: 1.3 },
+    { key: "noSale", label: "No Sale", type: "number", align: "right", width: 0.9 },
+    { key: "voidedQty", label: "Voided Qty", type: "number", align: "right", width: 1 },
+    { key: "voidedValue", label: "Voided Value", type: "currency", align: "right", width: 1.3 },
+    { key: "itemQty", label: "Item Qty", type: "number", align: "right", width: 1 },
+    { key: "salesIncTax", label: "Sales Inc Tax", type: "currency", align: "right", width: 1.3 },
+    { key: "discounts", label: "Discounts", type: "currency", align: "right", width: 1.2 },
+    { key: "avgTransaction", label: "Avg Transaction", type: "currency", align: "right", width: 1.4 },
+    { key: "netSales", label: "Net Sales", type: "currency", align: "right", width: 1.3 },
+  ];
 
   return (
     <Layout title="Time Intervals">
@@ -153,9 +153,9 @@ export default function TimeIntervals() {
         <div className="page-content">
           {/* Breadcrumb */}
           <div className="mb-6 text-sm text-gray-600">
-            <Link href="/" className="text-cyan-600 hover:text-cyan-700">Home</Link>
+            <Link href="/" className="theme-link">Home</Link>
             <span className="mx-2 text-gray-400">{">"}</span>
-            <Link href="/reporting" className="text-cyan-600 hover:text-cyan-700">Reporting</Link>
+            <Link href="/reporting" className="theme-link">Reporting</Link>
             <span className="mx-2 text-gray-400">{">"}</span>
             <span className="text-gray-800 font-medium">Time Intervals</span>
           </div>
@@ -222,11 +222,31 @@ export default function TimeIntervals() {
             </div>
           </div>
 
-          {/* Export Buttons */}
+          {/* Export */}
           <div className="flex flex-wrap gap-3 mb-6">
-            <button onClick={exportCSV} className="btn-action btn-action-primary">
-              Export CSV
-            </button>
+            <ExportMenu
+              title="Sales by Time Interval"
+              subtitle="Transactions, refunds and net sales per period"
+              columns={intervalExportColumns}
+              rows={tableData}
+              totals={{
+                date: "Total",
+                transactionQty: totals.transactionQty,
+                refundQty: totals.refundQty,
+                refundValue: totals.refundValue,
+                itemQty: totals.itemQty,
+                salesIncTax: totals.salesIncTax,
+                discounts: totals.discounts,
+                avgTransaction: totals.avgTransaction,
+                netSales: totals.netSales,
+              }}
+              summary={[
+                { label: "Periods", value: String(tableData.length) },
+                { label: "Net Sales", value: formatCurrency(totals.netSales) },
+              ]}
+              orientation="l"
+              align="left"
+            />
           </div>
 
           {/* Table */}

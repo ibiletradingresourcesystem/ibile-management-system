@@ -44,30 +44,62 @@ const PRINT_LAYOUTS = {
   4: { cols: 4, label: "4 columns (Compact)", rows: 7, tagWidth: "42mm", tagHeight: "35mm" },
 };
 
-export default function PriceTagGenerator({ products: productsProp = [] }) {
+/** Turn a product record (or a movement line) into a price-tag row. */
+function toTag(product) {
+  return {
+    name: product.name || product.productName || "",
+    price: product.salePriceIncTax ?? product.sellingPrice ?? product.price ?? 0,
+    barcode: product.barcode || "",
+    copies: Number(product.copies) > 0 ? Number(product.copies) : 1,
+  };
+}
+
+/**
+ * @param {Array} products      the products this generator can pick from
+ * @param {boolean} autoLoad    pre-fill the tag list from `products` instead of
+ *                              waiting for a manual selection. Used by the stock
+ *                              movement screen, where the tags to print are
+ *                              simply the items on that delivery.
+ * @param {boolean} copiesFromQuantity  make one tag per unit received, so a
+ *                              delivery of 12 prints 12 tags.
+ */
+export default function PriceTagGenerator({
+  products: productsProp = [],
+  autoLoad = false,
+  copiesFromQuantity = false,
+  defaultBrandName = "Ibile mart",
+}) {
   const safeProducts = Array.isArray(productsProp) ? productsProp : [];
   const [products, setProducts] = useState([]);
   const [tagSize, setTagSize] = useState("standard");
   const [currency, setCurrency] = useState("₦");
-  const [brandName, setBrandName] = useState("Ibile mart");
+  const [brandName, setBrandName] = useState(defaultBrandName);
   const [source, setSource] = useState("manual"); // manual | excel | database
   const [selectedDbProducts, setSelectedDbProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [printColumns, setPrintColumns] = useState(3);
+  const autoLoadedRef = useRef(false);
   const fileInputRef = useRef(null);
   const previewRef = useRef(null);
+
+  // Auto-load: every product handed in becomes a tag straight away, with one
+  // copy per unit when the caller asks for it. Runs once, so edits the user
+  // makes to the tag list afterwards are not wiped out on the next render.
+  useEffect(() => {
+    if (!autoLoad || autoLoadedRef.current || safeProducts.length === 0) return;
+    autoLoadedRef.current = true;
+    setProducts(
+      safeProducts.map((p) =>
+        toTag({ ...p, copies: copiesFromQuantity ? Number(p.quantity) || 1 : 1 })
+      )
+    );
+  }, [autoLoad, copiesFromQuantity, safeProducts]);
 
   // Load from database products prop
   useEffect(() => {
     if (source === "database" && selectedDbProducts.length > 0) {
-      const tags = selectedDbProducts.map((p, i) => ({
-        name: p.name || p.productName || "",
-        price: p.salePriceIncTax || p.sellingPrice || p.price || 0,
-        barcode: p.barcode || "",
-        copies: 1,
-      }));
-      setProducts(tags);
+      setProducts(selectedDbProducts.map((p) => toTag(p)));
     }
   }, [selectedDbProducts, source]);
 

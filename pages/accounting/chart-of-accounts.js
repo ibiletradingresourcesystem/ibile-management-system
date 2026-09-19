@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { showToastMessage } from "@/lib/toast-state";
 import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { useTableSort, SortableTh, compareValues, getFieldValue } from "@/components/SortableTable";
 
 const ACCOUNT_TYPES = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
 const TYPE_COLORS = {
@@ -151,6 +152,9 @@ export default function ChartOfAccountsPage() {
     setForm({ ...form, type, normalBalance });
   }
 
+  // Sort state is shared across every account-type table on the page.
+  const { sortKey, sortDir, toggleSort } = useTableSort([], "code", "asc");
+
   // Group accounts by type
   const grouped = {};
   for (const type of ACCOUNT_TYPES) grouped[type] = [];
@@ -165,6 +169,16 @@ export default function ChartOfAccountsPage() {
   for (const acc of filtered) {
     if (grouped[acc.type]) grouped[acc.type].push(acc);
   }
+
+  // Accounts render in one table per type, so a single sorted list is no use.
+  // sortRows applies the chosen column to whichever group is being drawn.
+  const sortRows = (rows) => {
+    if (!sortKey) return rows;
+    return [...rows].sort((a, b) => {
+      const result = compareValues(getFieldValue(a, sortKey), getFieldValue(b, sortKey), sortKey);
+      return sortDir === "asc" ? result : -result;
+    });
+  };
 
   if (loading) {
     return (
@@ -310,16 +324,16 @@ export default function ChartOfAccountsPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200 bg-gray-50">
-                        <th className="text-left px-4 py-2 font-semibold text-gray-600 w-24">Code</th>
-                        <th className="text-left px-4 py-2 font-semibold text-gray-600">Name</th>
-                        <th className="text-left px-4 py-2 font-semibold text-gray-600">Sub-Type</th>
-                        <th className="text-left px-4 py-2 font-semibold text-gray-600 w-20">Balance</th>
-                        <th className="text-left px-4 py-2 font-semibold text-gray-600 w-20">Opening</th>
+                        <SortableTh sortKey="code" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-24">Code</SortableTh>
+                        <SortableTh sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Name</SortableTh>
+                        <SortableTh sortKey="subType" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Sub-Type</SortableTh>
+                        <SortableTh sortKey="normalBalance" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-20">Balance</SortableTh>
+                        <SortableTh sortKey="openingBalance" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="w-20">Opening</SortableTh>
                         <th className="text-right px-4 py-2 font-semibold text-gray-600 w-28">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {grouped[type].map((acc) => (
+                      {sortRows(grouped[type]).map((acc) => (
                         <tr key={acc._id} className="border-b border-gray-100 hover:bg-gray-50">
                           <td className="px-4 py-2 font-mono theme-accent-text font-semibold">{acc.code}</td>
                           <td className="px-4 py-2 font-medium text-gray-900">

@@ -166,9 +166,9 @@ export default function CategoriesSales() {
         <div className="page-content">
           {/* Breadcrumb */}
           <div className="mb-6 text-sm text-gray-600">
-            <Link href="/" className="text-cyan-600 hover:text-cyan-700">Home</Link>
+            <Link href="/" className="theme-link">Home</Link>
             <span className="mx-2 text-gray-400">{">"}</span>
-            <Link href="/reporting" className="text-cyan-600 hover:text-cyan-700">Reporting</Link>
+            <Link href="/reporting" className="theme-link">Reporting</Link>
             <span className="mx-2 text-gray-400">{">"}</span>
             <span className="text-gray-800 font-medium">Categories</span>
           </div>

@@ -28,6 +28,9 @@ export default async function handler(req, res) {
       "sidebarActiveGradientFrom", "sidebarActiveGradientTo",
       "tableHeaderGradientFrom", "tableHeaderGradientTo",
       "buttonPrimaryBg", "buttonPrimaryHover", "pageBg",
+      "surfaceCard", "borderColor",
+      "tableRowHover", "tableStriped",
+      "cornerStyle", "density",
       "successColor", "warningColor", "errorColor", "infoColor",
       "presetName",
     ];

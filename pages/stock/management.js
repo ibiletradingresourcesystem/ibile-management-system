@@ -8,6 +8,8 @@ import useProgress from "@/lib/useProgress";
 import { useIndexedDBCache } from "@/lib/useIndexedDBCache";
 import { getCachedCategories } from "@/lib/categoriesCache";
 import { getPackSize } from "@/lib/packUnits";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
+import ExportMenu from "@/components/ExportMenu";
 
 const LOCATION_FILTER_KEY = "stockManagement:locationFilter";
 const CARD_FILTER_KEY = "stockManagement:cardFilter";
@@ -394,6 +396,40 @@ export default function StockManagement() {
     });
   }, [parentProducts, selectedStockFilter, searchTerm, categoryMap, childProductsByParent]);
 
+  const { sorted: sortedItems, sortKey, sortDir, toggleSort } = useTableSort(
+    filteredItems,
+    null,
+    "asc",
+    {
+      category: (item) => categoryMap[item.category] || item.category || "",
+      status: (item) => {
+        const qty = Number(item?.quantity || 0);
+        const min = Number(item?.minStock || 0);
+        // Out of stock first, then low, then healthy — the order that matters.
+        if (qty <= 0) return 0;
+        if (min > 0 && qty <= min) return 1;
+        return 2;
+      },
+    }
+  );
+
+  const stockExportColumns = [
+    { key: "name", label: "Product", width: 2.6 },
+    { key: "category", label: "Category", width: 1.5, value: (p) => categoryMap[p.category] || p.category || "" },
+    { key: "locationName", label: "Location", width: 1.4 },
+    { key: "quantity", label: "Current Stock", type: "number", align: "right", width: 1.1 },
+    { key: "minStock", label: "Min Stock", type: "number", align: "right", width: 1 },
+    { key: "costPrice", label: "Unit Cost", type: "currency", align: "right", width: 1.2 },
+    {
+      key: "stockValue",
+      label: "Stock Value",
+      type: "currency",
+      align: "right",
+      width: 1.3,
+      value: (p) => (Number(p.quantity) || 0) * (Number(p.costPrice) || 0),
+    },
+  ];
+
   const getProductStatus = useCallback((product) => {
     const quantity = Number(product?.quantity || 0);
     const minStock = Number(product?.minStock || 0);
@@ -471,6 +507,22 @@ export default function StockManagement() {
             <Link href="/stock/add?reason=Operational%20Loss" className="btn-action-danger">
               Record Operational Loss
             </Link>
+            <ExportMenu
+              title="Stock Levels"
+              subtitle="Current stock position"
+              columns={stockExportColumns}
+              rows={sortedItems}
+              summary={[
+                { label: "Products", value: String(sortedItems.length) },
+                {
+                  label: "Stock Value",
+                  value: formatCurrency(
+                    sortedItems.reduce((sum, p) => sum + (Number(p.quantity) || 0) * (Number(p.costPrice) || 0), 0)
+                  ),
+                },
+              ]}
+              orientation="l"
+            />
             <button
               type="button"
               onClick={async () => {
@@ -590,22 +642,42 @@ export default function StockManagement() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    {["Name", "Category", "Stock Location", "Current Stock", "Inner Unit", "Min Stock", "Unit Cost", "Status"].map((header) => (
-                      <th key={header}>
-                        {header}
-                      </th>
-                    ))}
+                    {[
+                      { key: "name", label: "Name" },
+                      { key: "category", label: "Category" },
+                      { key: "locationName", label: "Stock Location" },
+                      { key: "quantity", label: "Current Stock", align: "right" },
+                      { key: null, label: "Inner Unit" },
+                      { key: "minStock", label: "Min Stock", align: "right" },
+                      { key: "costPrice", label: "Unit Cost", align: "right" },
+                      { key: "status", label: "Status" },
+                    ].map((col) =>
+                      col.key ? (
+                        <SortableTh
+                          key={col.label}
+                          sortKey={col.key}
+                          activeKey={sortKey}
+                          dir={sortDir}
+                          onSort={toggleSort}
+                          align={col.align || "left"}
+                        >
+                          {col.label}
+                        </SortableTh>
+                      ) : (
+                        <th key={col.label}>{col.label}</th>
+                      )
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {filteredItems.length === 0 ? (
+                  {sortedItems.length === 0 ? (
                     <tr>
                       <td colSpan="8" className="px-6 py-4 text-center text-gray-500">
                         No products match the current filters.
                       </td>
                     </tr>
                   ) : (
-                    filteredItems.map((product) => {
+                    sortedItems.map((product) => {
                       const qty = product.quantity ?? 0;
                       const childProducts = childProductsByParent.get(getProductId(product)) || [];
                       const status = getProductStatus(product);

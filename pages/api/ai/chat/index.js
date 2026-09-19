@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   if (authError) return authError;
   if (!isStaff(req)) return res.status(403).json({ error: "Insufficient permissions" });
 
-  const { message, history } = req.body || {};
+  const { message, history, provider } = req.body || {};
   if (!message || typeof message !== "string" || message.trim().length === 0) {
     return res.status(400).json({ error: "Message is required" });
   }
@@ -56,11 +56,18 @@ export default async function handler(req, res) {
 
   // Step 2: Process through AI with business context
   try {
-    const result = await processAIChatMessage(message.trim(), Array.isArray(history) ? history : []);
+    const result = await processAIChatMessage(
+      message.trim(),
+      Array.isArray(history) ? history : [],
+      provider || null
+    );
     return res.status(200).json({
       success: result.success,
       response: result.response,
-      source: result.success ? "ai" : "fallback",
+      // "error" tells the UI to show this as a problem to fix rather than as
+      // an answer from the assistant.
+      source: result.success ? "ai" : "error",
+      error: result.error || undefined,
       context: result.context,
       meta: result.meta,
     });

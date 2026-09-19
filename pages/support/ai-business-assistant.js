@@ -9,14 +9,29 @@ import Layout from "@/components/Layout";
 import { apiClient } from "@/lib/api-client";
 import { formatCurrency } from "@/lib/format";
 import AIDecisionCenter from "@/components/AIDecisionCenter";
-import { Send, RefreshCw, Sparkles, TrendingUp, AlertTriangle, Package, DollarSign } from "lucide-react";
+import AIProviderPanel from "@/components/AIProviderPanel";
+import { Send, Sparkles, TrendingUp, AlertTriangle, Package, DollarSign } from "lucide-react";
 
 export default function AIBusinessAssistantPage() {
   const [activeSection, setActiveSection] = useState("overview");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [engineStatus, setEngineStatus] = useState(null);
 
   useEffect(() => {
     try { setIsAdmin(JSON.parse(localStorage.getItem("user") || "{}").role === "admin"); } catch {}
+  }, []);
+
+  // Check the engine once on load so a broken key is announced up front
+  // instead of only surfacing as a failed chat reply.
+  useEffect(() => {
+    apiClient
+      .get("/api/ai/settings")
+      .then((res) => setEngineStatus(summariseEngine(res.data?.settings)))
+      .catch(() => {});
+  }, []);
+
+  const handleEngineStatus = useCallback((settings) => {
+    setEngineStatus(summariseEngine(settings));
   }, []);
 
   const sections = [
@@ -24,6 +39,7 @@ export default function AIBusinessAssistantPage() {
     { key: "chat", label: "AI Chat" },
     { key: "decisions", label: "Decision Center" },
     { key: "insights", label: "Insights" },
+    { key: "engine", label: "AI Engine" },
   ];
 
   return (
@@ -34,10 +50,26 @@ export default function AIBusinessAssistantPage() {
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-1">
               <h1 className="page-title">AI Business Assistant</h1>
-              <span className="text-[10px] bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-semibold uppercase">AI Powered</span>
+              <span className="theme-badge-soft text-[10px] px-2.5 py-1 rounded-full font-semibold uppercase">AI Powered</span>
             </div>
             <p className="page-subtitle">Review recommendations, ask business questions, and manage AI insights</p>
           </div>
+
+          {/* A rejected or missing API key was invisible before: the chat just
+              said "try again". This banner names the problem and links to the
+              engine tab where it can be fixed. */}
+          {engineStatus && !engineStatus.healthy && (
+            <div className="alert alert-warning mb-6 flex items-start gap-3">
+              <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" />
+              <div className="text-sm flex-1">
+                <p className="font-semibold mb-0.5">AI is not responding</p>
+                <p>{engineStatus.message}</p>
+              </div>
+              <button onClick={() => setActiveSection("engine")} className="btn-action btn-action-secondary btn-sm flex-shrink-0">
+                Open AI Engine
+              </button>
+            </div>
+          )}
 
           {/* Section Tabs */}
           <div className="flex overflow-x-auto border-b mb-6 gap-0">
@@ -45,9 +77,7 @@ export default function AIBusinessAssistantPage() {
               <button
                 key={s.key}
                 onClick={() => setActiveSection(s.key)}
-                className={`px-5 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-                  activeSection === s.key ? "border-purple-600 text-purple-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+                className={`theme-tab ${activeSection === s.key ? "theme-tab-active" : ""}`}
               >
                 {s.label}
               </button>
@@ -59,10 +89,30 @@ export default function AIBusinessAssistantPage() {
           {activeSection === "chat" && <ChatSection />}
           {activeSection === "decisions" && <AIDecisionCenter isAdmin={isAdmin} />}
           {activeSection === "insights" && <InsightsSection />}
+          {activeSection === "engine" && <AIProviderPanel isAdmin={isAdmin} onProviderChange={handleEngineStatus} />}
         </div>
       </div>
     </Layout>
   );
+}
+
+/** Turn the settings payload into a one-line health verdict. */
+function summariseEngine(settings) {
+  if (!settings) return null;
+  if (settings.enabled === false) {
+    return { healthy: false, message: "AI features are switched off in AI settings." };
+  }
+  if (!settings.activeProvider) {
+    return {
+      healthy: false,
+      message:
+        "No AI provider is configured. Add GEMINI_API_KEY or OPENAI_API_KEY to the server environment and restart.",
+    };
+  }
+  if (settings.lastCheck && settings.lastCheck.ok === false) {
+    return { healthy: false, message: settings.lastCheck.error || "The last connection test failed." };
+  }
+  return { healthy: true, message: "" };
 }
 
 // ─── OVERVIEW SECTION ──────────────────────────────────────────
@@ -194,7 +244,8 @@ function ChatSection() {
       });
       setMessages([...newMessages, { role: "assistant", content: res.data.response, source: res.data.source }]);
     } catch (err) {
-      setMessages([...newMessages, { role: "assistant", content: "Sorry, I couldn't process that. Please try again.", source: "error" }]);
+      const detail = err.response?.data?.error || err.message || "The request failed.";
+      setMessages([...newMessages, { role: "assistant", content: detail, source: "error" }]);
     } finally {
       setSending(false);
     }
@@ -216,25 +267,42 @@ function ChatSection() {
             <p className="text-sm text-gray-500 mb-4">Ask me about your business performance, inventory, or get recommendations.</p>
             <div className="flex flex-wrap justify-center gap-2">
               {suggestions.slice(0, 6).map((q, i) => (
-                <button key={i} onClick={() => sendMessage(q)} className="text-xs bg-purple-50 text-purple-700 px-3 py-1.5 rounded-full hover:bg-purple-100 transition">
+                <button key={i} onClick={() => sendMessage(q)} className="theme-badge-soft text-xs px-3 py-1.5 rounded-full transition hover:opacity-80">
                   {q}
                 </button>
               ))}
             </div>
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${
-              msg.role === "user" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-800"
-            }`}>
-              <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-              {msg.source && msg.role === "assistant" && (
-                <p className="text-[10px] opacity-60 mt-1">{msg.source === "knowledge-base" ? "From help center" : msg.source === "ai" ? "AI generated" : ""}</p>
-              )}
+        {messages.map((msg, i) => {
+          const isError = msg.role === "assistant" && msg.source === "error";
+          return (
+            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div
+                className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${
+                  msg.role === "user"
+                    ? "text-white"
+                    : isError
+                      ? "bg-red-50 text-red-800 border border-red-200"
+                      : "bg-gray-100 text-gray-800"
+                }`}
+                style={msg.role === "user" ? { background: "var(--accent)", color: "var(--accent-ink)" } : undefined}
+              >
+                {isError && (
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide mb-1">
+                    <AlertTriangle size={12} /> AI unavailable
+                  </p>
+                )}
+                <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                {msg.source && msg.role === "assistant" && !isError && (
+                  <p className="text-[10px] opacity-60 mt-1">
+                    {msg.source === "knowledge-base" ? "From help center" : msg.source === "ai" ? "AI generated" : ""}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {sending && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-lg px-4 py-2.5 text-sm text-gray-500 animate-pulse">Thinking...</div>
@@ -250,10 +318,10 @@ function ChatSection() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
           placeholder="Ask about sales, inventory, recommendations..."
-          className="flex-1 border rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-purple-400 focus:border-transparent"
+          className="form-input flex-1"
           disabled={sending}
         />
-        <button onClick={() => sendMessage()} disabled={sending || !input.trim()} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition">
+        <button onClick={() => sendMessage()} disabled={sending || !input.trim()} className="btn-action btn-action-primary disabled:opacity-50">
           <Send size={18} />
         </button>
       </div>

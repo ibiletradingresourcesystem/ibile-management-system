@@ -47,8 +47,20 @@ const ROUTE_PERMISSIONS = {
   "/expenses/expenses": "expenses.entry",
   "/expenses/analysis": "expenses.analysis",
   "/expenses": "expenses",
-  "/accounting/tax-analysis": "accounting.tax-analysis",
-  "/accounting/tax-personal": "accounting.tax-personal",
+  // The tax pages live under /accounting but are reached from the Expenses
+  // menu, so either permission opens them.
+  "/accounting/tax-analysis": ["accounting.tax-analysis", "expenses.tax-analysis"],
+  "/accounting/tax-personal": ["accounting.tax-personal", "expenses.tax-personal"],
+  "/accounting/chart-of-accounts": "accounting.chart-of-accounts",
+  "/accounting/journal-entries": "accounting.journal-entries",
+  "/accounting/general-ledger": "accounting.general-ledger",
+  "/accounting/reports": "accounting.trial-balance",
+  "/accounting/trial-balance": "accounting.trial-balance",
+  "/accounting/profit-loss": "accounting.profit-loss",
+  "/accounting/balance-sheet": "accounting.balance-sheet",
+  "/accounting": "accounting",
+  "/products": "manage.products",
+  "/memo": "manage.purchase-orders",
   "/support": "support",
 };
 
@@ -107,7 +119,10 @@ export default function Layout({ children, title = "Dashboard" }) {
 
   //  APP SHELL
   return (
-    <div className="bg-gray-50 min-h-screen w-full flex flex-col">
+    <div
+      className="min-h-screen w-full flex flex-col"
+      style={{ backgroundColor: "var(--page-bg, #f9fafb)" }}
+    >
       {/* Top Navigation Bar - Fixed */}
       <NavBar user={user} logout={logout} />
 
@@ -119,7 +134,8 @@ export default function Layout({ children, title = "Dashboard" }) {
         {/* Main Content Area */}
         <div className="w-full flex-1 overflow-hidden">
           <div
-            className="w-full min-h-[calc(100vh-56px)] md:min-h-[calc(100vh-64px)] px-3 md:px-6 bg-gray-50 overflow-y-auto"
+            className="w-full min-h-[calc(100vh-56px)] md:min-h-[calc(100vh-64px)] px-3 md:px-6 overflow-y-auto"
+            style={{ backgroundColor: "var(--page-bg, #f9fafb)" }}
           >
             {hasAccess ? children : (
               <AccessDeniedState

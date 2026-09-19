@@ -120,6 +120,34 @@
   --focus-ring: rgba(14, 165, 233, 0.22);
   --text-strong: #0f172a;
   --text-muted: #6b7280;
+
+  /* Ink colours picked for contrast against the chosen theme colour.
+     ThemeProvider recomputes these whenever the palette changes. */
+  --table-header-ink: #ffffff;
+  --btn-primary-ink: #ffffff;
+  --sidebar-active-ink: #ffffff;
+  --accent-ink: #ffffff;
+
+  /* Accent family — links, soft badges, left borders, toggles */
+  --accent: #0284c7;
+  --accent-hover: #0369a1;
+  --accent-text: #0369a1;
+  --accent-soft-bg: #f0f9ff;
+  --accent-soft-border: #bae6fd;
+  --accent-soft-text: #0369a1;
+
+  /* Table rows */
+  --row-hover-bg: rgba(2, 132, 199, 0.08);
+  --row-hover-ink: #0f172a;
+  --row-hover-marker: #0284c7;
+  --row-stripe-bg: rgba(2, 132, 199, 0.025);
+  --row-selected-bg: rgba(2, 132, 199, 0.14);
+
+  /* Density scale */
+  --cell-pad-y: 0.75rem;
+  --cell-pad-x: 1rem;
+  --control-pad-y: 0.625rem;
+  --card-pad: 1.5rem;
   --loader-overlay-bg: rgba(249, 250, 251, 0.92);
   --loader-caption-color: var(--text-muted);
   --progress-track-bg: rgba(148, 163, 184, 0.2);
@@ -365,19 +393,36 @@ table {
 
 thead {
   background: var(--table-header-bg, #0284c7);
-  @apply text-white;
+  color: var(--table-header-ink, #ffffff);
 }
 
 thead th {
-  @apply px-4 py-3 text-left text-sm font-semibold;
+  @apply text-left text-sm font-semibold;
+  padding: var(--cell-pad-y, 0.75rem) var(--cell-pad-x, 1rem);
+  color: var(--table-header-ink, #ffffff);
 }
 
 tbody tr {
-  @apply border-b border-gray-200 transition-colors hover:bg-sky-50;
+  border-bottom: 1px solid var(--border-subtle, #e5e7eb);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+tbody tr:nth-child(even) {
+  background-color: var(--row-stripe-bg, transparent);
+}
+
+tbody tr:hover {
+  background-color: var(--row-hover-bg, rgba(2, 132, 199, 0.08));
+  color: var(--row-hover-ink, #0f172a);
+}
+
+tbody tr:hover td {
+  color: var(--row-hover-ink, #0f172a);
 }
 
 tbody td {
-  @apply px-4 py-3 text-sm text-gray-700 align-top;
+  @apply text-sm text-gray-700 align-top;
+  padding: var(--cell-pad-y, 0.75rem) var(--cell-pad-x, 1rem);
 }
 
 /* Badges */
@@ -693,14 +738,15 @@ a:active,
 
 /* ===== Consistent Table Styles ===== */
 .data-table-container {
-  @apply overflow-x-auto border bg-white shadow-sm;
-  border-radius: 4px;
+  @apply overflow-x-auto border shadow-sm;
+  background: var(--surface-card, #ffffff);
+  border-radius: var(--radius-xl);
   border-color: var(--border-subtle);
   box-shadow: var(--shell-shadow);
 }
 
 .data-table {
-  @apply min-w-full divide-y divide-gray-200;
+  @apply min-w-full;
 }
 
 .data-table thead {
@@ -708,19 +754,95 @@ a:active,
 }
 
 .data-table th {
-  @apply px-3 sm:px-4 py-3 text-left text-xs sm:text-sm font-semibold text-white;
+  @apply text-left text-xs sm:text-sm font-semibold;
+  padding: var(--cell-pad-y, 0.75rem) var(--cell-pad-x, 1rem);
+  color: var(--table-header-ink, #ffffff);
+  white-space: nowrap;
 }
 
 .data-table tbody {
-  @apply bg-white divide-y divide-gray-100;
+  background: var(--surface-card, #ffffff);
+}
+
+.data-table tbody tr {
+  border-bottom: 1px solid var(--border-subtle, #e5e7eb);
+}
+
+.data-table tbody tr:last-child {
+  border-bottom: 0;
 }
 
 .data-table td {
-  @apply px-3 sm:px-4 py-3 text-xs sm:text-sm text-gray-700 align-top;
+  @apply text-xs sm:text-sm text-gray-700 align-top;
+  padding: var(--cell-pad-y, 0.75rem) var(--cell-pad-x, 1rem);
 }
 
-.data-table tr:hover {
-  @apply bg-sky-50;
+.data-table tbody tr:nth-child(even) {
+  background-color: var(--row-stripe-bg, transparent);
+}
+
+/* The old flat `bg-sky-50` stayed blue no matter which theme was picked and
+   washed out the row text. This tints with the live accent and keeps the ink
+   at full strength, plus a left marker so the hovered row is unmistakable. */
+.data-table tbody tr:hover,
+.table-wrapper tbody tr:hover {
+  background-color: var(--row-hover-bg, rgba(2, 132, 199, 0.08));
+  box-shadow: inset 3px 0 0 0 var(--row-hover-marker, #0284c7);
+}
+
+.data-table tbody tr:hover td,
+.table-wrapper tbody tr:hover td {
+  color: var(--row-hover-ink, #0f172a);
+}
+
+.data-table tbody tr.is-selected,
+tbody tr.is-selected {
+  background-color: var(--row-selected-bg);
+  box-shadow: inset 3px 0 0 0 var(--row-hover-marker, #0284c7);
+}
+
+/* ===== Sortable Table Headers ===== */
+.th-sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: background-color 0.15s ease;
+}
+
+.th-sortable:hover {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.th-sortable:focus-visible {
+  outline: 2px solid var(--table-header-ink, #ffffff);
+  outline-offset: -2px;
+}
+
+.th-sortable-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  white-space: nowrap;
+}
+
+.th-sort-icon {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 0;
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.th-sortable:hover .th-sort-icon,
+.th-sortable[aria-sort="ascending"] .th-sort-icon,
+.th-sortable[aria-sort="descending"] .th-sort-icon {
+  opacity: 1;
+}
+
+.th-sort-icon svg {
+  width: 0.75rem;
+  height: 0.75rem;
 }
 
 /* ===== Stat Cards ===== */
@@ -827,4 +949,302 @@ a:active,
 
 .empty-state-description {
   @apply text-sm text-gray-500;
+}
+
+/* ===================================================================
+   Theme-aware utility classes
+   These were referenced across the app (accounting, reporting, setup,
+   onboarding, dialogs) but had no rule behind them, so every element
+   using one rendered unstyled. They now resolve against the live theme
+   so a palette change carries through the whole system.
+   =================================================================== */
+
+.theme-accent-text {
+  color: var(--accent-text, #0369a1);
+}
+
+.theme-accent-bg {
+  background: var(--accent, #0284c7);
+  color: var(--accent-ink, #ffffff);
+}
+
+.theme-badge-soft {
+  background: var(--accent-soft-bg, #f0f9ff);
+  color: var(--accent-soft-text, #0369a1);
+  border: 1px solid var(--accent-soft-border, #bae6fd);
+}
+
+.theme-note-primary {
+  background: var(--accent-soft-bg, #f0f9ff);
+  border-color: var(--accent-soft-border, #bae6fd);
+  color: var(--accent-soft-text, #0369a1);
+}
+
+.theme-surface-soft {
+  background: var(--surface-muted, #f1f5f9);
+}
+
+.theme-panel-soft {
+  background: var(--surface-card-alt, #f8fafc);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+}
+
+.theme-border-soft {
+  border-color: var(--border-subtle, #e5e7eb);
+}
+
+.theme-border-left-accent {
+  border-left-color: var(--accent, #0284c7);
+}
+
+.theme-section-title {
+  color: var(--text-strong, #0f172a);
+  font-family: var(--font-family-heading, 'Montserrat', sans-serif);
+}
+
+.theme-table-summary-row {
+  background: var(--surface-muted, #f1f5f9);
+  color: var(--text-strong, #0f172a);
+  border-top: 2px solid var(--border-strong, #d1d5db);
+}
+
+.theme-table-summary-row td {
+  color: var(--text-strong, #0f172a);
+  font-weight: 700;
+}
+
+.theme-table-summary-row:hover {
+  background: var(--surface-muted, #f1f5f9) !important;
+  box-shadow: none !important;
+}
+
+/* Segmented toggles (period pickers, filter switches) */
+.theme-toggle-active {
+  background: var(--accent, #0284c7);
+  color: var(--accent-ink, #ffffff);
+  border: 1px solid var(--accent, #0284c7);
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-toggle-active:hover {
+  background: var(--accent-hover, #0369a1);
+  border-color: var(--accent-hover, #0369a1);
+}
+
+.theme-toggle-neutral {
+  background: var(--surface-card, #ffffff);
+  color: var(--text-muted, #6b7280);
+  border: 1px solid var(--border-subtle, #e5e7eb);
+}
+
+.theme-toggle-neutral:hover {
+  background: var(--accent-soft-bg, #f0f9ff);
+  color: var(--accent-text, #0369a1);
+  border-color: var(--accent-soft-border, #bae6fd);
+}
+
+/* ===== Theme-aware links ===== */
+.theme-link {
+  color: var(--accent-text, #0369a1);
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.theme-link:hover {
+  opacity: 0.78;
+  text-decoration: underline;
+}
+
+/* ===== Tabs ===== */
+.theme-tab {
+  @apply px-5 py-2.5 text-sm font-medium whitespace-nowrap transition-colors;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted, #6b7280);
+}
+
+.theme-tab:hover {
+  color: var(--accent-text, #0369a1);
+}
+
+.theme-tab-active {
+  border-bottom-color: var(--accent, #0284c7);
+  color: var(--accent-text, #0369a1);
+}
+
+/* ===== Density-aware card / control padding ===== */
+.content-card,
+.card {
+  padding: var(--card-pad, 1.5rem);
+}
+
+@media (max-width: 640px) {
+  .content-card,
+  .card {
+    padding: 1rem;
+  }
+}
+
+/* ===================================================================
+   Sidebar navigation
+   Desktop rail and mobile drawer share these rules so the two can't
+   drift apart, and every colour comes from the theme rather than the
+   hardcoded blue the markup used to carry.
+   =================================================================== */
+
+.nav-rail {
+  position: fixed;
+  top: 3rem;
+  left: 0;
+  width: 5rem;
+  height: 100vh;
+  z-index: 10;
+  overflow: visible;
+  background: var(--sidebar-bg, #f9fafb);
+  border-right: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow: var(--shell-shadow);
+}
+
+@media (min-width: 768px) {
+  .nav-rail { top: 4rem; }
+}
+
+.nav-rail-item:hover {
+  background: var(--accent-soft-bg, #f0f9ff);
+  color: var(--accent-text, #0369a1);
+}
+
+.nav-active-gradient {
+  background: var(--sidebar-active-bg, #2563eb) !important;
+  border-left-color: var(--sidebar-active-border, #1d4ed8) !important;
+  color: var(--sidebar-active-ink, #ffffff) !important;
+}
+
+/* Desktop flyout panel */
+.nav-flyout {
+  position: fixed;
+  top: 3rem;
+  left: 5rem;
+  width: 15rem;
+  height: calc(100vh - 3rem);
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--surface-card, #ffffff);
+  border-right: 1px solid var(--border-subtle, #e5e7eb);
+  box-shadow: 0 16px 40px -12px rgba(15, 23, 42, 0.28);
+  transition: transform 0.22s ease, opacity 0.22s ease, visibility 0.22s ease;
+  transform: translateX(0.5rem);
+  opacity: 0;
+  visibility: hidden;
+}
+
+@media (min-width: 768px) {
+  .nav-flyout { top: 4rem; height: calc(100vh - 4rem); }
+}
+
+.nav-flyout.is-open {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+}
+
+.nav-flyout-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.75rem 1rem;
+  background: var(--surface-card, #ffffff);
+  border-bottom: 1px solid var(--border-subtle, #e5e7eb);
+}
+
+.nav-flyout-header p {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #6b7280);
+  margin: 0;
+}
+
+/* Submenu rows — shared by flyout and drawer */
+.nav-sub-row {
+  border-bottom: 1px solid var(--border-subtle, #e5e7eb);
+}
+
+.nav-sub-row:last-child { border-bottom: 0; }
+
+.nav-sub-link {
+  width: 100%;
+  min-height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-strong, #0f172a);
+  border-left: 4px solid transparent;
+  background: transparent;
+  text-align: left;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.nav-sub-link.is-indent { padding-left: 2.25rem; }
+
+.nav-sub-link:hover {
+  background: var(--accent-soft-bg, #f0f9ff);
+  color: var(--accent-text, #0369a1);
+}
+
+.nav-sub-link.is-active {
+  background: var(--accent-soft-bg, #f0f9ff);
+  border-left-color: var(--accent, #0284c7);
+  color: var(--accent-text, #0369a1);
+  font-weight: 600;
+}
+
+.nav-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--border-strong, #d1d5db);
+  flex-shrink: 0;
+  transition: background-color 0.18s ease, transform 0.18s ease;
+}
+
+.nav-sub-link:hover .nav-dot,
+.nav-sub-link.is-active .nav-dot {
+  background: var(--accent, #0284c7);
+  transform: scale(1.3);
+}
+
+.nav-chevron {
+  font-size: 1.125rem;
+  line-height: 1;
+  color: var(--accent, #0284c7);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.nav-group-toggle { cursor: pointer; }
+.nav-group-toggle .nav-chevron { color: var(--text-muted, #6b7280); }
+.nav-group-toggle.is-open .nav-chevron { color: var(--accent, #0284c7); }
+
+.nav-group-body {
+  background: var(--surface-card-alt, #f8fafc);
+  border-top: 1px solid var(--border-subtle, #e5e7eb);
+}
+
+.nav-mobile-submenu {
+  background: var(--surface-card-alt, #f8fafc);
+  border-left: 4px solid var(--accent, #0284c7);
+}
+
+/* Export dropdown items */
+.export-menu-item:hover:not(:disabled) {
+  background: var(--accent-soft-bg, #f0f9ff);
+}
+
+.theme-border-accent {
+  border-color: var(--accent, #0284c7) !important;
 }

@@ -12,11 +12,11 @@ import {
 } from "@/lib/sales-report-utils";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import ExportMenu from "@/components/ExportMenu";
 import { Bar } from "react-chartjs-2";
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend,
 } from "chart.js";
-import { saveAs } from "file-saver";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
@@ -162,45 +162,31 @@ export default function ProductsSales() {
     finally { complete(); setLoading(false); }
   }
 
-  const escapeCSV = (val) => {
-    const s = String(val ?? '');
-    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
-  };
+  const productExportColumns = [
+    { key: "rank", label: "#", align: "right", width: 0.5, value: (p) => (data?.products || []).indexOf(p) + 1 },
+    { key: "name", label: "Product", width: 3 },
+    { key: "unitsSold", label: "Units Sold", type: "number", align: "right", width: 1.1 },
+    { key: "totalSales", label: "Total Sales", type: "currency", align: "right", width: 1.4 },
+    {
+      key: "share",
+      label: "% of Total",
+      type: "percent",
+      align: "right",
+      width: 1,
+      value: (p) => (data?.totalSales > 0 ? (p.totalSales / data.totalSales) * 100 : 0),
+    },
+  ];
 
-  const exportProducts = (format) => {
-    if (!data?.products?.length) return;
-    const headers = ['Rank', 'Product', 'Units Sold', 'Total Sales', '% of Total'];
-    const rows = data.products.map((p, i) => [
-      i + 1,
-      escapeCSV(p.name),
-      p.unitsSold,
-      p.totalSales.toFixed(2),
-      data.totalSales > 0 ? ((p.totalSales / data.totalSales) * 100).toFixed(1) + '%' : '0.0%',
-    ]);
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const bom = '\uFEFF';
-    const ext = format === 'excel' ? 'csv' : 'csv';
-    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
-    saveAs(blob, `product-sales-${timeRange}.${ext}`);
-  };
-
-  const exportDrilldown = () => {
-    if (!selectedProductTransactions?.length) return;
-    const headers = ['Date', 'Transaction', 'Location', 'Staff', 'Customer', 'Qty', 'Product Sales', 'Transaction Total'];
-    const rows = selectedProductTransactions.map(t => [
-      new Date(t.createdAt).toLocaleString('en-NG', { timeZone: 'Africa/Lagos' }),
-      escapeCSV(t.transactionId),
-      escapeCSV(t.location),
-      escapeCSV(t.staffName),
-      escapeCSV(t.customerName),
-      t.quantity,
-      t.lineTotal.toFixed(2),
-      t.transactionTotal.toFixed(2),
-    ]);
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-    saveAs(blob, `${selectedProduct?.name || 'product'}-transactions.csv`);
-  };
+  const drilldownExportColumns = [
+    { key: "createdAt", label: "Date", type: "datetime", width: 1.8 },
+    { key: "transactionId", label: "Transaction", width: 1.6 },
+    { key: "location", label: "Location", width: 1.3 },
+    { key: "staffName", label: "Staff", width: 1.3 },
+    { key: "customerName", label: "Customer", width: 1.6 },
+    { key: "quantity", label: "Qty", type: "number", align: "right", width: 0.8 },
+    { key: "lineTotal", label: "Product Sales", type: "currency", align: "right", width: 1.3 },
+    { key: "transactionTotal", label: "Transaction Total", type: "currency", align: "right", width: 1.4 },
+  ];
 
   const chartColors = [
     "#0ea5e9", "#10b981", "#f59e0b", "#8b5cf6",
@@ -229,9 +215,9 @@ export default function ProductsSales() {
         <div className="page-content">
           {/* Breadcrumb */}
           <div className="mb-6 text-sm text-gray-600">
-            <Link href="/" className="text-cyan-600 hover:text-cyan-700">Home</Link>
+            <Link href="/" className="theme-link">Home</Link>
             <span className="mx-2 text-gray-400">{">"}</span>
-            <Link href="/reporting" className="text-cyan-600 hover:text-cyan-700">Reporting</Link>
+            <Link href="/reporting" className="theme-link">Reporting</Link>
             <span className="mx-2 text-gray-400">{">"}</span>
             <span className="text-gray-800 font-medium">Products</span>
           </div>
@@ -302,14 +288,17 @@ export default function ProductsSales() {
               <div className="content-card mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-800">All Products</h3>
-                  <div className="flex gap-2">
-                    <button onClick={() => exportProducts('csv')} className="btn-action-secondary text-xs px-3 py-1.5">
-                      📄 Export CSV
-                    </button>
-                    <button onClick={() => exportProducts('excel')} className="btn-action-secondary text-xs px-3 py-1.5">
-                      📊 Export Excel
-                    </button>
-                  </div>
+                  <ExportMenu
+                    title="Sales by Product"
+                    subtitle={"Range: " + timeRange}
+                    columns={productExportColumns}
+                    rows={data?.products || []}
+                    summary={[
+                      { label: "Products", value: String((data?.products || []).length) },
+                      { label: "Total Sales", value: formatCurrency(data?.totalSales || 0) },
+                    ]}
+                    orientation="l"
+                  />
                 </div>
               <div className="data-table-container">
                 <table className="data-table">
@@ -357,12 +346,18 @@ export default function ProductsSales() {
                     </div>
                     <div className="flex gap-2">
                       {selectedProductTransactions.length > 0 && (
-                        <button onClick={exportDrilldown} className="btn-action-secondary text-xs px-3 py-1.5">📄 Export CSV</button>
+                        <ExportMenu
+                          title={"Transactions — " + (selectedProduct?.name || "Product")}
+                          columns={drilldownExportColumns}
+                          rows={selectedProductTransactions || []}
+                          summary={[{ label: "Transactions", value: String((selectedProductTransactions || []).length) }]}
+                          orientation="l"
+                        />
                       )}
                       <button
                         type="button"
                         onClick={() => setSelectedProductKey("")}
-                        className="text-sm font-medium text-cyan-600 hover:text-cyan-700"
+                        className="text-sm font-medium theme-link"
                       >
                         Close
                       </button>

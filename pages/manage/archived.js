@@ -5,6 +5,7 @@ import { Loader } from "@/components/ui";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
 
 
 export default function Archived() {
@@ -13,6 +14,11 @@ export default function Archived() {
   const [restoringId, setRestoringId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const { isAdmin } = useAuth();
+  const { sorted: sortedArchived, sortKey, sortDir, toggleSort } = useTableSort(
+    archivedProducts,
+    "archivedAt",
+    "desc"
+  );
 
   useEffect(() => {
     async function loadArchived() {
@@ -97,14 +103,14 @@ export default function Archived() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Sale Price</th>
-                    <th>Archived On</th>
+                    <SortableTh sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Name</SortableTh>
+                    <SortableTh sortKey="salePriceIncTax" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right">Sale Price</SortableTh>
+                    <SortableTh sortKey="archivedAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Archived On</SortableTh>
                     <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {archivedProducts.map((item) => (
+                  {sortedArchived.map((item) => (
                     <tr key={item._id}>
                       <td className="p-3 text-sm font-medium">{item.name}</td>
                       <td className="p-3 text-sm">{formatCurrency(item.salePriceIncTax || 0)}</td>

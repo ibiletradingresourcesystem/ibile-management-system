@@ -4,14 +4,13 @@ import Layout from '@/components/Layout';
 import { Loader } from '@/components/ui';
 import useProgress from '@/lib/useProgress';
 import { showToastMessage } from '@/lib/toast-state';
+import ExportMenu from '@/components/ExportMenu';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faCalendarAlt, 
   faExclamationTriangle, 
   faCheckCircle,
-  faSearch,
-  faDownload,
-  faClock,
+  faSearch,  faClock,
   faBox,
   faExchangeAlt,
   faBell
@@ -218,34 +217,17 @@ export default function ExpirationReport() {
     }
   };
 
-  // Export to CSV
-  const handleExport = () => {
-    const headers = ['Batch ID', 'Product Name', 'Category', 'Location', 'Expiry Date', 'Days Remaining', 'Remaining Qty', 'Original Qty', 'Status'];
-    const rows = filteredBatches.map(b => [
-      b.batchId || b.transRef || 'N/A',
-      b.productName || 'N/A',
-      b.category || 'N/A',
-      b.locationName || 'N/A',
-      b.expiryDate,
-      b.daysRemaining,
-      b.remainingQuantity,
-      b.originalQuantity,
-      getStatusLabel(b.status),
-    ]);
-
-    let csvContent = headers.join(',') + '\n';
-    rows.forEach(row => {
-      csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
-    });
-
-    const element = document.createElement('a');
-    element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent));
-    element.setAttribute('download', `batch-expiration-report-${new Date().toISOString().split('T')[0]}.csv`);
-    element.style.display = 'none';
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-  };
+  const expiryExportColumns = [
+    { key: "batchId", label: "Batch", width: 1.3, value: (b) => b.batchId || b.transRef || "N/A" },
+    { key: "productName", label: "Product", width: 2.4 },
+    { key: "category", label: "Category", width: 1.3 },
+    { key: "locationName", label: "Location", width: 1.3 },
+    { key: "expiryDate", label: "Expiry Date", type: "date", width: 1.2 },
+    { key: "daysRemaining", label: "Days Left", type: "number", align: "right", width: 1 },
+    { key: "remainingQuantity", label: "Remaining", type: "number", align: "right", width: 1 },
+    { key: "originalQuantity", label: "Original", type: "number", align: "right", width: 1 },
+    { key: "status", label: "Status", width: 1.2, value: (b) => getStatusLabel(b.status) },
+  ];
 
   return (
     <Layout>
@@ -262,13 +244,18 @@ export default function ExpirationReport() {
               </h1>
               <p className="page-subtitle">Monitor and manage product batches approaching their expiration dates</p>
             </div>
-            <button
-              onClick={handleExport}
-              className="btn-action btn-action-success flex items-center gap-2"
-            >
-              <FontAwesomeIcon icon={faDownload} className="w-5 h-5" />
-              Export CSV
-            </button>
+            <ExportMenu
+              title="Batch Expiration Report"
+              subtitle="Batches approaching or past their expiry date"
+              columns={expiryExportColumns}
+              rows={filteredBatches}
+              summary={[
+                { label: "Batches", value: String(filteredBatches.length) },
+                { label: "Expiring Soon", value: String(stats.expiringSoon ?? 0) },
+                { label: "Expired", value: String(stats.expired ?? 0) },
+              ]}
+              orientation="l"
+            />
           </div>
 
           {/* Sold-Out Alert Banner */}

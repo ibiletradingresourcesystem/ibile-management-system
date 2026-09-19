@@ -9,6 +9,7 @@ import useProgress from "@/lib/useProgress";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/useAuth";
+import ExportMenu from "@/components/ExportMenu";
 
 const REPORT_TIME_ZONE = "Africa/Lagos";
 const reportDateFormatter = new Intl.DateTimeFormat("en-US", {
@@ -479,29 +480,22 @@ function applyFilters() {
     setExpandedTxId(expandedTxId === id ? null : id);
   };
 
-  const exportCSV = () => {
-    const headers = [
-      "Staff,Held By,Location,Device,Date,Customer,Discount,DiscountReason,Total,Tender,Change",
-    ];
-    const rows = transactions.map((tx) =>
-      [
-        tx.staff?.name || tx.staffName || tx.staff || "N/A",
-        tx.heldByStaffName || "-",
-        tx.location || "N/A",
-        tx.device,
-        new Date(tx.createdAt).toLocaleString("en-NG", { timeZone: "Africa/Lagos" }),
-        tx.customerName || "N/A",
-        tx.discount,
-        tx.discountReason,
-        tx.total,
-        tx.tenderType,
-        tx.change,
-      ].join(",")
-    );
-    const csv = headers.concat(rows).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    saveAs(blob, "transactions.csv");
-  };
+  // Nothing here was quoted, so a discount reason or customer name with a
+  // comma silently pushed every later column one across. The shared exporter
+  // quotes every field and stamps the business header on the output.
+  const transactionExportColumns = [
+    { key: "createdAt", label: "Date", type: "datetime", width: 1.8 },
+    { key: "staffName", label: "Staff", width: 1.4, value: (tx) => tx.staff?.name || tx.staffName || tx.staff || "N/A" },
+    { key: "heldByStaffName", label: "Held By", width: 1.2, value: (tx) => tx.heldByStaffName || "-" },
+    { key: "location", label: "Location", width: 1.3 },
+    { key: "device", label: "Device", width: 1.1 },
+    { key: "customerName", label: "Customer", width: 1.6, value: (tx) => tx.customerName || "N/A" },
+    { key: "discount", label: "Discount", type: "currency", align: "right", width: 1.1 },
+    { key: "discountReason", label: "Discount Reason", width: 1.5 },
+    { key: "total", label: "Total", type: "currency", align: "right", width: 1.2 },
+    { key: "tenderType", label: "Tender", width: 1.1 },
+    { key: "change", label: "Change", type: "currency", align: "right", width: 1.1 },
+  ];
 
   const handlePrint = () => window.print();
 
@@ -612,7 +606,7 @@ function applyFilters() {
         <div className="page-content">
           {/* Breadcrumb */}
           <div className="mb-6 text-sm text-gray-600">
-            <Link href="/" className="text-cyan-600 hover:text-cyan-700">Home</Link>
+            <Link href="/" className="theme-link">Home</Link>
             <span className="mx-2 text-gray-400">{">"}</span>
             <span className="text-gray-800 font-medium">Completed Transactions</span>
           </div>
@@ -681,7 +675,7 @@ function applyFilters() {
 
             <button
               onClick={() => setSelectedDate(null)}
-              className="w-full text-[10px] font-medium text-cyan-600 hover:text-cyan-700 py-1 px-2 rounded hover:bg-gray-50 transition-colors mb-2"
+              className="w-full text-[10px] font-medium theme-link py-1 px-2 rounded hover:bg-gray-50 transition-colors mb-2"
             >
               Clear Date Filter
             </button>
@@ -714,7 +708,7 @@ function applyFilters() {
               </div>
               <button
                 onClick={() => { setStartDate(""); setEndDate(""); }}
-                className="w-full text-[10px] font-medium text-cyan-600 hover:text-cyan-700 py-1 px-2 rounded hover:bg-gray-50 transition-colors mt-1"
+                className="w-full text-[10px] font-medium theme-link py-1 px-2 rounded hover:bg-gray-50 transition-colors mt-1"
               >
                 Clear Date Range
               </button>
@@ -807,29 +801,17 @@ function applyFilters() {
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-700 mb-2">Export Options</p>
+              {/* The old Word and Excel buttons had no click handler at all. */}
               <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={exportCSV}
-                  className="btn-action btn-action-primary"
-                >
-                  Export CSV
-                </button>
-                <button
-                  className="btn-action btn-action-secondary"
-                >
-                  Export Word
-                </button>
-                <button
-                  className="btn-action btn-action-secondary"
-                >
-                  Export Excel
-                </button>
-                <button
-                  onClick={handlePrint}
-                  className="btn-action btn-action-success"
-                >
-                  Print
-                </button>
+                <ExportMenu
+                  title="Completed Transactions"
+                  subtitle={locationFilter ? "Location: " + locationFilter : "All locations"}
+                  columns={transactionExportColumns}
+                  rows={transactions}
+                  summary={[{ label: "Transactions", value: String(transactions.length) }]}
+                  orientation="l"
+                  align="left"
+                />
               </div>
             </div>
           </div>

@@ -2,8 +2,12 @@
 
 import Layout from "@/components/Layout";
 import { Loader } from "@/components/ui";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useRouter } from "next/router";
 import { Printer, RefreshCw, TrendingUp, TrendingDown, Scale, FileText } from "lucide-react";
+import ExportMenu from "@/components/ExportMenu";
+import { printReport } from "@/lib/reportExport";
+import { useTableSort, SortableTh } from "@/components/SortableTable";
 
 const TABS = [
   { key: "profit-loss", label: "Profit & Loss", icon: TrendingUp },
@@ -32,6 +36,7 @@ function formatSyncTime(value) {
 }
 
 export default function AccountingReportsPage() {
+  const router = useRouter();
   const [tab, setTab] = useState("profit-loss");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -59,61 +64,97 @@ export default function AccountingReportsPage() {
     return found ? found.label : "Financial Report";
   }
 
+  /**
+   * Rows and columns for whichever statement is on screen, handed to the shared
+   * branded exporter so a printed P&L looks like the memo and like every other
+   * report in the app. This used to be a bespoke print window with its own
+   * inline CSS and no business details on it at all.
+   */
+  function buildExportPayload() {
+    const label = getTabLabel();
+    const base = { title: label, subtitle: "Financial Statement", period: getPeriodLabel() };
+    if (!data) return { ...base, columns: [], rows: [] };
+
+    if (tab === "profit-loss") {
+      const summary = data.summary || {};
+      return {
+        ...base,
+        columns: [
+          { key: "section", label: "Section", width: 1 },
+          { key: "code", label: "Code", width: 0.8 },
+          { key: "name", label: "Account", width: 2.4 },
+          { key: "subType", label: "Sub Type", width: 1.4 },
+          { key: "amount", label: "Amount", type: "currency", align: "right", width: 1.2 },
+        ],
+        rows: [
+          ...(data.revenue || []).map((r) => ({ section: "Revenue", ...r })),
+          ...(data.expenses || []).map((r) => ({ section: "Expenses", ...r })),
+        ],
+        totals: { section: "Net Income", amount: data.netIncome || 0 },
+        summary: [
+          { label: "Total Revenue", value: formatMoney(data.totalRevenue || 0) },
+          { label: "Total Expenses", value: formatMoney(data.totalExpenses || 0) },
+          { label: "Gross Profit", value: formatMoney(summary.grossProfit || 0) },
+          { label: "Net Income", value: formatMoney(data.netIncome || 0) },
+        ],
+      };
+    }
+
+    if (tab === "balance-sheet") {
+      const totalLE = (data.totalLiabilities || 0) + (data.totalEquity || 0);
+      return {
+        ...base,
+        columns: [
+          { key: "section", label: "Section", width: 1 },
+          { key: "code", label: "Code", width: 0.8 },
+          { key: "name", label: "Account", width: 2.6 },
+          { key: "amount", label: "Amount", type: "currency", align: "right", width: 1.2 },
+        ],
+        rows: [
+          ...(data.assets || []).map((r) => ({ section: "Assets", ...r, amount: Math.abs(r.amount) })),
+          ...(data.liabilities || []).map((r) => ({ section: "Liabilities", ...r, amount: Math.abs(r.amount) })),
+          ...(data.equity || []).map((r) => ({ section: "Equity", ...r, amount: Math.abs(r.amount) })),
+        ],
+        summary: [
+          { label: "Total Assets", value: formatMoney(data.totalAssets || 0) },
+          { label: "Total Liabilities", value: formatMoney(data.totalLiabilities || 0) },
+          { label: "Total Equity", value: formatMoney(data.totalEquity || 0) },
+          {
+            label: "Equation",
+            value:
+              Math.abs((data.totalAssets || 0) - totalLE) < 0.01
+                ? "Balanced"
+                : `Out by ${formatMoney(Math.abs((data.totalAssets || 0) - totalLE))}`,
+          },
+        ],
+      };
+    }
+
+    return {
+      ...base,
+      columns: [
+        { key: "code", label: "Code", width: 0.8 },
+        { key: "name", label: "Account", width: 2.8 },
+        { key: "type", label: "Type", width: 1 },
+        { key: "debit", label: "Debit", type: "currency", align: "right", width: 1.2 },
+        { key: "credit", label: "Credit", type: "currency", align: "right", width: 1.2 },
+      ],
+      rows: data.rows || [],
+      totals: { code: "Totals", debit: data.totalDebit || 0, credit: data.totalCredit || 0 },
+      summary: [
+        { label: "Total Debit", value: formatMoney(data.totalDebit || 0) },
+        { label: "Total Credit", value: formatMoney(data.totalCredit || 0) },
+        {
+          label: "Status",
+          value:
+            Math.abs((data.totalDebit || 0) - (data.totalCredit || 0)) < 0.01 ? "Balanced" : "Out of balance",
+        },
+      ],
+    };
+  }
+
   function handlePrint() {
-    if (!printRef.current) return;
-    const reportTitle = getTabLabel();
-    const periodLabel = getPeriodLabel();
-    const content = printRef.current.innerHTML;
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-    if (!printWindow) return;
-    printWindow.document.write(`<!DOCTYPE html>
-<html><head><title>${reportTitle}</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; padding: 32px; font-size: 12px; line-height: 1.5; }
-  .print-header { text-align: center; margin-bottom: 24px; border-bottom: 2px solid #111; padding-bottom: 16px; }
-  .print-header h1 { font-size: 22px; font-weight: 700; }
-  .print-header p { font-size: 13px; color: #555; margin-top: 4px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-  th, td { padding: 6px 10px; border-bottom: 1px solid #ddd; text-align: left; }
-  th { font-weight: 600; background: #f5f5f5; }
-  .text-right { text-align: right; }
-  .font-bold { font-weight: 700; }
-  .font-semibold { font-weight: 600; }
-  .font-mono { font-family: monospace; }
-  .grid { display: grid; gap: 16px; margin-bottom: 16px; }
-  .grid-cols-2 { grid-template-columns: 1fr 1fr; }
-  .grid-cols-3 { grid-template-columns: 1fr 1fr 1fr; }
-  .content-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-  .border-t-4 { border-top: 4px solid; }
-  .mb-6 { margin-bottom: 20px; }
-  .text-green-700 { color: #15803d; }
-  .text-red-700 { color: #b91c1c; }
-  .text-2xl { font-size: 18px; }
-  .text-3xl { font-size: 22px; }
-  .text-sm { font-size: 11px; }
-  .text-xs { font-size: 10px; }
-  .text-lg { font-size: 15px; }
-  .border-green-500 { border-top-color: #22c55e; }
-  .border-red-500 { border-top-color: #ef4444; }
-  .border-sky-500 { border-top-color: #0ea5e9; }
-  .border-purple-500 { border-top-color: #a855f7; }
-  .bg-green-50 { background: #f0fdf4; }
-  .bg-red-50 { background: #fef2f2; }
-  .print-footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #ccc; font-size: 10px; color: #888; text-align: center; }
-  @media print { body { padding: 16px; } }
-</style>
-</head><body>
-<div class="print-header">
-  <h1>${reportTitle}</h1>
-  <p>Reporting Period: ${periodLabel}</p>
-  <p style="margin-top:2px;font-size:11px;color:#888">Generated: ${new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
-</div>
-${content}
-<div class="print-footer">This report was generated from the Financial Reports module.</div>
-</body></html>`);
-    printWindow.document.close();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 400);
+    printReport(buildExportPayload());
   }
 
   useEffect(() => {
@@ -123,6 +164,14 @@ ${content}
   useEffect(() => {
     refreshSyncStatus();
   }, []);
+
+  // The standalone /accounting/trial-balance, /profit-loss and /balance-sheet
+  // pages now redirect here carrying ?tab=, so honour it on arrival.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const requested = String(router.query.tab || "");
+    if (requested && TABS.some((t) => t.key === requested)) setTab(requested);
+  }, [router.isReady, router.query.tab]);
 
   async function refreshSyncStatus() {
     try {
@@ -201,16 +250,17 @@ ${content}
               <button onClick={handleManualSync} disabled={syncing} className="btn-action btn-action-primary disabled:opacity-60 disabled:cursor-not-allowed" title={`Last synced: ${formatSyncTime(syncStatus?.lastSyncAt)}${syncSummary ? ` | ${syncSummary}` : ""}`}>
                 <RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing..." : "Sync"}
               </button>
-              <button onClick={handlePrint} disabled={loading || !data} className="btn-action btn-action-secondary disabled:opacity-50">
+              <button onClick={handlePrint} disabled={loading || !data} className="btn-action btn-action-secondary disabled:opacity-50 inline-flex items-center gap-2">
                 <Printer size={18} /> Print
               </button>
+              <ExportMenu {...buildExportPayload()} disabled={loading || !data} formats={["pdf", "csv", "excel"]} />
           </div>
         </div>
 
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">{error}</div>}
         {syncMessage && <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">{syncMessage}</div>}
 
-        <div className="mb-6 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+        <div className="theme-note-primary mb-6 rounded-xl border px-4 py-3 text-sm">
           Accounting sync is throttled automatically to keep these pages responsive. Use Sync Accounting when you want an immediate refresh from sales, expenses, and purchase orders.
         </div>
 
@@ -222,11 +272,7 @@ ${content}
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition whitespace-nowrap ${
-                  tab === t.key
-                    ? "border-sky-600 text-sky-700"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
+                className={`theme-tab flex items-center gap-2 ${tab === t.key ? "theme-tab-active" : ""}`}
               >
                 <Icon size={16} />
                 {t.label}
@@ -316,7 +362,7 @@ function ProfitLoss({ data, dateFrom, dateTo }) {
             <div>
               <p className="text-sm font-semibold text-gray-600">Net {netIncome >= 0 ? "Profit" : "Loss"}</p>
               <p className={`text-3xl font-bold ${netIncome >= 0 ? "text-green-700" : "text-red-700"}`}>
-                {Math.abs(netIncome).toLocaleString()}
+                {formatMoney(Math.abs(netIncome))}
               </p>
             </div>
           </div>
@@ -377,7 +423,7 @@ function PLSection({ title, items, total, color }) {
     <div className="content-card !p-0 overflow-hidden">
       <div className={`px-4 py-3 border-b flex items-center justify-between ${sectionClasses.header}`}>
         <h2 className={`font-bold ${sectionClasses.title}`}>{title}</h2>
-        <span className={`font-bold ${sectionClasses.value}`}>{total.toLocaleString()}</span>
+        <span className={`font-bold ${sectionClasses.value}`}>{formatMoney(total)}</span>
       </div>
       <table className="w-full text-sm">
         <tbody>
@@ -389,14 +435,14 @@ function PLSection({ title, items, total, color }) {
                 <span className="font-medium text-gray-900">{r.name}</span>
                 {r.subType && <span className="text-xs text-gray-500 ml-2">({r.subType})</span>}
               </td>
-              <td className={`px-4 py-2 text-right font-semibold ${sectionClasses.value}`}>{r.amount.toLocaleString()}</td>
+              <td className={`px-4 py-2 text-right font-semibold ${sectionClasses.value}`}>{formatMoney(r.amount)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr className={`border-t-2 font-bold ${sectionClasses.footer}`}>
             <td className="px-4 py-2">Total {title}</td>
-            <td className={`px-4 py-2 text-right ${sectionClasses.footerValue}`}>{total.toLocaleString()}</td>
+            <td className={`px-4 py-2 text-right ${sectionClasses.footerValue}`}>{formatMoney(total)}</td>
           </tr>
         </tfoot>
       </table>
@@ -418,15 +464,15 @@ function BalanceSheet({ data, dateFrom, dateTo }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="content-card text-center border-t-4" style={{ borderTopColor: "var(--btn-primary-bg, #0284c7)" }}>
           <p className="text-sm text-gray-600 font-semibold">Total Assets</p>
-          <p className="text-2xl font-bold theme-accent-text">{(data.totalAssets || 0).toLocaleString()}</p>
+          <p className="text-2xl font-bold theme-accent-text">{formatMoney(data.totalAssets || 0)}</p>
         </div>
         <div className="content-card text-center border-t-4 border-red-500">
           <p className="text-sm text-gray-600 font-semibold">Total Liabilities</p>
-          <p className="text-2xl font-bold text-red-700">{(data.totalLiabilities || 0).toLocaleString()}</p>
+          <p className="text-2xl font-bold text-red-700">{formatMoney(data.totalLiabilities || 0)}</p>
         </div>
         <div className="content-card text-center border-t-4 border-purple-500">
           <p className="text-sm text-gray-600 font-semibold">Total Equity</p>
-          <p className="text-2xl font-bold text-purple-700">{(data.totalEquity || 0).toLocaleString()}</p>
+          <p className="text-2xl font-bold text-purple-700">{formatMoney(data.totalEquity || 0)}</p>
         </div>
       </div>
 
@@ -439,10 +485,10 @@ function BalanceSheet({ data, dateFrom, dateTo }) {
       {/* Accounting Equation */}
       <div className="content-card mt-6 text-center bg-gray-50">
         <p className="text-lg font-bold text-gray-700">
-          Assets ({(data.totalAssets || 0).toLocaleString()}) = Liabilities ({(data.totalLiabilities || 0).toLocaleString()}) + Equity ({(data.totalEquity || 0).toLocaleString()})
+          Assets ({formatMoney(data.totalAssets || 0)}) = Liabilities ({formatMoney(data.totalLiabilities || 0)}) + Equity ({formatMoney(data.totalEquity || 0)})
         </p>
         <p className={`text-sm mt-1 font-semibold ${isBalanced ? "text-green-600" : "text-red-600"}`}>
-          {isBalanced ? "✓ Balanced" : `✗ Difference: ${Math.abs((data.totalAssets || 0) - totalLE).toLocaleString()}`}
+          {isBalanced ? "✓ Balanced" : `✗ Difference: ${formatMoney(Math.abs((data.totalAssets || 0) - totalLE))}`}
         </p>
       </div>
     </div>
@@ -454,7 +500,7 @@ function BSSection({ title, items, total, colorClass }) {
     <div className="content-card !p-0 overflow-hidden">
       <div className={`px-4 py-3 border-b flex items-center justify-between ${colorClass}`}>
         <h2 className="font-bold">{title}</h2>
-        <span className="font-bold text-lg">{total.toLocaleString()}</span>
+        <span className="font-bold text-lg">{formatMoney(total)}</span>
       </div>
       <table className="w-full text-sm">
         <tbody>
@@ -466,7 +512,7 @@ function BSSection({ title, items, total, colorClass }) {
                 <span className="font-mono theme-accent-text text-xs mr-2">{item.code}</span>
                 <span className="font-medium text-gray-900">{item.name}</span>
               </td>
-              <td className="px-4 py-2 text-right font-semibold">{Math.abs(item.amount).toLocaleString()}</td>
+              <td className="px-4 py-2 text-right font-semibold">{formatMoney(Math.abs(item.amount))}</td>
             </tr>
           ))}
         </tbody>
@@ -479,14 +525,22 @@ function BSSection({ title, items, total, colorClass }) {
    TRIAL BALANCE TAB
 ═══════════════════════════════════════ */
 function TrialBalance({ data, dateFrom, dateTo }) {
+  // Hooks run before the empty-data guard; returning first would change the
+  // hook order between renders and crash React.
+  // String(...) guards a row whose account has no code, which threw here.
+  const baseRows = useMemo(
+    () => [...(data?.rows || [])].sort((a, b) => String(a.code || "").localeCompare(String(b.code || ""))),
+    [data]
+  );
+  const { sorted: rows, sortKey, sortDir, toggleSort } = useTableSort(baseRows, "code");
+
   if (!data) return null;
-  const rows = (data.rows || []).sort((a, b) => a.code.localeCompare(b.code));
   const isBalanced = Math.abs((data.totalDebit || 0) - (data.totalCredit || 0)) < 0.01;
 
   return (
     <div>
       <div className={`mb-4 p-3 rounded-lg text-sm font-semibold ${isBalanced ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
-        {isBalanced ? "✓ Books are balanced" : `✗ Out of balance by ${Math.abs((data.totalDebit || 0) - (data.totalCredit || 0)).toLocaleString()}`}
+        {isBalanced ? "✓ Books are balanced" : `✗ Out of balance by ${formatMoney(Math.abs((data.totalDebit || 0) - (data.totalCredit || 0)))}`}
       </div>
 
       <div className="content-card !p-0 overflow-hidden">
@@ -494,11 +548,11 @@ function TrialBalance({ data, dateFrom, dateTo }) {
           <table className="w-full text-sm">
             <thead>
               <tr>
-                <th className="text-left px-4 py-3 font-semibold w-24">Code</th>
-                <th className="text-left px-4 py-3 font-semibold">Account</th>
-                <th className="text-left px-4 py-3 font-semibold w-24">Type</th>
-                <th className="text-right px-4 py-3 font-semibold w-32">Debit</th>
-                <th className="text-right px-4 py-3 font-semibold w-32">Credit</th>
+                <SortableTh sortKey="code" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-24">Code</SortableTh>
+                <SortableTh sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Account</SortableTh>
+                <SortableTh sortKey="type" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-24">Type</SortableTh>
+                <SortableTh sortKey="debit" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="w-32">Debit</SortableTh>
+                <SortableTh sortKey="credit" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="w-32">Credit</SortableTh>
               </tr>
             </thead>
             <tbody>
@@ -509,16 +563,16 @@ function TrialBalance({ data, dateFrom, dateTo }) {
                   <td className="px-4 py-2 font-mono theme-accent-text">{row.code}</td>
                   <td className="px-4 py-2 font-medium text-gray-900">{row.name}</td>
                   <td className="px-4 py-2 text-xs text-gray-500">{row.type}</td>
-                  <td className="px-4 py-2 text-right font-medium">{row.debit > 0 ? row.debit.toLocaleString() : ""}</td>
-                  <td className="px-4 py-2 text-right font-medium">{row.credit > 0 ? row.credit.toLocaleString() : ""}</td>
+                  <td className="px-4 py-2 text-right font-medium">{row.debit > 0 ? formatMoney(row.debit) : ""}</td>
+                  <td className="px-4 py-2 text-right font-medium">{row.credit > 0 ? formatMoney(row.credit) : ""}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-gray-400 bg-gray-100 font-bold text-lg">
                 <td colSpan={3} className="px-4 py-3 text-right">Totals</td>
-                <td className="px-4 py-3 text-right">{(data.totalDebit || 0).toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">{(data.totalCredit || 0).toLocaleString()}</td>
+                <td className="px-4 py-3 text-right">{formatMoney(data.totalDebit || 0)}</td>
+                <td className="px-4 py-3 text-right">{formatMoney(data.totalCredit || 0)}</td>
               </tr>
             </tfoot>
           </table>

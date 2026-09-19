@@ -833,7 +833,7 @@ export default function Categories() {
                         <button
                           type="button"
                           onClick={() => addProperty(true)}
-                          className="text-cyan-600 hover:text-cyan-700 text-sm font-medium"
+                          className="theme-link text-sm font-medium"
                         >
                           + Add Property
                         </button>

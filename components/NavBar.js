@@ -185,7 +185,7 @@ const TopBar = ({ user, logout }) => {
             onClick={() => setShowNotifications(!showNotifications)}
             title="View notifications"
           >
-            <FontAwesomeIcon icon={faBell} className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 text-gray-600 hover:text-blue-600 transition-colors" />
+            <FontAwesomeIcon icon={faBell} className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 text-gray-600 transition-colors hover:opacity-80" />
             {totalNotifications > 0 && (
               <span className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6 bg-red-500 rounded-full absolute -top-1 -right-1 shadow-sm flex items-center justify-center text-white text-xs font-bold">
                 {totalNotifications > 9 ? '9+' : totalNotifications}
@@ -206,7 +206,7 @@ const TopBar = ({ user, logout }) => {
 
               <div className="grid grid-cols-4 border-b border-gray-200 bg-gray-50">
                 {[
-                  ['all', `All (${totalNotifications})`, 'bg-white text-blue-600 border-b-2 border-blue-600'],
+                  ['all', `All (${totalNotifications})`, 'bg-white theme-accent-text border-b-2 theme-border-accent'],
                   ['stock', `Stock (${lowStockCount})`, 'bg-white text-yellow-600 border-b-2 border-yellow-600'],
                   ['expiring', `Expiring (${expiringCount})`, 'bg-white text-orange-600 border-b-2 border-orange-600'],
                   ['credit', `Credit (${creditCount})`, 'bg-white text-amber-600 border-b-2 border-amber-600'],
@@ -305,7 +305,7 @@ const TopBar = ({ user, logout }) => {
                 <Link
                   href={creditCount > 0 ? "/expenses/analysis" : "/stock/expiration-report"}
                   onClick={() => setShowNotifications(false)}
-                  className="block text-center text-sm font-semibold text-blue-600 transition hover:text-blue-700"
+                  className="theme-link block text-center text-sm font-semibold"
                 >
                   {creditCount > 0 ? "Open Expense Analysis →" : "View Expiration Report →"}
                 </Link>
