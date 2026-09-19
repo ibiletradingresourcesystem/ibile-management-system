@@ -754,25 +754,12 @@ export default function ProductForm(props) {
                   />
 
                   {isLinkedChild && (
-                    <label className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                      <input
-                        type="checkbox"
-                        className="mt-0.5"
-                        checked={costFromParent}
-                        onChange={(event) => handleCostFromParentChange(event.target.checked)}
-                      />
-                      <span>
-                        Take the cost from the parent pack
-                        <span className="block text-xs text-gray-500">
-                          {childShareOfPackCost !== null
-                            ? `${formatCurrency(childShareOfPackCost)} — this child's share of ${parentPack?.name || "the pack"}. It follows the pack whenever the pack's cost or size changes.`
-                            : "The cost follows the pack whenever the pack's cost or size changes."}
-                        </span>
-                        <span className="block text-xs text-gray-500">
-                          Leave it off to keep a cost of its own, for stock bought separately.
-                        </span>
-                      </span>
-                    </label>
+                    <ChildCostSource
+                      fromParent={costFromParent}
+                      onChange={handleCostFromParentChange}
+                      share={childShareOfPackCost}
+                      parent={parentPack}
+                    />
                   )}
                   <InputField
                     label="Margin (of sale price)"
@@ -1196,6 +1183,48 @@ function PriceCalculator({ onUseValue }) {
           Use as sale price
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Where a linked child's cost comes from: its share of the pack, or a price of its own. */
+function ChildCostSource({ fromParent, onChange, share, parent }) {
+  const choices = [
+    { value: true, label: "From pack" },
+    { value: false, label: "Own cost" },
+  ];
+
+  return (
+    <div className="form-group">
+      <span className="form-label">Cost source</span>
+      <div
+        role="radiogroup"
+        aria-label="Cost source"
+        className="inline-flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1"
+      >
+        {choices.map((choice) => {
+          const active = fromParent === choice.value;
+          return (
+            <button
+              key={choice.label}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onChange(choice.value)}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                active ? "bg-white text-blue-700 shadow-sm ring-1 ring-gray-200" : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              {choice.label}
+            </button>
+          );
+        })}
+      </div>
+      {fromParent && share !== null && parent && (
+        <p className="mt-1.5 truncate text-xs text-gray-500">
+          {formatCurrency(share)} · {getUnitsPerChild(parent)} of {getPackSize(parent)} · {parent.name}
+        </p>
+      )}
     </div>
   );
 }
