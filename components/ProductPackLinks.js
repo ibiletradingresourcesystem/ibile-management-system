@@ -2,6 +2,7 @@ import axios from "axios";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatCurrency } from "@/lib/format";
+import { calculateMarginPercent } from "@/lib/pricing";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { clearCache } from "@/lib/useIndexedDBCache";
 import { childQtyToParentQty, getPackSize, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
@@ -145,7 +146,6 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
 
   const packProduct = isChild ? parent : product;
   const packSize = getPackSize(packProduct);
-  const baseUnits = Number(packProduct.quantity || 0) * packSize;
   const unitsNumber = Number(units);
   const unitsValid = Number.isInteger(unitsNumber) && unitsNumber >= 1;
 
@@ -182,10 +182,6 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
             (pack of {parent.qtyPerPack}). One of this item = <strong>{getUnitsPerChild(product)}</strong> unit(s) of
             the pack.
           </p>
-          <p className="mt-1">
-            Stock is taken from the parent: <strong>{formatQty(product.quantity)}</strong> available (
-            {formatQty(parent.quantity)} packs × {parent.qtyPerPack} ÷ {getUnitsPerChild(product)}).
-          </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="text-xs font-medium">Units per item</label>
             <input
@@ -210,14 +206,9 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
 
       {(isPack || isChild) && (
         <div>
-          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-            <h4 className="text-sm font-semibold text-gray-800">
-              {isChild ? "All items from this pack" : "Linked child products"} ({children.length})
-            </h4>
-            <p className="text-xs text-gray-500">
-              Pack stock: {formatQty(packProduct.quantity)} × {packSize} = {formatQty(baseUnits)} units
-            </p>
-          </div>
+          <h4 className="mb-2 text-sm font-semibold text-gray-800">
+            {isChild ? "All items from this pack" : "Linked child products"} ({children.length})
+          </h4>
           {children.length === 0 ? (
             <p className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-gray-500">
               No child products yet. Search below to link existing products.
@@ -232,6 +223,7 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
                     <th className="px-3 py-2">Stock</th>
                     <th className="px-3 py-2">Cost</th>
                     <th className="px-3 py-2">Sale</th>
+                    <th className="px-3 py-2">Margin</th>
                     {isPack && <th className="px-3 py-2" />}
                   </tr>
                 </thead>
@@ -240,6 +232,7 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
                     const draft = unitDrafts[child._id];
                     const unitsChanged = draft !== undefined && Number(draft) !== getUnitsPerChild(child);
                     const isCurrent = String(child._id) === String(product._id);
+                    const childMargin = calculateMarginPercent(child.costPrice, child.salePriceIncTax);
                     return (
                       <tr key={child._id} className={`border-t ${isCurrent ? "bg-blue-50" : ""}`}>
                         <td className="px-3 py-2">
@@ -283,6 +276,9 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
                         <td className="px-3 py-2 font-semibold">{formatQty(child.quantity)}</td>
                         <td className="px-3 py-2">{formatCurrency(child.costPrice)}</td>
                         <td className="px-3 py-2">{formatCurrency(child.salePriceIncTax)}</td>
+                        <td className={`px-3 py-2 tabular-nums ${childMargin < 0 ? "text-red-600" : ""}`}>
+                          {childMargin.toFixed(2)}%
+                        </td>
                         {isPack && (
                           <td className="px-3 py-2 text-right">
                             <button
