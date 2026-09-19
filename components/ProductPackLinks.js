@@ -157,6 +157,7 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
       ? Number(stockOwner.quantity)
       : 0;
   const parentPackSize = stockTarget ? getPackSize(stockTarget) : 1;
+  const childCostShare = stockTarget ? ((Number(stockTarget.costPrice) || 0) / parentPackSize) * unitsNumber : 0;
   const unitsTooLarge = selected && unitsValid && unitsNumber > parentPackSize;
 
   return (
@@ -375,19 +376,40 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
                 </label>
               )}
               {unitsValid && (
-                <label className="flex items-start gap-2 text-xs text-gray-700">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={costFromParent}
-                    onChange={(e) => setCostFromParent(e.target.checked)}
-                  />
-                  <span>
-                    Work the child&apos;s cost price out from the pack ({unitsNumber} of {parentPackSize} of the pack&apos;s
-                    cost), and keep it in step when the pack&apos;s cost changes. Otherwise the child keeps a cost of its
-                    own.
-                  </span>
-                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="text-xs font-medium text-gray-700">Cost source</label>
+                  <div
+                    role="radiogroup"
+                    aria-label="Cost source"
+                    className="inline-flex gap-0.5 rounded-lg border border-gray-200 bg-white p-0.5"
+                  >
+                    {[
+                      { value: true, label: "From pack" },
+                      { value: false, label: "Own cost" },
+                    ].map((choice) => {
+                      const active = costFromParent === choice.value;
+                      return (
+                        <button
+                          key={choice.label}
+                          type="button"
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setCostFromParent(choice.value)}
+                          className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                            active ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-gray-600 hover:text-gray-900"
+                          }`}
+                        >
+                          {choice.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {costFromParent && childCostShare > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {formatCurrency(childCostShare)} · {unitsNumber} of {parentPackSize}
+                    </span>
+                  )}
+                </div>
               )}
               <div className="flex gap-2">
                 <button
