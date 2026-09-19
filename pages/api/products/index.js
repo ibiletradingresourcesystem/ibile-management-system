@@ -5,6 +5,7 @@ import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { syncVendorAssignmentsForProduct } from "@/lib/vendorProductSync";
 import { deleteProductImages } from "@/lib/s3";
 import { deriveChildrenForParent } from "@/lib/syncPackQty";
+import { resolveChildCost, syncChildCostsForParent } from "@/lib/childPricing";
 import { deriveChildQuantity, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
 import { calculateMarginPercent, normalizeTaxRate, roundMoney, VAT_RATE } from "@/lib/pricing";
 import { repairStoredBarcodes, suffixBarcodes } from "@/lib/barcodes";
@@ -65,6 +66,7 @@ function buildAutoUnitChildPricing(pack, childSalePriceInput, unitsPerChild = 1)
     costPrice,
     taxRate,
     salePriceIncTax,
+    costFromParent: true,
     margin: roundMoney(calculateMarginPercent(costPrice, salePriceIncTax, taxRate)),
   };
 }
@@ -148,10 +150,14 @@ function sanitizeProductPayload(payload = {}) {
     nextPayload.locations = sanitizeStringArray(nextPayload.locations);
   }
 
-  // Parent/child links are managed only through /api/products/links
+  // Parent/child links are managed only through /api/products/links — but whether a child takes
+  // its cost from the pack is the child's own setting, so it is saved with the product
   delete nextPayload.isChildProduct;
   delete nextPayload.parentProduct;
   delete nextPayload.unitsPerChild;
+  if (hasOwn(nextPayload, "costFromParent")) {
+    nextPayload.costFromParent = Boolean(nextPayload.costFromParent);
+  }
 
   return nextPayload;
 }
@@ -521,6 +527,18 @@ export default async function handler(req, res) {
         }
       }
 
+      // A child that follows its pack gets its cost from the pack, whatever was sent
+      const followsParent = hasOwn(updateData, "costFromParent")
+        ? Boolean(updateData.costFromParent)
+        : Boolean(existingProduct.costFromParent);
+
+      if (followsParent && isDerivedChild(existingProduct)) {
+        const derived = await resolveChildCost({ ...existingProduct, ...updateData, costFromParent: true });
+        if (derived) updateData.costPrice = derived.costPrice;
+      } else if (hasOwn(updateData, "costFromParent") && !followsParent) {
+        updateData.costFromParent = false;
+      }
+
       // Only one VAT rate exists; keep the stored margin consistent with cost, sale price and VAT
       if (["costPrice", "salePriceIncTax", "taxRate"].some((field) => hasOwn(updateData, field))) {
         const costPrice = hasOwn(updateData, "costPrice") ? updateData.costPrice : existingProduct.costPrice;
@@ -652,6 +670,9 @@ export default async function handler(req, res) {
 
       if (updated.packType === "pack") {
         await deriveChildrenForParent(updated._id);
+        if (["costPrice", "qtyPerPack"].some((field) => hasOwn(updateData, field))) {
+          await syncChildCostsForParent(updated._id);
+        }
       }
 
       return res.json({

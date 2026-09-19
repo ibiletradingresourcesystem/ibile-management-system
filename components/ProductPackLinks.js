@@ -32,6 +32,7 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
   const [selected, setSelected] = useState(null);
   const [units, setUnits] = useState("1");
   const [moveStock, setMoveStock] = useState(false);
+  const [costFromParent, setCostFromParent] = useState(true);
   const [unitDrafts, setUnitDrafts] = useState({});
   const onRelationsChangeRef = useRef(onRelationsChange);
   onRelationsChangeRef.current = onRelationsChange;
@@ -91,6 +92,7 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
         ...payload,
         unitsPerChild: Number(units),
         moveStockToParent: moveStock,
+        costFromParent,
       })
     );
   }
@@ -369,6 +371,21 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
                     pack (+
                     {formatQty(childQtyToParentQty(movableStock, { unitsPerChild: unitsNumber }, stockTarget))} packs).
                     Otherwise that stock is dropped and the child only shows what the pack holds.
+                  </span>
+                </label>
+              )}
+              {unitsValid && (
+                <label className="flex items-start gap-2 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={costFromParent}
+                    onChange={(e) => setCostFromParent(e.target.checked)}
+                  />
+                  <span>
+                    Work the child&apos;s cost price out from the pack ({unitsNumber} of {parentPackSize} of the pack&apos;s
+                    cost), and keep it in step when the pack&apos;s cost changes. Otherwise the child keeps a cost of its
+                    own.
                   </span>
                 </label>
               )}

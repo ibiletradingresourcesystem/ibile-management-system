@@ -16,7 +16,7 @@ import {
   getPriceBreakdown,
   VAT_RATE,
 } from "@/lib/pricing";
-import { isDerivedChild } from "@/lib/packUnits";
+import { getPackSize, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
 import AIPriceSuggestion from "@/components/AIPriceSuggestion";
 import ProductPackLinks from "@/components/ProductPackLinks";
 
@@ -95,6 +95,8 @@ export default function ProductForm(props) {
   const [qtyPerPack, setQtyPerPack] = useState(props.qtyPerPack ?? 1);
   const [childSalePrice, setChildSalePrice] = useState(props.childSalePrice ?? "");
   const [isLinkedChild, setIsLinkedChild] = useState(isDerivedChild(props));
+  const [costFromParent, setCostFromParent] = useState(Boolean(props.costFromParent));
+  const [parentPack, setParentPack] = useState(null);
   // Existing products converted to a pack usually get existing products linked as children instead
   const [autoCreateUnitChild, setAutoCreateUnitChild] = useState(!props._id);
   const [selectedLocations, setSelectedLocations] = useState(props.locations || []);
@@ -146,6 +148,7 @@ export default function ProductForm(props) {
     setPackType(props.packType || "unit");
     setQtyPerPack(props.qtyPerPack ?? 1);
     setChildSalePrice(props.childSalePrice ?? "");
+    setCostFromParent(Boolean(props.costFromParent));
     setIsLinkedChild(isDerivedChild(props));
     setAutoCreateUnitChild(!props._id);
     setSelectedLocations(props.locations || []);
@@ -242,6 +245,18 @@ export default function ProductForm(props) {
     setMargin(calculateMarginPercent(costPrice, salePriceIncTax, checked ? VAT_RATE : 0).toFixed(2));
   }
 
+  // A child's share of the pack's cost: pack cost ÷ units in the pack × units in this child
+  const childShareOfPackCost = parentPack
+    ? ((Number(parentPack.costPrice) || 0) / getPackSize(parentPack)) * getUnitsPerChild(parentPack)
+    : null;
+
+  function handleCostFromParentChange(checked) {
+    setCostFromParent(checked);
+    if (checked && childShareOfPackCost !== null) {
+      handleCostPriceChange(String(Math.round(childShareOfPackCost * 100) / 100));
+    }
+  }
+
   const priceBreakdown = getPriceBreakdown(costPrice, salePriceIncTax, taxRate);
 
   const handleRelationsChange = useCallback((relations) => {
@@ -249,9 +264,13 @@ export default function ProductForm(props) {
     if (!current) return;
     const linkedAsChild = isDerivedChild(current) && Boolean(relations.parent);
     setIsLinkedChild(linkedAsChild);
+    setParentPack(linkedAsChild ? { ...relations.parent, unitsPerChild: getUnitsPerChild(current) } : null);
     if (linkedAsChild) {
       setPackType("unit");
       setQtyPerPack(1);
+      if (current.costFromParent) setCostFromParent(true);
+    } else {
+      setCostFromParent(false);
     }
     // Linking can move stock into this pack, and unlinking resets a child's stock
     setQuantity((prev) => (quantityEdited ? prev : current.quantity ?? ""));
@@ -343,6 +362,7 @@ export default function ProductForm(props) {
       packType,
       qtyPerPack: packType === "pack" ? Number(qtyPerPack) || 1 : 1,
       childSalePrice: packType === "pack" ? Number(childSalePrice) || 0 : undefined,
+      costFromParent: isLinkedChild ? costFromParent : false,
       autoCreateUnitChild: packType === "pack" ? autoCreateUnitChild : undefined,
       showOnWeb,
     };
@@ -724,8 +744,36 @@ export default function ProductForm(props) {
                     value={costPrice}
                     setValue={handleCostPriceChange}
                     required
+                    disabled={isLinkedChild && costFromParent}
+                    hint={
+                      isLinkedChild && costFromParent
+                        ? `Worked out from ${parentPack?.name || "the parent pack"}.`
+                        : ""
+                    }
                     error={fieldErrors.costPrice}
                   />
+
+                  {isLinkedChild && (
+                    <label className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={costFromParent}
+                        onChange={(event) => handleCostFromParentChange(event.target.checked)}
+                      />
+                      <span>
+                        Take the cost from the parent pack
+                        <span className="block text-xs text-gray-500">
+                          {childShareOfPackCost !== null
+                            ? `${formatCurrency(childShareOfPackCost)} — this child's share of ${parentPack?.name || "the pack"}. It follows the pack whenever the pack's cost or size changes.`
+                            : "The cost follows the pack whenever the pack's cost or size changes."}
+                        </span>
+                        <span className="block text-xs text-gray-500">
+                          Leave it off to keep a cost of its own, for stock bought separately.
+                        </span>
+                      </span>
+                    </label>
+                  )}
                   <InputField
                     label="Margin (of sale price)"
                     name="margin"
@@ -1010,7 +1058,7 @@ function PriceBuildUp({ breakdown, applyTax, onUseValue }) {
 
             {applyTax && (
               <>
-                <dt className="pl-3 text-xs text-gray-400">of that, VAT ({VAT_RATE}%)</dt>
+                <dt className="text-xs text-gray-400">of that, VAT ({VAT_RATE}%)</dt>
                 <dd className="text-right text-xs font-medium tabular-nums text-gray-400">{formatCurrency(vatAmount)}</dd>
               </>
             )}

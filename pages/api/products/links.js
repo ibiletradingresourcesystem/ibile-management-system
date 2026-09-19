@@ -6,7 +6,7 @@
  * Children never hold stock: child.qty = parent.qty × parent.qtyPerPack ÷ child.unitsPerChild.
  *
  * GET    ?productId=                                            → { product, parent, children }
- * POST   { parentId, childId, unitsPerChild, moveStockToParent } → link (or move) a child
+ * POST   { parentId, childId, unitsPerChild, moveStockToParent, costFromParent } → link a child
  * PATCH  { childId, unitsPerChild }                              → change units in a child
  * DELETE ?childId=                                               → unlink a child (it starts at 0 stock)
  */
@@ -14,6 +14,7 @@ import { mongooseConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { deriveChildrenForParent } from "@/lib/syncPackQty";
+import { syncChildCostsForParent } from "@/lib/childPricing";
 import {
   childQtyToParentQty,
   deriveChildQuantity,
@@ -23,7 +24,7 @@ import {
 
 const CHILD_FILTER = { isChildProduct: true, packType: { $ne: "pack" } };
 const SUMMARY_FIELDS =
-  "name barcode quantity costPrice salePriceIncTax taxRate packType qtyPerPack isChildProduct parentProduct unitsPerChild isStockManaged isArchived";
+  "name barcode quantity costPrice salePriceIncTax taxRate packType qtyPerPack isChildProduct parentProduct unitsPerChild costFromParent isStockManaged isArchived";
 
 function isObjectId(value) {
   return /^[a-f0-9]{24}$/i.test(String(value || ""));
@@ -95,7 +96,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST") {
-      const { parentId, childId, unitsPerChild, moveStockToParent } = req.body || {};
+      const { parentId, childId, unitsPerChild, moveStockToParent, costFromParent } = req.body || {};
       if (!isObjectId(parentId) || !isObjectId(childId)) {
         return fail(res, 400, "Select both a parent and a child product");
       }
@@ -158,10 +159,12 @@ export default async function handler(req, res) {
             unitsPerChild: units,
             packType: "unit",
             qtyPerPack: 1,
+            costFromParent: costFromParent === undefined ? Boolean(child.costFromParent) : Boolean(costFromParent),
           },
         }
       );
       await deriveChildrenForParent(parent._id);
+      await syncChildCostsForParent(parent._id);
 
       return res.json({
         success: true,
@@ -191,6 +194,7 @@ export default async function handler(req, res) {
 
       await Product.updateOne({ _id: child._id }, { $set: { unitsPerChild: units } });
       await deriveChildrenForParent(parent._id);
+      await syncChildCostsForParent(parent._id);
 
       return res.json({
         success: true,
@@ -209,7 +213,7 @@ export default async function handler(req, res) {
       // The stock stays with the parent, so the unlinked product starts with none of its own
       await Product.updateOne(
         { _id: child._id },
-        { $set: { isChildProduct: false, unitsPerChild: 1, quantity: 0 }, $unset: { parentProduct: "" } }
+        { $set: { isChildProduct: false, unitsPerChild: 1, quantity: 0, costFromParent: false }, $unset: { parentProduct: "" } }
       );
 
       return res.json({

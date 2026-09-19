@@ -83,6 +83,8 @@ const ProductSchema = new Schema(
     qtyPerPack: { type: Number, default: 1 },
     // Child: base units of the parent's pack in one child item (e.g. 6, 2 or 1)
     unitsPerChild: { type: Number, default: 1, min: 1 },
+    // Child: work the cost price out from the parent pack's cost instead of holding its own
+    costFromParent: { type: Boolean, default: false },
 
     isArchived: { type: Boolean, default: false, index: true },
     archivedAt: { type: Date },
