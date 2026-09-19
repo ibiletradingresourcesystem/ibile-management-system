@@ -1124,7 +1124,9 @@ tbody tr.is-selected {
   position: fixed;
   top: 3rem;
   left: 5rem;
-  width: 15rem;
+  /* Wide enough that the longest labels ("Roles & Permissions", "Personal Tax
+     Calculator") fit at the larger type size without truncating. */
+  width: 16.5rem;
   height: calc(100vh - 3rem);
   z-index: 40;
   overflow-y: auto;
@@ -1151,16 +1153,16 @@ tbody tr.is-selected {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.125rem 0.875rem;
   background: var(--surface-card, #ffffff);
   border-bottom: 1px solid var(--border-subtle, #e5e7eb);
 }
 
 .nav-flyout-header p {
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   color: var(--text-muted, #6b7280);
   margin: 0;
 }
@@ -1174,14 +1176,16 @@ tbody tr.is-selected {
 
 .nav-sub-link {
   width: 100%;
-  min-height: 3rem;
+  min-height: 3.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  font-size: 0.875rem;
+  padding: 1rem 1.125rem;
+  font-size: 0.9375rem;
+  line-height: 1.35;
   font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--text-strong, #0f172a);
   border-left: 4px solid transparent;
   background: transparent;
@@ -1189,7 +1193,10 @@ tbody tr.is-selected {
   transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 
-.nav-sub-link.is-indent { padding-left: 2.25rem; }
+.nav-sub-link.is-indent {
+  padding-left: 2.5rem;
+  font-size: 0.875rem;
+}
 
 .nav-sub-link:hover {
   background: var(--accent-soft-bg, #f0f9ff);
@@ -1229,10 +1236,39 @@ tbody tr.is-selected {
 .nav-group-toggle { cursor: pointer; }
 .nav-group-toggle .nav-chevron { color: var(--text-muted, #6b7280); }
 .nav-group-toggle.is-open .nav-chevron { color: var(--accent, #0284c7); }
+.nav-group-toggle.is-active .nav-chevron { color: var(--accent, #0284c7); }
+
+/* Shown on a collapsed group that holds the current page, standing in for the
+   highlighted child row that is out of sight. */
+.nav-group-marker {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--accent, #0284c7);
+  box-shadow: 0 0 0 3px var(--accent-soft-bg, #f0f9ff);
+}
+
+/* With the group open, the child row carries the current-page highlight, so the
+   parent keeps only the accent border and text. Two filled rows read as two
+   selections. */
+.nav-group-toggle.is-active.is-open {
+  background: transparent;
+}
 
 .nav-group-body {
   background: var(--surface-card-alt, #f8fafc);
   border-top: 1px solid var(--border-subtle, #e5e7eb);
+  padding: 0.25rem 0;
+}
+
+.nav-group-body .nav-sub-link {
+  min-height: 3.125rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.nav-group-body .nav-sub-row {
+  border-bottom: 0;
 }
 
 .nav-mobile-submenu {

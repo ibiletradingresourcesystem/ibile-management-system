@@ -148,19 +148,32 @@ export default function Sidebar() {
     const items = visibleItems(section, group.key);
     if (items.length === 0) return null;
     const open = openGroup === group.key;
+
+    // A page inside a group has to mark the group itself as well, or the
+    // sidebar reads as though nothing is selected the moment the group is
+    // collapsed or another group is opened.
+    const activeChild = items.find((item) => isItemActive(item.href, pathname));
+
     return (
       <li key={group.key} className="nav-sub-row">
         <button
           type="button"
           onClick={() => toggleGroup(group.key)}
-          className={`nav-sub-link nav-group-toggle ${open ? "is-open" : ""}`}
+          className={`nav-sub-link nav-group-toggle ${open ? "is-open" : ""} ${activeChild ? "is-active" : ""}`}
           aria-expanded={open}
+          aria-current={activeChild ? "true" : undefined}
+          title={activeChild ? `${group.label} — ${activeChild.label}` : group.label}
         >
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-3 min-w-0">
             <span className="nav-dot" />
-            {group.label}
+            <span className="truncate">{group.label}</span>
           </span>
-          <span className={`nav-chevron ${open ? "rotate-90" : ""}`}>›</span>
+          <span className="flex items-center gap-2 flex-shrink-0">
+            {/* Collapsed and holding the current page: a marker stands in for
+                the highlighted child row that is hidden. */}
+            {activeChild && !open && <span className="nav-group-marker" aria-hidden="true" />}
+            <span className={`nav-chevron ${open ? "rotate-90" : ""}`}>›</span>
+          </span>
         </button>
         {open && (
           <ul className="nav-group-body">{items.map((item) => renderSubItem(item, { indent: true }))}</ul>
