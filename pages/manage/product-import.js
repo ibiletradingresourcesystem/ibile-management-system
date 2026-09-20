@@ -469,8 +469,8 @@ export default function ProductImportPage() {
                   Only touch products whose <strong>Cost</strong> has changed
                   <span className="block text-xs text-gray-500">
                     A product whose cost already matches the file is left completely alone — no price write, no
-                    VAT, no barcode repair. Rows that set a Parent or Pack Qty always run, because those are
-                    instructions rather than price drift.
+                    VAT, no barcode repair. Rows that set a Parent or Pack Qty always run, and so does a stock
+                    Qty when the box above is ticked, because those are instructions rather than price drift.
                   </span>
                 </span>
               </label>
