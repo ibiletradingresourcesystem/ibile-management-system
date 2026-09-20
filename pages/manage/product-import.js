@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Layout from "@/components/Layout";
 import apiClient from "@/lib/api-client";
 import { useAuth } from "@/lib/useAuth";
+import { canManageProducts } from "@/lib/permission-utils";
 import { getCachedSetup } from "@/lib/setupCache";
 import { clearCache } from "@/lib/useIndexedDBCache";
 import { formatCurrency } from "@/lib/format";
@@ -517,7 +518,7 @@ function SummaryTile({ label, value, tone }) {
  * Checking is always safe — nothing is saved until "Fix Barcodes" is clicked.
  */
 function BarcodeRepairCard() {
-  const { isAdmin } = useAuth();
+  const { user } = useAuth();
   const [report, setReport] = useState(null);
   const [running, setRunning] = useState("");
   const [error, setError] = useState("");
@@ -540,7 +541,7 @@ function BarcodeRepairCard() {
     }
   };
 
-  if (!isAdmin) return null;
+  if (!canManageProducts(user)) return null;
 
   const toFix = report ? report.summary.toFix ?? report.summary.fixed : 0;
 

@@ -1,25 +1,35 @@
 /**
  * Camera barcode scanner for the mobile stock take.
  *
- * The previous version relied on `window.BarcodeDetector` alone. That exists in
- * Chrome on Android but not in Safari on iOS, not in Firefox and not in most
- * desktop browsers, so on those devices the camera opened, the preview ran and
- * nothing was ever detected — the scanner looked broken.
+ * Three things kept this from working before:
  *
- * This tries BarcodeDetector first because it is fastest where it exists, and
- * falls back to ZXing (already a dependency) everywhere else. It also:
- *   - lets the user pick a camera when the device has more than one
- *   - offers a torch toggle on hardware that supports it
- *   - requires the same code twice before accepting it, which kills the
- *     misreads a single blurry frame produces
- *   - keeps scanning after a hit when `continuous` is set, so a counter can
- *     work down a shelf without reopening the camera each time
+ * 1. The camera effect depended on the `onScan` callback. That callback was
+ *    rebuilt on the page whenever the stock take data changed, so every save or
+ *    refresh tore the camera down and started it again. `onScan` now lives in a
+ *    ref, and the effect depends only on the selected camera.
+ * 2. The ZXing path handed the stream to `decodeFromStream`, which resets the
+ *    reader and re-attaches a video element that was already playing. Its
+ *    internal "wait for the video to load" promise then never resolved, so the
+ *    decode loop never started. The loop is owned here now and calls
+ *    `reader.decode(video)` directly.
+ * 3. ZXing caches its capture canvas at whatever size the video reports on the
+ *    first decode. Called before metadata arrives, that canvas is locked at
+ *    0x0 and nothing ever decodes. Decoding now waits for real dimensions and
+ *    resets the reader if the dimensions change.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const FORMATS = ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "itf", "codabar"];
+const NATIVE_FORMATS = ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "itf", "codabar"];
 
-/** Stop every track on a stream, so the camera light actually goes out. */
+/** How often to attempt a decode, in milliseconds. */
+const DECODE_INTERVAL_MS = 120;
+
+/** The same code must be read this many times before it counts. */
+const CONFIRMATIONS = 2;
+
+/** Ignore a repeat of the code we just accepted for this long. */
+const REPEAT_LOCKOUT_MS = 1500;
+
 function stopStream(stream) {
   if (!stream) return;
   stream.getTracks().forEach((track) => {
@@ -32,16 +42,23 @@ function stopStream(stream) {
 export default function MobileBarcodeScanner({
   onScan,
   onClose,
-  continuous = false,
-  title = "Scan Barcode",
+  title = "Scan a product",
+  hint = "",
   lastResult = "",
 }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
-  const rafRef = useRef(null);
   const readerRef = useRef(null);
+  const timerRef = useRef(null);
   const runningRef = useRef(false);
+  const canvasSizeRef = useRef("");
   const lastCodeRef = useRef({ value: "", count: 0, acceptedAt: 0 });
+
+  // The camera must not restart just because the page rebuilt its handler.
+  const onScanRef = useRef(onScan);
+  useEffect(() => {
+    onScanRef.current = onScan;
+  }, [onScan]);
 
   const [manualBarcode, setManualBarcode] = useState("");
   const [cameraError, setCameraError] = useState("");
@@ -51,171 +68,133 @@ export default function MobileBarcodeScanner({
   const [torchOn, setTorchOn] = useState(false);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [status, setStatus] = useState("Starting camera…");
+  const [flash, setFlash] = useState(false);
 
   /**
-   * Accept a decoded value only after seeing it twice, and never twice inside
-   * 1.2 seconds, so one barcode does not register as several scans.
+   * Take a decoded value only after seeing it twice, and never twice in quick
+   * succession, so one barcode does not register as several scans.
    */
-  const accept = useCallback(
-    (raw) => {
-      const value = String(raw || "").trim();
-      if (!value) return;
+  const accept = useCallback((raw) => {
+    const value = String(raw || "").trim();
+    if (!value) return;
 
-      const now = Date.now();
-      const state = lastCodeRef.current;
+    const now = Date.now();
+    const state = lastCodeRef.current;
 
-      if (state.value === value && now - state.acceptedAt < 1200) return;
+    if (state.value === value && now - state.acceptedAt < REPEAT_LOCKOUT_MS) return;
 
-      if (state.value !== value) {
-        lastCodeRef.current = { value, count: 1, acceptedAt: 0 };
-        return;
-      }
-
-      state.count += 1;
-      if (state.count < 2) return;
-
-      lastCodeRef.current = { value, count: 0, acceptedAt: now };
-
-      if (navigator.vibrate) {
-        try {
-          navigator.vibrate(60);
-        } catch {}
-      }
-
-      setStatus(`Scanned ${value}`);
-      onScan(value);
-
-      if (!continuous) {
-        runningRef.current = false;
-      }
-    },
-    [onScan, continuous]
-  );
-
-  /* ─── Camera list ─────────────────────────────────────────────── */
-
-  const listCameras = useCallback(async () => {
-    try {
-      const all = await navigator.mediaDevices.enumerateDevices();
-      const cams = all.filter((d) => d.kind === "videoinput");
-      setDevices(cams);
-      return cams;
-    } catch {
-      return [];
+    if (state.value !== value) {
+      lastCodeRef.current = { value, count: 1, acceptedAt: 0 };
+      return;
     }
+
+    state.count += 1;
+    if (state.count < CONFIRMATIONS) return;
+
+    lastCodeRef.current = { value, count: 0, acceptedAt: now };
+
+    try {
+      navigator.vibrate?.(60);
+    } catch {}
+
+    setFlash(true);
+    setTimeout(() => setFlash(false), 220);
+    setStatus(`Read ${value}`);
+
+    onScanRef.current?.(value);
   }, []);
 
-  /* ─── Start / stop ────────────────────────────────────────────── */
+  /* ─── Camera lifecycle ────────────────────────────────────────── */
 
   useEffect(() => {
     let cancelled = false;
 
-    async function start() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraError("This browser cannot open the camera. Use the manual entry box below.");
-        return;
+    const clearTimer = () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+
+    /** True once the browser reports real frame dimensions. */
+    const frameReady = () => {
+      const video = videoRef.current;
+      return Boolean(
+        video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0
+      );
+    };
+
+    async function decodeWithNative(detector) {
+      const video = videoRef.current;
+      const results = await detector.detect(video);
+      if (results && results.length > 0) accept(results[0].rawValue);
+    }
+
+    function decodeWithZxing() {
+      const video = videoRef.current;
+      const reader = readerRef.current;
+      if (!reader) return;
+
+      // The capture canvas is cached at the size of the first frame decoded.
+      // If the camera changes resolution mid-stream, drop it and let ZXing
+      // rebuild it, or every later frame is sampled at the wrong size.
+      const size = `${video.videoWidth}x${video.videoHeight}`;
+      if (canvasSizeRef.current && canvasSizeRef.current !== size) {
+        try {
+          reader.reset();
+        } catch {}
+      }
+      canvasSizeRef.current = size;
+
+      const result = reader.decode(video);
+      if (result) accept(result.getText());
+    }
+
+    async function loop(decodeOnce) {
+      if (!runningRef.current || cancelled) return;
+
+      if (frameReady()) {
+        try {
+          await decodeOnce();
+        } catch {
+          // No barcode in this frame. That is the normal case; keep going.
+        }
       }
 
-      try {
-        const constraints = {
-          video: deviceId
-            ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-            : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
-        };
-
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        if (cancelled) {
-          stopStream(stream);
-          return;
-        }
-
-        streamRef.current = stream;
-        setCameraError("");
-
-        // Labels only populate after permission is granted, so list here.
-        const cams = await listCameras();
-        if (!deviceId && cams.length) {
-          const active = stream.getVideoTracks()[0]?.getSettings?.().deviceId;
-          if (active) setDeviceId(active);
-        }
-
-        const track = stream.getVideoTracks()[0];
-        const capabilities = track?.getCapabilities?.() || {};
-        setTorchAvailable(Boolean(capabilities.torch));
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          // iOS needs both of these before it will play inline.
-          videoRef.current.setAttribute("playsinline", "true");
-          videoRef.current.muted = true;
-          await videoRef.current.play().catch(() => {});
-        }
-
-        runningRef.current = true;
-
-        if (typeof window !== "undefined" && "BarcodeDetector" in window) {
-          setEngine("BarcodeDetector");
-          setStatus("Point the camera at a barcode");
-          runDetectorLoop();
-        } else {
-          setEngine("ZXing");
-          setStatus("Point the camera at a barcode");
-          await runZxingLoop();
-        }
-      } catch (err) {
-        if (cancelled) return;
-        const name = err?.name || "";
-        if (name === "NotAllowedError" || name === "SecurityError") {
-          setCameraError(
-            "Camera permission was denied. Allow camera access for this site, then reopen the scanner. On a phone the page must be served over HTTPS."
-          );
-        } else if (name === "NotFoundError" || name === "OverconstrainedError") {
-          setCameraError("No usable camera was found on this device. Type the barcode below instead.");
-        } else if (name === "NotReadableError") {
-          setCameraError("The camera is being used by another app. Close it and try again.");
-        } else {
-          setCameraError(`Could not start the camera: ${err?.message || name || "unknown error"}`);
-        }
+      if (runningRef.current && !cancelled) {
+        timerRef.current = setTimeout(() => loop(decodeOnce), DECODE_INTERVAL_MS);
       }
     }
 
-    /** Native path — fast where it exists. */
-    async function runDetectorLoop() {
-      let detector;
-      try {
-        detector = new window.BarcodeDetector({ formats: FORMATS });
-      } catch {
-        // Some builds expose the class but support no formats; drop to ZXing.
-        setEngine("ZXing");
-        await runZxingLoop();
-        return;
-      }
+    async function startDecoding() {
+      // The native detector is much faster where it exists, but it is absent on
+      // iOS Safari, Firefox and most desktop browsers, which is why ZXing is
+      // there to catch everything else.
+      if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+        try {
+          const supported = await window.BarcodeDetector.getSupportedFormats?.();
+          const formats = supported
+            ? NATIVE_FORMATS.filter((f) => supported.includes(f))
+            : NATIVE_FORMATS;
 
-      const tick = async () => {
-        if (!runningRef.current || cancelled) return;
-        const video = videoRef.current;
-        if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
-          try {
-            const results = await detector.detect(video);
-            if (results && results.length > 0) accept(results[0].rawValue);
-          } catch {
-            // A transient decode failure is normal; keep going.
+          if (formats.length > 0) {
+            const detector = new window.BarcodeDetector({ formats });
+            if (cancelled) return;
+            setEngine("Fast scan");
+            setStatus("Point the camera at a barcode");
+            loop(() => decodeWithNative(detector));
+            return;
           }
+        } catch {
+          // Class present but unusable — fall through to ZXing.
         }
-        rafRef.current = requestAnimationFrame(tick);
-      };
+      }
 
-      rafRef.current = requestAnimationFrame(tick);
-    }
-
-    /** Fallback path — works on iOS Safari, Firefox and desktop browsers. */
-    async function runZxingLoop() {
       const { BrowserMultiFormatReader, DecodeHintType, BarcodeFormat } = await import("@zxing/library");
       if (cancelled) return;
 
-      // Restricting the formats makes each frame noticeably cheaper to decode
-      // on the low-end phones this screen is actually used on.
+      // Narrowing the format list makes each frame noticeably cheaper on the
+      // low-end phones this screen actually runs on.
       const hints = new Map();
       hints.set(DecodeHintType.POSSIBLE_FORMATS, [
         BarcodeFormat.EAN_13,
@@ -229,15 +208,89 @@ export default function MobileBarcodeScanner({
       ]);
       hints.set(DecodeHintType.TRY_HARDER, true);
 
-      const reader = new BrowserMultiFormatReader(hints, 200);
-      readerRef.current = reader;
+      readerRef.current = new BrowserMultiFormatReader(hints);
+      canvasSizeRef.current = "";
+      setEngine("Standard scan");
+      setStatus("Point the camera at a barcode");
+      loop(decodeWithZxing);
+    }
 
-      // ZXing drives its own decode loop off the stream and calls back on every
-      // frame; `accept` is what filters the noise out of that.
-      await reader.decodeFromStream(streamRef.current, videoRef.current, (result) => {
-        if (!runningRef.current || cancelled) return;
-        if (result) accept(result.getText());
-      });
+    async function start() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError(
+          "This browser cannot open a camera. Type the barcode below instead."
+        );
+        return;
+      }
+
+      if (typeof window !== "undefined" && !window.isSecureContext) {
+        setCameraError(
+          "The camera only works over HTTPS. Open this page on its https:// address, then try again."
+        );
+        return;
+      }
+
+      try {
+        const constraints = {
+          audio: false,
+          video: deviceId
+            ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (cancelled) {
+          stopStream(stream);
+          return;
+        }
+
+        streamRef.current = stream;
+        setCameraError("");
+
+        // Device labels only populate once permission has been granted. This
+        // fills the picker without setting deviceId, which would restart the
+        // camera we have just opened.
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then((all) => {
+            if (!cancelled) setDevices(all.filter((d) => d.kind === "videoinput"));
+          })
+          .catch(() => {});
+
+        const track = stream.getVideoTracks()[0];
+        setTorchAvailable(Boolean(track?.getCapabilities?.().torch));
+        setTorchOn(false);
+
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          video.setAttribute("playsinline", "true");
+          video.setAttribute("muted", "true");
+          video.muted = true;
+          try {
+            await video.play();
+          } catch {
+            // Autoplay can be refused; the loop waits for frames either way.
+          }
+        }
+
+        runningRef.current = true;
+        await startDecoding();
+      } catch (err) {
+        if (cancelled) return;
+        const name = err?.name || "";
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          setCameraError(
+            "Camera permission was refused. Allow camera access for this site in your browser settings, then reopen the scanner."
+          );
+        } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+          setCameraError("No usable camera was found on this device. Type the barcode below instead.");
+        } else if (name === "NotReadableError" || name === "TrackStartError") {
+          setCameraError("The camera is in use by another app. Close it and try again.");
+        } else {
+          setCameraError(`Could not start the camera: ${err?.message || name || "unknown error"}`);
+        }
+      }
     }
 
     start();
@@ -245,14 +298,19 @@ export default function MobileBarcodeScanner({
     return () => {
       cancelled = true;
       runningRef.current = false;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      clearTimer();
       try {
         readerRef.current?.reset?.();
       } catch {}
+      readerRef.current = null;
+      canvasSizeRef.current = "";
       stopStream(streamRef.current);
       streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
     };
-  }, [deviceId, accept, listCameras]);
+  }, [deviceId, accept]);
+
+  /* ─── Controls ────────────────────────────────────────────────── */
 
   const toggleTorch = async () => {
     const track = streamRef.current?.getVideoTracks?.()[0];
@@ -276,21 +334,25 @@ export default function MobileBarcodeScanner({
     const value = manualBarcode.trim();
     if (!value) return;
     setManualBarcode("");
-    // Manual entry is deliberate, so skip the confirm-twice rule.
+    // Typed entry is deliberate, so it skips the confirm-twice rule.
     lastCodeRef.current = { value: "", count: 0, acceptedAt: 0 };
-    onScan(value);
+    onScanRef.current?.(value);
   };
 
   return (
     <div className="mbs">
       <div className="mbs__header">
-        <div>
+        <div className="mbs__header-text">
           <h2>{title}</h2>
           <p>{cameraError ? "Camera unavailable" : `${status}${engine ? ` · ${engine}` : ""}`}</p>
         </div>
         <div className="mbs__header-actions">
           {torchAvailable && (
-            <button onClick={toggleTorch} className="mbs__icon-btn" aria-label="Toggle torch">
+            <button
+              onClick={toggleTorch}
+              className={`mbs__icon-btn ${torchOn ? "is-on" : ""}`}
+              aria-label={torchOn ? "Turn torch off" : "Turn torch on"}
+            >
               {torchOn ? "🔦" : "💡"}
             </button>
           )}
@@ -307,20 +369,27 @@ export default function MobileBarcodeScanner({
       ) : (
         <div className="mbs__stage">
           <video ref={videoRef} className="mbs__video" playsInline muted autoPlay />
-          <div className="mbs__frame">
+          <div className={`mbs__frame ${flash ? "is-hit" : ""}`}>
             <span className="mbs__corner mbs__corner--tl" />
             <span className="mbs__corner mbs__corner--tr" />
             <span className="mbs__corner mbs__corner--bl" />
             <span className="mbs__corner mbs__corner--br" />
             <span className="mbs__laser" />
           </div>
+          {hint && <div className="mbs__hint">{hint}</div>}
           {lastResult && <div className="mbs__last">Last: {lastResult}</div>}
         </div>
       )}
 
       <div className="mbs__footer">
         {devices.length > 1 && !cameraError && (
-          <select value={deviceId} onChange={(e) => setDeviceId(e.target.value)} className="mbs__select">
+          <select
+            value={deviceId}
+            onChange={(e) => setDeviceId(e.target.value)}
+            className="mbs__select"
+            aria-label="Choose camera"
+          >
+            <option value="">Default camera (rear)</option>
             {devices.map((d, i) => (
               <option key={d.deviceId} value={d.deviceId}>
                 {d.label || `Camera ${i + 1}`}
@@ -357,7 +426,10 @@ export default function MobileBarcodeScanner({
           gap: 12px;
           padding: 14px 16px;
           color: #fff;
-          background: rgba(0, 0, 0, 0.75);
+          background: rgba(0, 0, 0, 0.78);
+        }
+        .mbs__header-text {
+          min-width: 0;
         }
         .mbs__header h2 {
           font-size: 16px;
@@ -365,25 +437,32 @@ export default function MobileBarcodeScanner({
           margin: 0;
         }
         .mbs__header p {
-          font-size: 11px;
-          opacity: 0.7;
+          font-size: 11.5px;
+          opacity: 0.75;
           margin: 2px 0 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .mbs__header-actions {
           display: flex;
           gap: 8px;
+          flex-shrink: 0;
         }
         .mbs__icon-btn {
           border: 0;
           background: rgba(255, 255, 255, 0.18);
           color: #fff;
-          width: 38px;
-          height: 38px;
+          width: 40px;
+          height: 40px;
           border-radius: 50%;
           font-size: 18px;
           cursor: pointer;
           display: grid;
           place-items: center;
+        }
+        .mbs__icon-btn.is-on {
+          background: rgba(250, 204, 21, 0.35);
         }
         .mbs__stage {
           position: relative;
@@ -401,16 +480,23 @@ export default function MobileBarcodeScanner({
           top: 50%;
           left: 50%;
           transform: translate(-50%, -50%);
-          width: min(78vw, 300px);
-          height: 170px;
-          box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+          width: min(80vw, 310px);
+          height: 175px;
+          box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.48);
           border-radius: 12px;
+          transition: box-shadow 0.18s ease;
+        }
+        .mbs__frame.is-hit {
+          box-shadow: 0 0 0 100vmax rgba(22, 163, 74, 0.45);
         }
         .mbs__corner {
           position: absolute;
-          width: 26px;
-          height: 26px;
+          width: 28px;
+          height: 28px;
           border: 3px solid #22d3ee;
+        }
+        .mbs__frame.is-hit .mbs__corner {
+          border-color: #4ade80;
         }
         .mbs__corner--tl {
           top: -2px;
@@ -458,16 +544,24 @@ export default function MobileBarcodeScanner({
             top: calc(100% - 14px);
           }
         }
+        .mbs__hint,
         .mbs__last {
           position: absolute;
           left: 50%;
-          bottom: 18px;
           transform: translateX(-50%);
           background: rgba(0, 0, 0, 0.72);
           color: #fff;
           font-size: 12px;
-          padding: 6px 12px;
+          padding: 7px 14px;
           border-radius: 999px;
+          max-width: 90%;
+          text-align: center;
+        }
+        .mbs__hint {
+          top: 16px;
+        }
+        .mbs__last {
+          bottom: 18px;
           font-family: monospace;
         }
         .mbs__error {
@@ -478,7 +572,7 @@ export default function MobileBarcodeScanner({
           text-align: center;
           color: #e5e7eb;
           font-size: 14px;
-          line-height: 1.55;
+          line-height: 1.6;
         }
         .mbs__footer {
           padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
@@ -489,7 +583,7 @@ export default function MobileBarcodeScanner({
         }
         .mbs__select {
           width: 100%;
-          height: 42px;
+          height: 44px;
           border: 1px solid #374151;
           border-radius: 10px;
           background: #1f2937;
@@ -503,7 +597,7 @@ export default function MobileBarcodeScanner({
         }
         .mbs__manual input {
           flex: 1;
-          height: 46px;
+          height: 48px;
           border: 1px solid #374151;
           border-radius: 10px;
           background: #1f2937;
@@ -512,13 +606,13 @@ export default function MobileBarcodeScanner({
           font-size: 16px;
         }
         .mbs__manual button {
-          height: 46px;
-          padding: 0 20px;
+          height: 48px;
+          padding: 0 22px;
           border: 0;
           border-radius: 10px;
           background: #2563eb;
           color: #fff;
-          font-size: 14px;
+          font-size: 15px;
           font-weight: 700;
           cursor: pointer;
         }

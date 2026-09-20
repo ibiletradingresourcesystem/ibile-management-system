@@ -9,6 +9,7 @@
  * - New products are created in `location` (categories auto-created) with 7.5% VAT.
  * - Existing products (matched by name, then barcode) only get cost & sale price updates;
  *   stock qty is updated only when `updateExistingQty` is true. Other details stay the same.
+ * - Seeding stock qty needs product or stock-management access (lib/permission-utils.js), not admin.
  * - `fixBarcodes` (on by default) repairs barcodes a spreadsheet broke apart on products that
  *   were already seeded, and merges in the codes from the file. No barcode is ever removed.
  * - "Pack Qty" / "Parent" / "Units" columns set up mother (pack) and child products.
@@ -19,6 +20,7 @@ import { mongooseConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import { Category } from "@/models/Category";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { canManageProducts } from "@/lib/permission-utils";
 import { normalizeImportRow } from "@/lib/productImport";
 import { buildImportPlan, nameKey } from "@/lib/productImportPlan";
 import { deriveChildrenForParent } from "@/lib/syncPackQty";
@@ -85,7 +87,8 @@ export default async function handler(req, res) {
   try {
     const rows = products.map((raw, index) => normalizeImportRow(raw, index));
     const existingProducts = await Product.find({}).select(PLAN_PRODUCT_FIELDS).lean();
-    const canSeedQty = req.user?.role === "admin";
+    // Whoever may edit products or stock levels may also seed stock quantities from the file
+    const canSeedQty = canManageProducts(req.user);
 
     const plan = buildImportPlan({
       rows,

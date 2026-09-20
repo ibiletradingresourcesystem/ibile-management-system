@@ -13,7 +13,8 @@
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import Product from "@/models/Product";
-import { authMiddleware, isAdmin } from "@/lib/auth-middleware";
+import { authMiddleware } from "@/lib/auth-middleware";
+import { canManageProducts } from "@/lib/permission-utils";
 import { repairStoredBarcodes } from "@/lib/barcodes";
 
 const MAX_SAMPLES = 50;
@@ -23,8 +24,8 @@ export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
   if (authError) return authError;
 
-  if (!isAdmin(req)) {
-    return res.status(403).json({ error: "Only an admin can repair barcodes" });
+  if (!canManageProducts(req.user)) {
+    return res.status(403).json({ error: "You do not have permission to repair barcodes" });
   }
 
   if (req.method !== "POST") {
