@@ -8,8 +8,9 @@ import { getCachedSetup } from "@/lib/setupCache";
 import { clearCache } from "@/lib/useIndexedDBCache";
 import { formatCurrency } from "@/lib/format";
 import { IMPORT_TEMPLATE_HEADERS, parseDelimitedText, rowsFromTable } from "@/lib/productImport";
+import { VAT_RATE } from "@/lib/pricing";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFileExcel, faDownload, faUpload, faCheck, faExclamationTriangle, faBarcode } from "@fortawesome/free-solid-svg-icons";
+import { faFileExcel, faDownload, faUpload, faCheck, faExclamationTriangle, faBarcode, faPercent } from "@fortawesome/free-solid-svg-icons";
 
 const MAX_ROWS = 5000;
 const MAX_VISIBLE_ROWS = 300;
@@ -17,7 +18,7 @@ const MAX_VISIBLE_ROWS = 300;
 const COLUMN_HELP = [
   ["Name", "Required. Existing products are matched by name, then by barcode."],
   ["Description", "Optional. Defaults to the name."],
-  ["Cost / Sale", "Prices. For existing products only these are updated when they differ."],
+  ["Cost / Sale", "Prices. For existing products only these are updated when they differ. A child's Cost is ignored — it is worked out from its mother's cost and pack size."],
   ["Barcode", "Optional. Several codes in one cell: separate with , ; | or a new line. Codes a spreadsheet broke apart are repaired."],
   ["Category", "Optional. Missing categories are created for new products."],
   ["Qty", "Stock quantity (in packs for a pack product). Ignored for child products."],
@@ -74,6 +75,8 @@ export default function ProductImportPage() {
   const [fileInfo, setFileInfo] = useState(null);
   const [updateExistingQty, setUpdateExistingQty] = useState(false);
   const [fixBarcodes, setFixBarcodes] = useState(true);
+  const [linkChildCost, setLinkChildCost] = useState(true);
+  const [applyVatToAll, setApplyVatToAll] = useState(true);
   const [preview, setPreview] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -115,7 +118,14 @@ export default function ProductImportPage() {
     let active = true;
     setAnalyzing(true);
     setError("");
-    postImport({ products: parsedRows, updateExistingQty, fixBarcodes, dryRun: true })
+    postImport({
+      products: parsedRows,
+      updateExistingQty,
+      fixBarcodes,
+      linkChildCost,
+      applyVatToAll,
+      dryRun: true,
+    })
       .then((data) => {
         if (active) setPreview(data);
       })
@@ -131,7 +141,7 @@ export default function ProductImportPage() {
     return () => {
       active = false;
     };
-  }, [parsedRows, updateExistingQty, fixBarcodes, postImport]);
+  }, [parsedRows, updateExistingQty, fixBarcodes, linkChildCost, applyVatToAll, postImport]);
 
   const handleFileUpload = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -191,6 +201,8 @@ export default function ProductImportPage() {
         location: selectedLocation,
         updateExistingQty,
         fixBarcodes,
+        linkChildCost,
+        applyVatToAll,
         dryRun: false,
       });
       await Promise.allSettled([clearCache("products_cache"), clearCache("stock_products_cache")]);
@@ -357,6 +369,42 @@ export default function ProductImportPage() {
                 </span>
               </label>
             )}
+
+            {preview && (
+              <label className="mt-3 flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={linkChildCost}
+                  onChange={(e) => setLinkChildCost(e.target.checked)}
+                />
+                <span>
+                  Work out a <strong>child&apos;s cost from its mother</strong> pack
+                  <span className="block text-xs text-gray-500">
+                    A pack of 24 costing ₦4,800 makes a child of 6 cost ₦1,200. The child&apos;s Cost cell is
+                    ignored, and it keeps following the pack whenever the pack&apos;s cost changes.
+                  </span>
+                </span>
+              </label>
+            )}
+
+            {preview && (
+              <label className="mt-3 flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={applyVatToAll}
+                  onChange={(e) => setApplyVatToAll(e.target.checked)}
+                />
+                <span>
+                  Put every product in the file on <strong>{VAT_RATE}% VAT</strong>
+                  <span className="block text-xs text-gray-500">
+                    New products always get VAT. This also ticks it on products seeded earlier at 0%, so the
+                    whole file is taxed the same way. VAT sits inside the sale price, so shelf prices do not change.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
 
           {/* Error */}
@@ -398,6 +446,16 @@ export default function ProductImportPage() {
                     <SummaryTile label="Updates" value={preview.summary.update} tone="text-blue-700" />
                     <SummaryTile label="No change" value={preview.summary.unchanged} tone="text-gray-700" />
                     <SummaryTile label="Errors (skipped)" value={preview.summary.errors} tone="text-red-600" />
+                    {preview.summary.childCostLinked > 0 && (
+                      <SummaryTile
+                        label="Child costs linked"
+                        value={preview.summary.childCostLinked}
+                        tone="text-gray-700"
+                      />
+                    )}
+                    {preview.summary.vatApplied > 0 && (
+                      <SummaryTile label="VAT set" value={preview.summary.vatApplied} tone="text-gray-700" />
+                    )}
                   </div>
                   {preview.categoriesToCreate?.length > 0 && (
                     <p className="text-xs text-gray-600 mb-2">
@@ -498,6 +556,7 @@ export default function ProductImportPage() {
             </div>
           )}
           <BarcodeRepairCard />
+          <VatCard />
         </div>
       </div>
     </Layout>
@@ -640,6 +699,155 @@ function BarcodeRepairCard() {
                 </p>
               ))}
             </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Puts every product in the system on the one VAT rate.
+ *
+ * The import gives new products VAT, but anything created before that — or added by hand with
+ * the box left unticked — sits at 0%, so the same shelf can hold two products taxed differently.
+ * Checking is always safe: nothing is saved until Apply is clicked.
+ */
+function VatCard() {
+  const { user } = useAuth();
+  const [report, setReport] = useState(null);
+  const [running, setRunning] = useState("");
+  const [error, setError] = useState("");
+  const [includeArchived, setIncludeArchived] = useState(true);
+
+  const run = async (dryRun) => {
+    setRunning(dryRun ? "check" : "apply");
+    setError("");
+    try {
+      const { data } = await apiClient.post("/api/products/apply-vat", { dryRun, includeArchived });
+      if (!dryRun) {
+        await Promise.allSettled([clearCache("products_cache"), clearCache("stock_products_cache")]);
+        if (typeof window !== "undefined") sessionStorage.setItem("products:refresh", "1");
+      }
+      setReport(data);
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || "VAT check failed");
+      setReport(null);
+    } finally {
+      setRunning("");
+    }
+  };
+
+  if (!canManageProducts(user)) return null;
+
+  const toChange = report ? report.summary.toChange ?? report.summary.changed : 0;
+
+  return (
+    <div className="content-card mb-6">
+      <div className="flex items-center gap-2 mb-1">
+        <FontAwesomeIcon icon={faPercent} className="w-4 h-4 text-gray-500" />
+        <h3 className="text-sm font-bold text-gray-700">VAT Across All Products</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">
+        Seeded products are created with {VAT_RATE}% VAT, but products added before that, or entered by hand with
+        the VAT box unticked, sit at 0%. This ticks VAT on every product so the whole catalogue is taxed the same
+        way. VAT sits <strong>inside</strong> the sale price, so no shelf price changes — only the tax owed out of it.
+      </p>
+
+      <label className="flex items-start gap-2 text-xs text-gray-600 mb-3">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={includeArchived}
+          onChange={(e) => setIncludeArchived(e.target.checked)}
+        />
+        <span>Include archived products, so restoring one later does not bring back a 0% product</span>
+      </label>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => run(true)}
+          disabled={Boolean(running)}
+          className="btn-action btn-action-secondary text-xs"
+        >
+          {running === "check" ? "Checking..." : "Check VAT"}
+        </button>
+        {report?.dryRun && toChange > 0 && (
+          <button
+            onClick={() => run(false)}
+            disabled={Boolean(running)}
+            className="btn-action btn-action-primary text-xs"
+          >
+            {running === "apply" ? "Applying..." : `Apply VAT to ${toChange} Product(s)`}
+          </button>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
+
+      {report && (
+        <div className="mt-4 text-xs text-gray-700 space-y-2">
+          <p>
+            Scanned <strong>{report.summary.scanned}</strong> product(s).{" "}
+            <strong>{report.summary.alreadyOnVat}</strong> already on {report.vatRate}%.{" "}
+            {report.dryRun ? (
+              toChange > 0 ? (
+                <>
+                  <strong>{toChange}</strong> to change
+                  {report.summary.turnedOn > 0 && <> ({report.summary.turnedOn} from 0%</>}
+                  {report.summary.turnedOn > 0 && report.summary.corrected > 0 && <>, </>}
+                  {report.summary.corrected > 0 && <>{report.summary.corrected} on an old rate</>}
+                  {report.summary.turnedOn > 0 && <>)</>}.
+                </>
+              ) : (
+                <span className="text-green-700 font-semibold">Every product is already on {report.vatRate}%.</span>
+              )
+            ) : (
+              <span className="text-green-700 font-semibold">{toChange} product(s) put on {report.vatRate}% VAT.</span>
+            )}
+          </p>
+
+          {report.samples.length > 0 && (
+            <div className="overflow-x-auto max-h-64">
+              <table className="data-table text-xs">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>VAT</th>
+                    <th style={{ textAlign: "right" }}>Sale</th>
+                    <th style={{ textAlign: "right" }}>VAT in price</th>
+                    <th style={{ textAlign: "right" }}>Profit after VAT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.samples.map((item, i) => (
+                    <tr key={i}>
+                      <td>
+                        {item.name}
+                        {item.archived && <span className="ml-1 text-[10px] text-gray-400">(archived)</span>}
+                      </td>
+                      <td>
+                        {item.from}% &rarr; {item.to}%
+                      </td>
+                      <td style={{ textAlign: "right" }}>{formatCurrency(item.salePrice)}</td>
+                      <td style={{ textAlign: "right" }}>{formatCurrency(item.vatAmount)}</td>
+                      <td
+                        style={{ textAlign: "right" }}
+                        className={item.profitAfterVat < 0 ? "text-red-600 font-semibold" : ""}
+                      >
+                        {formatCurrency(item.profitAfterVat)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {report.samples.some((item) => item.profitAfterVat < 0) && (
+            <p className="text-orange-600 font-semibold">
+              Some products lose money once VAT is taken out of the sale price. Review their prices.
+            </p>
           )}
         </div>
       )}

@@ -7,6 +7,10 @@
  *   dryRun=false → applies the plan
  *
  * - New products are created in `location` (categories auto-created) with 7.5% VAT.
+ * - `applyVatToAll` (on by default) also puts existing products in the file on 7.5% VAT, so a
+ *   product seeded before the rate was applied stops being the odd one out.
+ * - `linkChildCost` (on by default) works a child's cost out from its mother's cost and pack
+ *   size instead of the file's Cost cell, and marks it to follow the pack from then on.
  * - Existing products (matched by name, then barcode) only get cost & sale price updates;
  *   stock qty is updated only when `updateExistingQty` is true. Other details stay the same.
  * - Seeding stock qty needs product or stock-management access (lib/permission-utils.js), not admin.
@@ -24,10 +28,11 @@ import { canManageProducts } from "@/lib/permission-utils";
 import { normalizeImportRow } from "@/lib/productImport";
 import { buildImportPlan, nameKey } from "@/lib/productImportPlan";
 import { deriveChildrenForParent } from "@/lib/syncPackQty";
+import { syncChildCostsForParent } from "@/lib/childPricing";
 
 const MAX_ROWS = 5000;
 const PLAN_PRODUCT_FIELDS =
-  "name barcode costPrice salePriceIncTax taxRate quantity packType qtyPerPack isChildProduct parentProduct unitsPerChild isArchived isStockManaged";
+  "name barcode costPrice salePriceIncTax taxRate quantity packType qtyPerPack isChildProduct parentProduct unitsPerChild costFromParent isArchived isStockManaged";
 
 function formatEntry(entry, result) {
   return {
@@ -74,7 +79,15 @@ export default async function handler(req, res) {
 
   await mongooseConnect();
 
-  const { products, location, dryRun = false, updateExistingQty = false, fixBarcodes = true } = req.body || {};
+  const {
+    products,
+    location,
+    dryRun = false,
+    updateExistingQty = false,
+    fixBarcodes = true,
+    linkChildCost = true,
+    applyVatToAll = true,
+  } = req.body || {};
 
   if (!Array.isArray(products) || products.length === 0) {
     return res.status(400).json({ error: "No products provided" });
@@ -97,6 +110,8 @@ export default async function handler(req, res) {
         canSeedQty,
         updateExistingQty: Boolean(updateExistingQty),
         fixBarcodes: fixBarcodes !== false,
+        linkChildCost: linkChildCost !== false,
+        applyVatToAll: applyVatToAll !== false,
       },
     });
 
@@ -218,6 +233,18 @@ export default async function handler(req, res) {
       await deriveChildrenForParent(parentId);
     }
 
+    // 6. Re-price every child that follows its pack. This covers children created here and any
+    //    child already in the system whose pack's cost the file has just changed, so raising a
+    //    carton's cost carries down to the singles without a second import.
+    let childCostsSynced = 0;
+    for (const parentId of parentIds) {
+      try {
+        childCostsSynced += await syncChildCostsForParent(parentId);
+      } catch (syncErr) {
+        console.warn(`Child cost sync failed for ${parentId}:`, syncErr.message);
+      }
+    }
+
     const resultFor = (entry) => {
       if (failedCreates.has(entry)) return "failed";
       if (skippedUpdates.has(entry)) return "failed";
@@ -234,6 +261,7 @@ export default async function handler(req, res) {
         update: updates.length - skippedUpdates.size,
         failed: failedCreates.size + skippedUpdates.size,
         categoriesCreated: categoriesToCreate.length,
+        childCostsSynced,
       },
       rows: plan.entries.map((entry) => formatEntry(entry, resultFor(entry))),
     });
