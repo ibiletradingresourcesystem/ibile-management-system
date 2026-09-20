@@ -11,6 +11,8 @@
  *   product seeded before the rate was applied stops being the odd one out.
  * - `linkChildCost` (on by default) works a child's cost out from its mother's cost and pack
  *   size instead of the file's Cost cell, and marks it to follow the pack from then on.
+ * - `skipUnchangedCost` leaves an existing product untouched when its Cost already matches the
+ *   file, so re-importing a price list only writes the products whose cost actually moved.
  * - Existing products (matched by name, then barcode) only get cost & sale price updates;
  *   stock qty is updated only when `updateExistingQty` is true. Other details stay the same.
  * - Seeding stock qty needs product or stock-management access (lib/permission-utils.js), not admin.
@@ -159,6 +161,7 @@ export default async function handler(req, res) {
     fixBarcodes = true,
     linkChildCost = true,
     applyVatToAll = true,
+    skipUnchangedCost = false,
   } = req.body || {};
 
   if (!Array.isArray(products) || products.length === 0) {
@@ -184,6 +187,7 @@ export default async function handler(req, res) {
         fixBarcodes: fixBarcodes !== false,
         linkChildCost: linkChildCost !== false,
         applyVatToAll: applyVatToAll !== false,
+        skipUnchangedCost: Boolean(skipUnchangedCost),
       },
     });
 

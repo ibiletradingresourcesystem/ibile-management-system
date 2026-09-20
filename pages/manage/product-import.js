@@ -7,7 +7,7 @@ import { canManageProducts } from "@/lib/permission-utils";
 import { getCachedSetup } from "@/lib/setupCache";
 import { clearCache } from "@/lib/useIndexedDBCache";
 import { formatCurrency } from "@/lib/format";
-import { IMPORT_TEMPLATE_HEADERS, parseDelimitedText, rowsFromTable } from "@/lib/productImport";
+import { IMPORT_TEMPLATE_HEADERS, classifySkipReason, parseDelimitedText, rowsFromTable } from "@/lib/productImport";
 import { VAT_RATE } from "@/lib/pricing";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFileExcel, faDownload, faUpload, faCheck, faExclamationTriangle, faBarcode, faPercent } from "@fortawesome/free-solid-svg-icons";
@@ -85,6 +85,7 @@ export default function ProductImportPage() {
   const [fixBarcodes, setFixBarcodes] = useState(true);
   const [linkChildCost, setLinkChildCost] = useState(true);
   const [applyVatToAll, setApplyVatToAll] = useState(true);
+  const [skipUnchangedCost, setSkipUnchangedCost] = useState(true);
   const [preview, setPreview] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -132,6 +133,7 @@ export default function ProductImportPage() {
       fixBarcodes,
       linkChildCost,
       applyVatToAll,
+      skipUnchangedCost,
       dryRun: true,
     })
       .then((data) => {
@@ -149,7 +151,7 @@ export default function ProductImportPage() {
     return () => {
       active = false;
     };
-  }, [parsedRows, updateExistingQty, fixBarcodes, linkChildCost, applyVatToAll, postImport]);
+  }, [parsedRows, updateExistingQty, fixBarcodes, linkChildCost, applyVatToAll, skipUnchangedCost, postImport]);
 
   const handleFileUpload = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -211,6 +213,7 @@ export default function ProductImportPage() {
         fixBarcodes,
         linkChildCost,
         applyVatToAll,
+        skipUnchangedCost,
         dryRun: false,
       });
       await Promise.allSettled([clearCache("products_cache"), clearCache("stock_products_cache")]);
@@ -256,6 +259,21 @@ export default function ProductImportPage() {
     filter === "all" && failedRows.length > 0
       ? [...failedRows, ...visibleRows.filter((row) => !matchesFilter(row, "error"))].slice(0, MAX_VISIBLE_ROWS)
       : visibleRows.slice(0, MAX_VISIBLE_ROWS);
+
+  /**
+   * The skipped rows gathered by reason, so "53 skipped" becomes a handful of causes to work
+   * through rather than 53 sentences to read one at a time.
+   */
+  const skipReasons = (() => {
+    const groups = new Map();
+    for (const row of failedRows) {
+      const reason = classifySkipReason(row.error);
+      const group = groups.get(reason.key) || { ...reason, rows: [] };
+      group.rows.push(row);
+      groups.set(reason.key, group);
+    }
+    return [...groups.values()].sort((a, b) => b.rows.length - a.rows.length);
+  })();
 
   /**
    * The failing rows only, in the template's columns with the reason appended. Re-importing this
@@ -444,6 +462,25 @@ export default function ProductImportPage() {
                 <input
                   type="checkbox"
                   className="mt-1"
+                  checked={skipUnchangedCost}
+                  onChange={(e) => setSkipUnchangedCost(e.target.checked)}
+                />
+                <span>
+                  Only touch products whose <strong>Cost</strong> has changed
+                  <span className="block text-xs text-gray-500">
+                    A product whose cost already matches the file is left completely alone — no price write, no
+                    VAT, no barcode repair. Rows that set a Parent or Pack Qty always run, because those are
+                    instructions rather than price drift.
+                  </span>
+                </span>
+              </label>
+            )}
+
+            {preview && (
+              <label className="mt-3 flex items-start gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="mt-1"
                   checked={applyVatToAll}
                   onChange={(e) => setApplyVatToAll(e.target.checked)}
                 />
@@ -493,10 +530,18 @@ export default function ProductImportPage() {
               {preview && (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-sm">
-                    <SummaryTile label="New products" value={preview.summary.create} tone="text-green-700" />
-                    <SummaryTile label="Updates" value={preview.summary.update} tone="text-blue-700" />
-                    <SummaryTile label="No change" value={preview.summary.unchanged} tone="text-gray-700" />
-                    <SummaryTile label="Errors (skipped)" value={preview.summary.errors} tone="text-red-600" />
+                    <SummaryTile label="New products" value={preview.summary.create} tone="text-green-700" onClick={() => setFilter("create")} />
+                    <SummaryTile label="Updates" value={preview.summary.update} tone="text-blue-700" onClick={() => setFilter("update")} />
+                    <SummaryTile label="No change" value={preview.summary.unchanged} tone="text-gray-700" onClick={() => setFilter("unchanged")} />
+                    <SummaryTile label="Skipped (not imported)" value={preview.summary.errors} tone="text-red-600" onClick={() => setFilter("error")} />
+                    {preview.summary.costUnchangedSkipped > 0 && (
+                      <SummaryTile
+                        label="Cost unchanged, left alone"
+                        value={preview.summary.costUnchangedSkipped}
+                        tone="text-gray-700"
+                        onClick={() => setFilter("unchanged")}
+                      />
+                    )}
                     {preview.summary.childCostLinked > 0 && (
                       <SummaryTile
                         label="Child costs linked"
@@ -575,17 +620,21 @@ export default function ProductImportPage() {
                       </button>
                     </div>
                   </div>
-                  <ul className="mt-3 space-y-1 text-xs text-red-800 max-h-32 overflow-y-auto">
-                    {failedRows.slice(0, 8).map((row) => (
-                      <li key={row.rowNumber}>
-                        <span className="font-semibold">Row {row.rowNumber} — {row.name}:</span>{" "}
-                        {row.error || "Not imported"}
-                      </li>
+                  <div className="mt-3 space-y-2">
+                    {skipReasons.map((reason) => (
+                      <div key={reason.key} className="rounded border border-red-200 bg-white/70 px-3 py-2">
+                        <p className="text-xs font-bold text-red-800">
+                          {reason.rows.length} × {reason.label}
+                        </p>
+                        <p className="text-[11px] text-red-700 mt-0.5">{reason.hint}</p>
+                        <p className="text-[11px] text-red-600 mt-1">
+                          Row{reason.rows.length === 1 ? "" : "s"}{" "}
+                          {reason.rows.slice(0, 15).map((row) => row.rowNumber).join(", ")}
+                          {reason.rows.length > 15 && ` and ${reason.rows.length - 15} more`}
+                        </p>
+                      </div>
                     ))}
-                    {failedRows.length > 8 && (
-                      <li className="text-red-600">…and {failedRows.length - 8} more in the table below.</li>
-                    )}
-                  </ul>
+                  </div>
                 </div>
               )}
 
@@ -677,12 +726,28 @@ export default function ProductImportPage() {
   );
 }
 
-function SummaryTile({ label, value, tone }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+/** A count that doubles as a way into the rows behind it. */
+function SummaryTile({ label, value, tone, onClick }) {
+  const body = (
+    <>
       <p className="text-xs text-gray-500">{label}</p>
       <p className={`text-lg font-bold ${tone}`}>{value}</p>
-    </div>
+    </>
+  );
+
+  if (!onClick || !value) {
+    return <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-left">{body}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`Show the ${value} row(s) behind "${label}"`}
+      className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-left transition hover:border-gray-400 hover:bg-gray-50"
+    >
+      {body}
+    </button>
   );
 }
 
