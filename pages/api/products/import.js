@@ -34,11 +34,82 @@ const MAX_ROWS = 5000;
 const PLAN_PRODUCT_FIELDS =
   "name barcode costPrice salePriceIncTax taxRate quantity packType qtyPerPack isChildProduct parentProduct unitsPerChild costFromParent isArchived isStockManaged";
 
+/**
+ * Turn a database write error into something the person holding the spreadsheet can act on.
+ * Raw driver text ("E11000 duplicate key error collection: ... index: barcode_1 dup key ...")
+ * tells them nothing about which cell to change.
+ */
+function explainWriteError(message) {
+  const text = String(message || "").trim();
+  if (!text) return "Could not be saved";
+
+  if (text.includes("E11000") || text.toLowerCase().includes("duplicate key")) {
+    const field = text.match(/index:\s*([A-Za-z0-9_]+?)_/)?.[1];
+    const value = text.match(/dup key:\s*\{[^:]*:\s*"?([^",}]+)"?/)?.[1];
+    const where = field ? `${field}` : "value";
+    return value
+      ? `Another product already uses that ${where} ("${value.trim()}") — change it in the file`
+      : `Another product already uses that ${where} — change it in the file`;
+  }
+
+  if (text.toLowerCase().includes("validation failed")) {
+    // Mongoose writes "<Model> validation failed: <field>: <reason>". Everything after the first
+    // colon names the column at fault, which is the part worth showing.
+    const detail = text.split(":").slice(1).join(":").trim();
+    return detail ? `Rejected by the product rules: ${detail}` : "Rejected by the product rules";
+  }
+
+  if (text.toLowerCase().includes("cast to")) {
+    return `A value in this row is the wrong type: ${text}`;
+  }
+
+  return text;
+}
+
+/** Index the per-document failures a bulk write reports, keyed by position in the batch. */
+function collectWriteErrors(err) {
+  const byIndex = new Map();
+  if (!err) return byIndex;
+
+  const list = err.writeErrors || err.result?.result?.writeErrors || [];
+  for (const writeError of Array.isArray(list) ? list : [list]) {
+    const index = writeError?.index ?? writeError?.err?.index;
+    const message = writeError?.errmsg || writeError?.err?.errmsg || writeError?.message;
+    if (typeof index === "number") byIndex.set(index, explainWriteError(message));
+  }
+
+  // A single-document failure is reported without a writeErrors array
+  if (byIndex.size === 0 && err.message) byIndex.set(-1, explainWriteError(err.message));
+  return byIndex;
+}
+
+/**
+ * The row's cleaned cell values, in the template's column order. Sent back only for rows that
+ * did not go through, so the operator can download just those, fix them and re-import — without
+ * hunting for them in the original file.
+ */
+function sourceCells(row) {
+  return {
+    name: row.name || "",
+    description: row.description || "",
+    costPrice: row.costPrice ?? "",
+    salePriceIncTax: row.salePriceIncTax ?? "",
+    barcode: (row.barcodes || []).join(", "),
+    category: row.category || "",
+    quantity: row.quantity ?? "",
+    packQty: row.demotePack ? "none" : row.packQty ?? "",
+    parent: row.unlinkParent ? "none" : row.parentRef || "",
+    unitsPerChild: row.unitsPerChild ?? "",
+  };
+}
+
 function formatEntry(entry, result) {
+  const action = result || entry.action;
+  const didNotApply = action === "error" || action === "failed";
   return {
     rowNumber: entry.rowNumber,
     name: entry.name || "(no name)",
-    action: result || entry.action,
+    action,
     matchedBy: entry.matchedBy,
     existingName: entry.product && entry.product.name !== entry.name ? entry.product.name : undefined,
     archived: Boolean(entry.product?.isArchived),
@@ -46,6 +117,7 @@ function formatEntry(entry, result) {
     warnings: entry.warnings,
     error: entry.error,
     qtyNotApplied: Boolean(entry.qtyNotApplied),
+    source: didNotApply ? sourceCells(entry.row) : undefined,
   };
 }
 
@@ -160,9 +232,14 @@ export default async function handler(req, res) {
       };
     });
 
+    // Keep each document's position so a write error can be traced back to its row
+    const entryByDocIndex = new Map(creates.map((entry, index) => [index, entry]));
+    let insertErrorsByIndex = new Map();
+
     if (newDocs.length > 0) {
       await Product.insertMany(newDocs, { ordered: false }).catch((err) => {
         console.error("Product import insert error:", err.message);
+        insertErrorsByIndex = collectWriteErrors(err);
       });
     }
     const insertedIds = new Set(
@@ -171,6 +248,17 @@ export default async function handler(req, res) {
         : []
     );
     const failedCreates = new Set(creates.filter((entry) => !insertedIds.has(String(entry.newId))));
+
+    // Attach the reason to each row that did not save, so the preview table can say why instead
+    // of showing a bare "Failed" badge.
+    const sharedInsertError = insertErrorsByIndex.get(-1);
+    for (const [index, entry] of entryByDocIndex) {
+      if (!failedCreates.has(entry)) continue;
+      entry.error =
+        insertErrorsByIndex.get(index) ||
+        sharedInsertError ||
+        "Could not be saved — check this row for a duplicate name or barcode";
+    }
 
     // New children whose new parent failed to save must not point at a missing product
     const orphanedChildren = creates.filter(
@@ -190,21 +278,36 @@ export default async function handler(req, res) {
     // 3. Updates to existing products (skip child links whose new parent failed to save)
     const skippedUpdates = new Set();
     const updateOps = [];
+    const entryByOpIndex = new Map();
     for (const entry of updates) {
       const set = { ...entry.set };
       if (entry.linkToParent) {
         if (entry.parent?.entry && failedCreates.has(entry.parent.entry)) {
           skippedUpdates.add(entry);
+          entry.error = `Its parent "${entry.parent.entry.name}" (row ${entry.parent.entry.rowNumber}) could not be saved`;
           continue;
         }
         set.parentProduct = parentIdFor(entry);
       }
       const update = { $set: set };
       if (entry.unset) update.$unset = entry.unset;
+      entryByOpIndex.set(updateOps.length, entry);
       updateOps.push({ updateOne: { filter: { _id: entry.product._id }, update } });
     }
     if (updateOps.length > 0) {
-      await Product.bulkWrite(updateOps, { ordered: false });
+      // An unhandled failure here used to reject the whole request with a 500, losing the report
+      // for every row that did save. Failures are now attributed to their own rows.
+      await Product.bulkWrite(updateOps, { ordered: false }).catch((err) => {
+        console.error("Product import update error:", err.message);
+        const errorsByIndex = collectWriteErrors(err);
+        const shared = errorsByIndex.get(-1);
+        for (const [index, entry] of entryByOpIndex) {
+          const reason = errorsByIndex.get(index) || (errorsByIndex.size === 1 && shared ? shared : null);
+          if (!reason) continue;
+          entry.error = reason;
+          skippedUpdates.add(entry);
+        }
+      });
     }
 
     // 4. Detach the children of any pack that is no longer a pack (before deriving, so they are

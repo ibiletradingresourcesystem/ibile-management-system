@@ -48,9 +48,17 @@ const FILTERS = [
   ["create", "New"],
   ["update", "Update"],
   ["unchanged", "No change"],
-  ["error", "Errors"],
+  ["error", "Not imported"],
   ["warnings", "Warnings"],
 ];
+
+/** Which rows a filter chip shows. Shared by the chip counts and the table. */
+function matchesFilter(row, key) {
+  if (key === "all") return true;
+  if (key === "warnings") return row.warnings.length > 0;
+  if (key === "error") return row.action === "error" || row.action === "failed";
+  return row.action === key;
+}
 
 function quoteCsv(value) {
   const text = String(value ?? "");
@@ -211,7 +219,9 @@ export default function ProductImportPage() {
       setPreview(null);
       setParsedRows([]);
       setFileInfo(null);
-      setFilter("all");
+      // Open on the rows that did not go in; there is nothing to check on the ones that did.
+      const notImported = (data.rows || []).filter((row) => matchesFilter(row, "error")).length;
+      setFilter(notImported > 0 ? "error" : "all");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -232,13 +242,54 @@ export default function ProductImportPage() {
 
   const report = result || preview;
   const reportRows = report?.rows || [];
-  const visibleRows = reportRows.filter((row) => {
-    if (filter === "all") return true;
-    if (filter === "warnings") return row.warnings.length > 0;
-    if (filter === "error") return row.action === "error" || row.action === "failed";
-    return row.action === filter;
-  });
+  const visibleRows = reportRows.filter((row) => matchesFilter(row, filter));
   const actionable = preview ? preview.summary.create + preview.summary.update : 0;
+
+  // Every row the import will not apply, whether the plan rejected it up front or the database
+  // refused it on the way in. These are the rows that need a person.
+  const failedRows = reportRows.filter((row) => matchesFilter(row, "error"));
+
+  // The table is capped so a 5,000-row file stays usable, but a plain slice can push every
+  // problem row off the end of a long "All" list — the one thing that must never be hidden.
+  // Problem rows are pulled to the front of that view.
+  const cappedRows =
+    filter === "all" && failedRows.length > 0
+      ? [...failedRows, ...visibleRows.filter((row) => !matchesFilter(row, "error"))].slice(0, MAX_VISIBLE_ROWS)
+      : visibleRows.slice(0, MAX_VISIBLE_ROWS);
+
+  /**
+   * The failing rows only, in the template's columns with the reason appended. Re-importing this
+   * file after fixing it retries exactly those products and nothing else.
+   */
+  const downloadFailedRows = () => {
+    if (failedRows.length === 0) return;
+    const header = [...IMPORT_TEMPLATE_HEADERS, "Problem", "Source Row"];
+    const body = failedRows.map((row) => {
+      const cell = row.source || {};
+      return [
+        cell.name ?? row.name,
+        cell.description ?? "",
+        cell.costPrice ?? "",
+        cell.salePriceIncTax ?? "",
+        cell.barcode ?? "",
+        cell.category ?? "",
+        cell.quantity ?? "",
+        cell.packQty ?? "",
+        cell.parent ?? "",
+        cell.unitsPerChild ?? "",
+        row.error || "Not imported",
+        row.rowNumber,
+      ];
+    });
+    const csv = [header, ...body].map((cells) => cells.map(quoteCsv).join(",")).join("\n") + "\n";
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `product_import_problems_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <Layout>
@@ -430,7 +481,7 @@ export default function ProductImportPage() {
                 <div><span className="text-gray-600">Created:</span> <strong className="text-green-700">{result.summary.create}</strong></div>
                 <div><span className="text-gray-600">Updated:</span> <strong className="text-blue-700">{result.summary.update}</strong></div>
                 <div><span className="text-gray-600">No change:</span> <strong>{result.summary.unchanged}</strong></div>
-                <div><span className="text-gray-600">Errors / failed:</span> <strong className="text-red-600">{result.summary.errors + (result.summary.failed || 0)}</strong></div>
+                <div><span className="text-gray-600">Not imported:</span> <strong className="text-red-600">{result.summary.errors + (result.summary.failed || 0)}</strong></div>
                 <div><span className="text-gray-600">New categories:</span> <strong className="text-blue-600">{result.summary.categoriesCreated}</strong></div>
               </div>
             </div>
@@ -487,19 +538,81 @@ export default function ProductImportPage() {
                 </>
               )}
 
+              {failedRows.length > 0 && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <FontAwesomeIcon icon={faExclamationTriangle} className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                      <div className="text-sm text-red-800 min-w-0">
+                        <p className="font-semibold">
+                          {failedRows.length} product{failedRows.length === 1 ? "" : "s"}{" "}
+                          {result ? "did not go in" : "will be skipped"}
+                        </p>
+                        <p className="text-xs mt-0.5 text-red-700">
+                          {result
+                            ? "Everything else was imported. Fix these and import them again."
+                            : "The rest will still import. Fix these rows to bring them in too."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 flex-shrink-0">
+                      {filter !== "error" && (
+                        <button
+                          type="button"
+                          onClick={() => setFilter("error")}
+                          className="btn-action btn-action-secondary text-xs"
+                        >
+                          Show them
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={downloadFailedRows}
+                        className="btn-action btn-action-primary text-xs flex items-center gap-2"
+                      >
+                        <FontAwesomeIcon icon={faDownload} className="w-3 h-3" />
+                        Download these {failedRows.length} row(s)
+                      </button>
+                    </div>
+                  </div>
+                  <ul className="mt-3 space-y-1 text-xs text-red-800 max-h-32 overflow-y-auto">
+                    {failedRows.slice(0, 8).map((row) => (
+                      <li key={row.rowNumber}>
+                        <span className="font-semibold">Row {row.rowNumber} — {row.name}:</span>{" "}
+                        {row.error || "Not imported"}
+                      </li>
+                    ))}
+                    {failedRows.length > 8 && (
+                      <li className="text-red-600">…and {failedRows.length - 8} more in the table below.</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-2 mb-3">
-                {FILTERS.map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setFilter(key)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      filter === key ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                {FILTERS.map(([key, label]) => {
+                  const count = reportRows.filter((row) => matchesFilter(row, key)).length;
+                  const isProblem = key === "error" && count > 0;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFilter(key)}
+                      disabled={count === 0 && key !== "all"}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition disabled:opacity-40 disabled:cursor-not-allowed ${
+                        filter === key
+                          ? isProblem
+                            ? "bg-red-600 text-white"
+                            : "bg-blue-600 text-white"
+                          : isProblem
+                            ? "bg-red-100 text-red-700 hover:bg-red-200"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      }`}
+                    >
+                      {label} ({count})
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="overflow-x-auto max-h-[32rem]">
@@ -513,7 +626,7 @@ export default function ProductImportPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRows.slice(0, MAX_VISIBLE_ROWS).map((row) => {
+                    {cappedRows.map((row) => {
                       const style = ACTION_STYLES[row.action] || ACTION_STYLES.unchanged;
                       return (
                         <tr key={row.rowNumber}>
@@ -549,7 +662,8 @@ export default function ProductImportPage() {
                 )}
                 {visibleRows.length > MAX_VISIBLE_ROWS && (
                   <p className="text-xs text-gray-500 mt-2 text-center">
-                    Showing first {MAX_VISIBLE_ROWS} of {visibleRows.length} rows
+                    Showing {cappedRows.length} of {visibleRows.length} rows
+                    {filter === "all" && failedRows.length > 0 && " — rows with a problem are listed first"}
                   </p>
                 )}
               </div>
