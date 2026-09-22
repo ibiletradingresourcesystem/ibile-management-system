@@ -174,39 +174,23 @@ export default function AIProviderPanel({ isAdmin = false, onProviderChange, com
           </div>
 
           {settings.available.gemini && (
-            <div>
-              <label className="form-label text-xs">Gemini model</label>
-              <select
-                value={settings.geminiModel}
-                onChange={(e) => update({ geminiModel: e.target.value })}
-                disabled={saving}
-                className="form-select"
-              >
-                {settings.providers.find((p) => p.id === "gemini").models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <ModelPicker
+              label="Gemini model"
+              provider={settings.providers.find((p) => p.id === "gemini")}
+              value={settings.geminiModel}
+              disabled={saving}
+              onChange={(geminiModel) => update({ geminiModel })}
+            />
           )}
 
           {settings.available.openai && (
-            <div>
-              <label className="form-label text-xs">OpenAI model</label>
-              <select
-                value={settings.openaiModel}
-                onChange={(e) => update({ openaiModel: e.target.value })}
-                disabled={saving}
-                className="form-select"
-              >
-                {settings.providers.find((p) => p.id === "openai").models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <ModelPicker
+              label="OpenAI model"
+              provider={settings.providers.find((p) => p.id === "openai")}
+              value={settings.openaiModel}
+              disabled={saving}
+              onChange={(openaiModel) => update({ openaiModel })}
+            />
           )}
 
           <div className="flex items-center gap-2 pb-2">
@@ -229,6 +213,22 @@ export default function AIProviderPanel({ isAdmin = false, onProviderChange, com
         <p className="text-xs text-gray-500 mb-3">
           Running on {active.label}. An administrator can change the provider.
         </p>
+      )}
+
+      {/* Providers retire model names. When that happens the app moves to one that works,
+          and says so here rather than leaving the change invisible. */}
+      {settings.autoSwitch && (
+        <div className="alert alert-warning mb-3 flex items-start gap-3">
+          <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" />
+          <div className="text-sm">
+            <p>
+              <span className="font-semibold">{settings.autoSwitch.from}</span> was retired by the provider, so the app
+              switched to <span className="font-semibold">{settings.autoSwitch.to}</span> on{" "}
+              {new Date(settings.autoSwitch.at).toLocaleString("en-NG")}.
+            </p>
+            {isAdmin && <p className="mt-1 text-xs">Pick a model above to confirm or change it.</p>}
+          </div>
+        </div>
       )}
 
       {/* Test result */}
@@ -260,6 +260,36 @@ export default function AIProviderPanel({ isAdmin = false, onProviderChange, com
       )}
 
       {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Model chooser. The options are the models the key itself reports, because a list
+ * kept in the code goes stale — every Gemini model this app used to offer has since
+ * been retired, and each one answered with the same "model is not available" error.
+ */
+function ModelPicker({ label, provider, value, disabled, onChange }) {
+  const models = provider?.models || [];
+  const retired = value && !models.includes(value);
+
+  return (
+    <div>
+      <label className="form-label text-xs">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className="form-select">
+        {retired && <option value={value}>{value} — no longer offered</option>}
+        {models.map((m) => (
+          <option key={m} value={m}>
+            {m}
+            {m === provider.recommendedModel ? " (recommended)" : ""}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11px] text-gray-500">
+        {provider?.modelsSource === "live"
+          ? `${models.length} models offered by your key`
+          : "Could not read the model list from the provider — showing known models"}
+      </p>
     </div>
   );
 }

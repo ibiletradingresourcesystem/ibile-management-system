@@ -18,10 +18,18 @@ const AISettingsSchema = new Schema(
       default: "auto",
     },
 
-    geminiModel: { type: String, default: "gemini-2.0-flash" },
+    // Google keeps "-latest" pointing at the current model, so this choice does not
+    // go stale the way a version-numbered one does.
+    geminiModel: { type: String, default: "gemini-flash-latest" },
     openaiModel: { type: String, default: "gpt-4o-mini" },
 
     enabled: { type: Boolean, default: true },
+
+    // Set when a stored model turned out to be retired and the app moved to one that
+    // works, so the settings screen can say so instead of the change being invisible.
+    autoSwitchedFrom: { type: String, default: "" },
+    autoSwitchedTo: { type: String, default: "" },
+    autoSwitchedAt: { type: Date, default: null },
 
     // Result of the last connectivity check, so the UI can explain a failure
     // instead of silently falling back.
