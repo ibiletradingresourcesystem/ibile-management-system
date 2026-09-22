@@ -117,11 +117,13 @@ export default async function handler(req, res) {
       if (isDerivedChild(parent)) {
         return fail(res, 400, `"${parent.name}" is itself a child product, so it can't be a parent`);
       }
-      if (parent.packType !== "pack" || getPackSize(parent) <= 1) {
+      // A pack of 1 is a parent too: a set sold whole or as a part (a dispenser with its
+      // bottle, and the dispenser alone), each sale taking 1 off the same stock.
+      if (parent.packType !== "pack") {
         return fail(
           res,
           400,
-          `Set "${parent.name}" as a Pack with Qty Per Pack greater than 1 (and save) before linking children`
+          `Set "${parent.name}" as a Pack (and save) before linking children. Qty Per Pack can be 1 for a set sold whole or as a part`
         );
       }
       if (units > getPackSize(parent)) {

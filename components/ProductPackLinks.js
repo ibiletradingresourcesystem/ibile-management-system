@@ -60,7 +60,9 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
   const parent = relations?.parent;
   const children = relations?.children || [];
   const isChild = Boolean(product && isDerivedChild(product) && parent);
-  const isPack = Boolean(product && !isChild && product.packType === "pack" && getPackSize(product) > 1);
+  // Any pack is a parent, a pack of 1 included: a set sold whole or as a part (a dispenser
+  // with its bottle, and the dispenser alone), each sale taking 1 off the same stock.
+  const isPack = Boolean(product && !isChild && product.packType === "pack");
   const mode = isChild ? "child" : isPack ? "pack" : "standalone";
 
   async function runMutation(request, successMessage) {
@@ -133,8 +135,8 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
     }
     // Standalone product looking for a parent pack
     if (isDerivedChild(candidate)) return { disabled: true, note: "Is a child product" };
-    if (candidate.packType !== "pack" || getPackSize(candidate) <= 1) return { disabled: true, note: "Not a pack" };
-    return { disabled: false, note: `Pack of ${candidate.qtyPerPack}` };
+    if (candidate.packType !== "pack") return { disabled: true, note: "Not a pack" };
+    return { disabled: false, note: `Pack of ${getPackSize(candidate)}` };
   }
 
   if (loading) {
@@ -308,8 +310,10 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
           </h4>
           <p className="mt-1 mb-3 text-xs text-gray-500">
             {mode === "pack"
-              ? `The child takes its stock from this pack. Set how many of the ${packSize} units one child item holds.`
-              : "Only pack products are listed. To make this product a mother (parent) instead, set Pack Type to Pack with Qty Per Pack, save, then link children here."}
+              ? packSize === 1
+                ? "This is a pack of 1: the child takes its stock from this product, and selling either one takes 1 off the same stock."
+                : `The child takes its stock from this pack. Set how many of the ${packSize} units one child item holds.`
+              : "Only pack products are listed. To make this product a mother (parent) instead, set Pack Type to Pack with Qty Per Pack (1 for a set sold whole or as a part), save, then link children here."}
           </p>
 
           <ProductPicker

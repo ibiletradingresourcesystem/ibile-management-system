@@ -843,7 +843,7 @@ export default function ProductForm(props) {
                         onChange={(e) => setPackType(e.target.value)}
                       >
                         <option value="unit">Unit (single item)</option>
-                        <option value="pack">Pack (multiple units)</option>
+                        <option value="pack">Pack / parent (holds units or linked products)</option>
                       </select>
                     </div>
                     {packType === "pack" && (
@@ -854,16 +854,26 @@ export default function ProductForm(props) {
                           value={qtyPerPack}
                           setValue={setQtyPerPack}
                         />
-                        <InputField
-                          label="Auto unit child sale price"
-                          type="number"
-                          prefix="₦"
-                          value={childSalePrice}
-                          setValue={setChildSalePrice}
-                        />
+                        {/* A pack of 1 gets no automatic "(Unit)" child; its children are linked below. */}
+                        {Number(qtyPerPack) > 1 && (
+                          <InputField
+                            label="Auto unit child sale price"
+                            type="number"
+                            prefix="₦"
+                            value={childSalePrice}
+                            setValue={setChildSalePrice}
+                          />
+                        )}
                       </>
                     )}
                   </div>
+                )}
+                {!isLinkedChild && packType === "pack" && Number(qtyPerPack) <= 1 && (
+                  <p className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm text-purple-700">
+                    <strong>Pack of 1:</strong> a set sold whole or as a part — e.g. a dispenser sold with its bottle, and the
+                    dispenser also sold on its own. Link the part below; selling this product or the linked one takes 1 off
+                    the same stock.
+                  </p>
                 )}
                 {isPack && (
                   <div className="mt-3 space-y-2 rounded-lg border border-purple-200 bg-purple-50 p-3 text-sm text-purple-700">

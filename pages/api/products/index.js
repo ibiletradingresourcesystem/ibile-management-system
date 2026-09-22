@@ -232,10 +232,8 @@ export default async function handler(req, res) {
       // Optional: category (id or "Top Level"), packsOnly=true (possible parents), limit (max 200)
       if (lookup === "true") {
         if (req.query.category) filter.category = String(req.query.category);
-        if (req.query.packsOnly === "true") {
-          filter.packType = "pack";
-          filter.qtyPerPack = { $gt: 1 };
-        }
+        // Any pack can be a parent, a pack of 1 included (a set sold whole or as a part).
+        if (req.query.packsOnly === "true") filter.packType = "pack";
         const lookupLimit = Math.min(200, Math.max(1, parseInt(limitParam) || 20));
 
         const [products, total] = await Promise.all([
