@@ -321,6 +321,17 @@ export default async function handler(req, res) {
         return res.json({ success: true, data: products });
       }
 
+      // Price tag studio - every product, only what a tag needs (no pagination cap). Never
+      // cached: a tag printed from a price that changed a minute ago is a wrong tag.
+      if (req.query.priceTags === "true") {
+        const products = await Product.find(filter)
+          .select("name barcode category salePriceIncTax isChildProduct parentProduct packType qtyPerPack unitsPerChild")
+          .sort({ name: 1 })
+          .lean();
+        res.setHeader("Cache-Control", "private, no-store");
+        return res.json({ success: true, data: products, total: products.length });
+      }
+
       // Full list mode - returns all products with list-view fields (no pagination cap)
       if (req.query.listAll === "true") {
         const products = await Product.find(filter)

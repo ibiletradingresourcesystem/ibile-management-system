@@ -27,15 +27,16 @@ export default async function handler(req, res) {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    // Find products updated within the date range that have a sale price set
+    // Find products updated within the date range that have a sale price set.
+    // No cap: the old limit of 200 silently dropped the rest after a big price update.
     const products = await Product.find({
       updatedAt: { $gte: since },
       salePriceIncTax: { $gt: 0 },
       isChildProduct: { $ne: true },
+      isArchived: { $ne: true },
     })
-      .select("_id name salePriceIncTax costPrice barcode updatedAt")
+      .select("_id name salePriceIncTax costPrice barcode category updatedAt")
       .sort({ updatedAt: -1 })
-      .limit(200)
       .lean();
 
     return res.status(200).json({ products });
