@@ -477,7 +477,7 @@ export default function ExpirationReport() {
                           <button
                             onClick={() => {
                               if (batch.soldOut) return;
-                              router.push(`/stock/add?adjustProductId=${batch.productId}&adjustQty=${batch.remainingQuantity}&reason=Adjustment`);
+                              router.push(`/stock/add?adjustProductId=${batch.productId}&adjustQty=${batch.remainingQuantity}&expiryDate=${batch.expiryDate || ""}&reason=Adjustment`);
                             }}
                             disabled={batch.soldOut}
                             className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium border rounded transition ${

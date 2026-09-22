@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Product from "@/models/Product";
 import StockMovement from "@/models/StockMovement";
 import { deriveChildQty } from "@/lib/syncPackQty";
+import { childQtyToParentQty, isDerivedChild } from "@/lib/packUnits";
 import { isValidObjectId } from "mongoose";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
@@ -82,10 +83,12 @@ export default async function handler(req, res) {
     for (const item of products) {
       const { id, quantity, expiryDate } = item;
 
-      if (!id || typeof quantity !== "number" || quantity < 1) {
+      // A pack product's stock is counted in packs, so loose units arrive as a
+      // fraction of one (7 cans of a 24-carton is 0.2917). Anything above zero
+      // is a real quantity; the old ">= 1" rule rejected every loose-unit entry.
+      if (!id || typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0) {
         return res.status(400).json({
-          message:
-            "Invalid product format. Each product must have id and quantity >= 1",
+          message: "Invalid product format. Each product must have an id and a quantity above zero",
           product: item,
         });
       }
@@ -96,47 +99,58 @@ export default async function handler(req, res) {
         });
       }
 
-      const product = await Product.findById(id).select("_id name costPrice isStockManaged isChildProduct parentProduct packType qtyPerPack");
+      const product = await Product.findById(id).select(
+        "_id name costPrice isStockManaged isChildProduct parentProduct packType qtyPerPack unitsPerChild"
+      );
       if (!product) {
         return res.status(404).json({
           message: `Product not found with ID: ${id}`,
         });
       }
 
-      // If product is a child, resolve to parent and add qty to parent instead
-      if (product.isChildProduct && product.parentProduct) {
-        const parentProduct = await Product.findById(product.parentProduct).select("_id name costPrice isStockManaged packType qtyPerPack");
+      // A child holds no stock of its own, so its count moves its parent pack instead.
+      let target = product;
+      let targetQuantity = quantity;
+
+      if (isDerivedChild(product)) {
+        const parentProduct = await Product.findById(product.parentProduct).select(
+          "_id name costPrice isStockManaged packType qtyPerPack"
+        );
         if (!parentProduct) {
           return res.status(400).json({
             message: `"${product.name || id}" is a child product but its parent could not be found. Please use the parent product directly.`,
           });
         }
+        target = parentProduct;
+        // 12 singles of a 24-carton is half a carton, not 12 cartons. This used to
+        // add the child's count to the pack unconverted.
+        targetQuantity = childQtyToParentQty(quantity, product, parentProduct);
+      }
 
-        // Merge qty into existing parent entry or create a new one
-        const existingParent = productsToCreate.find(p => String(p.productId) === String(parentProduct._id));
-        if (existingParent) {
-          existingParent.quantity += quantity;
-        } else {
-          totalCostPrice += (parentProduct.costPrice || 0) * quantity;
-          productsToCreate.push({
-            productId: String(parentProduct._id),
-            quantity,
-            expiryDate: expiryDate || null,
-            notes: item.notes || "",
-            isStockManaged: parentProduct.isStockManaged !== false,
-          });
-        }
+      const targetId = String(target._id);
+      const lineExpiry = expiryDate || null;
+      const lineCost = Number(target.costPrice) || 0;
+      totalCostPrice += lineCost * targetQuantity;
+
+      // Lines for the same product and the same expiry merge; a different expiry is
+      // a different batch and keeps its own line, or the expiry report loses it.
+      const existing = productsToCreate.find(
+        (p) => p.productId === targetId && String(p.expiryDate || "") === String(lineExpiry || "")
+      );
+      if (existing) {
+        existing.quantity += targetQuantity;
         continue;
       }
 
-      totalCostPrice += (product.costPrice || 0) * quantity;
-
       productsToCreate.push({
-        productId: id,
-        quantity,
-        expiryDate: expiryDate || null,
+        productId: targetId,
+        quantity: targetQuantity,
+        expiryDate: lineExpiry,
+        // Kept on the line so the movement's value does not drift when the
+        // product's cost is changed later.
+        costPrice: lineCost,
         notes: item.notes || "",
-        isStockManaged: product.isStockManaged !== false,
+        isStockManaged: target.isStockManaged !== false,
       });
     }
 

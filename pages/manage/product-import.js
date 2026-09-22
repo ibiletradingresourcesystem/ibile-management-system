@@ -50,12 +50,14 @@ const FILTERS = [
   ["unchanged", "No change"],
   ["error", "Not imported"],
   ["warnings", "Warnings"],
+  ["zero-price", "Sale price 0"],
 ];
 
 /** Which rows a filter chip shows. Shared by the chip counts and the table. */
 function matchesFilter(row, key) {
   if (key === "all") return true;
   if (key === "warnings") return row.warnings.length > 0;
+  if (key === "zero-price") return Boolean(row.zeroSalePrice);
   if (key === "error") return row.action === "error" || row.action === "failed";
   return row.action === key;
 }
@@ -552,6 +554,13 @@ export default function ProductImportPage() {
                     {preview.summary.vatApplied > 0 && (
                       <SummaryTile label="VAT set" value={preview.summary.vatApplied} tone="text-gray-700" />
                     )}
+                    {preview.summary.zeroSalePrice > 0 && (
+                      <SummaryTile
+                        label="Sale price 0"
+                        value={preview.summary.zeroSalePrice}
+                        tone="text-red-600"
+                      />
+                    )}
                   </div>
                   {preview.categoriesToCreate?.length > 0 && (
                     <p className="text-xs text-gray-600 mb-2">
@@ -563,6 +572,18 @@ export default function ProductImportPage() {
                       {preview.summary.qtyNotApplied} existing product(s) have a Qty in the file that won&apos;t be applied —
                       tick &quot;Also update stock Qty&quot; above to apply it.
                     </p>
+                  )}
+                  {preview.summary.zeroSalePrice > 0 && (
+                    <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2">
+                      <p className="text-xs font-bold text-red-800">
+                        {preview.summary.zeroSalePrice} product(s) would be left with a sale price of 0.
+                      </p>
+                      <p className="text-xs text-red-700 mt-0.5">
+                        Those products ring up free at the till once it syncs, which is how a sale ends up worth
+                        nothing. A blank Sale cell leaves the price as it is — a 0 sets it. Check those rows below
+                        (marked in red) before importing.
+                      </p>
+                    </div>
                   )}
                   <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <p className="text-xs text-gray-500">Nothing is saved until you click Import.</p>
@@ -678,7 +699,7 @@ export default function ProductImportPage() {
                     {cappedRows.map((row) => {
                       const style = ACTION_STYLES[row.action] || ACTION_STYLES.unchanged;
                       return (
-                        <tr key={row.rowNumber}>
+                        <tr key={row.rowNumber} className={row.zeroSalePrice ? "bg-red-50" : undefined}>
                           <td className="text-gray-400 align-top">{row.rowNumber}</td>
                           <td className="font-medium align-top">
                             {row.name}
@@ -695,7 +716,12 @@ export default function ProductImportPage() {
                               <p key={i} className="text-gray-700">{describeChange(change)}</p>
                             ))}
                             {row.warnings.map((warning, i) => (
-                              <p key={`w${i}`} className="text-orange-600">{warning}</p>
+                              <p
+                                key={`w${i}`}
+                                className={/price (is|would become) 0/.test(warning) ? "text-red-700 font-semibold" : "text-orange-600"}
+                              >
+                                {warning}
+                              </p>
                             ))}
                             {row.qtyNotApplied && !updateExistingQty && (
                               <p className="text-gray-500">Qty in file not applied</p>

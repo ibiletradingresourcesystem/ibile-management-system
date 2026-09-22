@@ -4,6 +4,7 @@ import PurchaseOrder from "@/models/PurchaseOrder";
 import StockMovement from "@/models/StockMovement";
 import Product from "@/models/Product";
 import { deriveChildQty } from "@/lib/syncPackQty";
+import { childQtyToParentQty, isDerivedChild } from "@/lib/packUnits";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import { postPurchaseOrderPayment } from "@/lib/accounting";
@@ -132,15 +133,27 @@ export default async function handler(req, res) {
                   notes: `From PO: ${order.orderRef}`,
                 }));
 
-        // Create stock movement from this purchase order — resolve child products to parent
-        const parentResolutions = new Map();
+        // Create stock movement from this purchase order — resolve child products to parent.
+        // A child's count is converted into packs of its parent: 12 singles of a 24-carton
+        // is half a carton. It used to be added to the carton unconverted, as 12 cartons.
+        const parentResolutions = new Map(); // childId -> { parentId, child, parent }
         if (sourceProducts.length > 0) {
           const productDocs = await Product.find({
             _id: { $in: sourceProducts.map((product) => product.productId) },
-          }).select("_id isChildProduct parentProduct packType").lean();
-          for (const doc of productDocs) {
-            if (doc.isChildProduct && doc.parentProduct) {
-              parentResolutions.set(String(doc._id), String(doc.parentProduct));
+          }).select("_id isChildProduct parentProduct packType unitsPerChild").lean();
+
+          const children = productDocs.filter(isDerivedChild);
+          const parents = children.length
+            ? await Product.find({ _id: { $in: children.map((child) => child.parentProduct) } })
+                .select("_id qtyPerPack packType")
+                .lean()
+            : [];
+          const parentById = new Map(parents.map((parent) => [String(parent._id), parent]));
+
+          for (const child of children) {
+            const parent = parentById.get(String(child.parentProduct));
+            if (parent) {
+              parentResolutions.set(String(child._id), { parentId: String(parent._id), child, parent });
             }
           }
         }
@@ -148,21 +161,38 @@ export default async function handler(req, res) {
         // Build movement products, merging children into their parent entries
         const movementProductMap = new Map();
         for (const product of sourceProducts) {
-          const resolvedId = parentResolutions.get(String(product.productId)) || String(product.productId);
-          const existing = movementProductMap.get(resolvedId);
+          const resolution = parentResolutions.get(String(product.productId));
+          const resolvedId = resolution ? resolution.parentId : String(product.productId);
+          const quantity = resolution
+            ? childQtyToParentQty(product.quantity, resolution.child, resolution.parent)
+            : product.quantity;
+          // A child's price is per child; carried onto the pack line it becomes per pack.
+          const costPrice = resolution
+            ? (Number(product.costPrice) || 0) * (product.quantity / (quantity || 1))
+            : product.costPrice;
+
+          // Same product, same expiry: one line. A different expiry is a separate batch.
+          const lineKey = `${resolvedId}|${product.expiryDate ? new Date(product.expiryDate).toISOString() : ""}`;
+          const lineValue = (Number(costPrice) || 0) * quantity;
+          const existing = movementProductMap.get(lineKey);
           if (existing) {
-            existing.quantity += product.quantity;
+            // Carry the value, not the first line's price, so two differently priced
+            // lines merged into one still add up to what was actually received.
+            existing.quantity += quantity;
+            existing.value += lineValue;
+            existing.costPrice = existing.quantity > 0 ? existing.value / existing.quantity : 0;
           } else {
-            movementProductMap.set(resolvedId, {
+            movementProductMap.set(lineKey, {
               productId: resolvedId,
-              quantity: product.quantity,
+              quantity,
               expiryDate: product.expiryDate,
-              costPrice: product.costPrice,
+              costPrice,
+              value: lineValue,
               notes: product.notes || `From PO: ${order.orderRef}`,
             });
           }
         }
-        const movementProducts = [...movementProductMap.values()];
+        const movementProducts = [...movementProductMap.values()].map(({ value, ...line }) => line);
 
         if (movementProducts.length === 0) {
           return res.status(400).json({ error: "No valid products available to receive" });

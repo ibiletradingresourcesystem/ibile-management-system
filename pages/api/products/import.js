@@ -119,6 +119,7 @@ function formatEntry(entry, result) {
     warnings: entry.warnings,
     error: entry.error,
     qtyNotApplied: Boolean(entry.qtyNotApplied),
+    zeroSalePrice: Boolean(entry.zeroSalePrice),
     source: didNotApply ? sourceCells(entry.row) : undefined,
   };
 }

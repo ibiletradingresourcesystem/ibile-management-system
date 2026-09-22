@@ -68,10 +68,17 @@ const StockMovementSchema = new Schema(
           type: Schema.Types.ObjectId, 
           ref: "Product" 
         },
+        // Counted in the product's own stock unit. For a pack that is packs, so
+        // loose units arrive as a fraction (7 cans of a 24-carton is 0.2917).
+        // Zero is allowed so a received line can record that nothing arrived;
+        // creating a movement still requires more than zero (stock-movement API).
         quantity: {
           type: Number,
           required: true,
-          min: 1
+          validate: {
+            validator: (value) => Number.isFinite(value) && value >= 0,
+            message: "Quantity cannot be negative",
+          },
         },
         expiryDate: {
           type: Date,
