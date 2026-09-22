@@ -117,7 +117,7 @@ export default function PriceTagsPage() {
           {/* Kept mounted while the catalogue reloads, so switching between All and
               Price Changed never throws away the tag list being built. */}
           <div className="content-card">
-            <PriceTagGenerator products={products} categories={categories} catalogLoading={loading} />
+            <PriceTagGenerator products={products} categories={categories} catalogLoading={loading} stockAware />
           </div>
         </div>
       </div>

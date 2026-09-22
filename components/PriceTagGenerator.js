@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { X } from "lucide-react";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
+import { formatPackQuantity, getPackSize, isPackProduct } from "@/lib/packUnits";
 
 function formatPrice(val, currency = "₦") {
   const num = Number(String(val).replace(/[^0-9.]/g, ""));
@@ -62,16 +63,55 @@ function toCopies(value) {
   return Number.isFinite(n) && n > 0 ? Math.ceil(n) : 1;
 }
 
+/** A child sold out of a parent pack; it has no stock of its own. */
+function isFamilyChild(product) {
+  return Boolean(product?.isChildProduct && product?.parentProduct && product?.packType !== "pack");
+}
+
+function idOf(ref) {
+  if (!ref) return null;
+  return String(typeof ref === "object" && ref._id ? ref._id : ref);
+}
+
 /** Turn a product record (or a movement line) into a row on the tag list. */
 function toTag(product, copies = 1) {
   return {
     key: newTagKey(),
     productId: product._id ? String(product._id) : null,
+    isChild: isFamilyChild(product),
     name: product.name || product.productName || "",
     price: product.salePriceIncTax ?? product.sellingPrice ?? product.price ?? 0,
     barcode: product.barcode || "",
     copies: toCopies(copies),
   };
+}
+
+/**
+ * Put each parent's children straight after it, so a family prints together.
+ * With `withStockedChildren`, a parent also brings in every child of it that has
+ * stock, even one the search or category left out: one tag for the pack and one
+ * for each unit sold from it.
+ */
+function familyOrder(entries, childrenByParent, { withStockedChildren = false } = {}) {
+  const inSet = new Set(entries.map((e) => e.id));
+  const out = [];
+  const placed = new Set();
+  const place = (entry) => {
+    out.push(entry);
+    placed.add(entry.id);
+  };
+
+  for (const entry of entries) {
+    if (placed.has(entry.id)) continue;
+    if (entry.parentId && inSet.has(entry.parentId)) continue; // placed with its parent
+    place(entry);
+    for (const child of childrenByParent.get(entry.id) || []) {
+      if (!placed.has(child.id) && (inSet.has(child.id) || (withStockedChildren && child.inStock))) place(child);
+    }
+  }
+  // Anything still unplaced (a child whose parent is itself a child, in bad data) goes last.
+  for (const entry of entries) if (!placed.has(entry.id)) place(entry);
+  return out;
 }
 
 /**
@@ -184,11 +224,15 @@ async function renderBarcodes(root) {
  *                              simply the items on that delivery.
  * @param {boolean} copiesFromQuantity  make one tag per unit received, so a
  *                              delivery of 12 prints 12 tags.
+ * @param {boolean} stockAware  `products[].quantity` is stock on hand, so the picker can
+ *                              show it and offer "in stock only". Off where quantity
+ *                              means something else (a movement's received quantity).
  */
 export default function PriceTagGenerator({
   products: productsProp,
   categories = [],
   catalogLoading = false,
+  stockAware = false,
   autoLoad = false,
   copiesFromQuantity = false,
   defaultBrandName = "Ibile mart",
@@ -205,6 +249,7 @@ export default function PriceTagGenerator({
   const [pickerOpen, setPickerOpen] = useState(!autoLoad);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [inStockOnly, setInStockOnly] = useState(false);
   const [visibleRows, setVisibleRows] = useState(TABLE_PAGE);
   const [bulkCopies, setBulkCopies] = useState("");
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
@@ -229,16 +274,44 @@ export default function PriceTagGenerator({
 
   const indexedCatalog = useMemo(
     () =>
-      catalog.map((product) => ({
-        product,
-        id: String(product._id),
-        haystack: `${product.name || ""} ${product.barcode || ""}`.toLowerCase(),
-        categoryKeys: categoryIndex.keysFor(product.category),
-      })),
+      catalog.map((product) => {
+        const pack = isPackProduct(product);
+        const stock = Number(product.quantity) || 0;
+        // Counted in whole units, so float dust left in a pack (0.00001 of a carton)
+        // is not "in stock". A child's quantity arrives already derived from its parent.
+        const stockUnits = Math.round(stock * (pack ? getPackSize(product) : 1));
+        return {
+          product,
+          id: String(product._id),
+          parentId: isFamilyChild(product) ? idOf(product.parentProduct) : null,
+          unitsPerChild: Number(product.unitsPerChild) || 1,
+          inStock: stockUnits > 0,
+          stockLabel: stockUnits > 0 ? formatPackQuantity(stock, pack ? getPackSize(product) : 1) : "",
+          haystack: `${product.name || ""} ${product.barcode || ""}`.toLowerCase(),
+          categoryKeys: categoryIndex.keysFor(product.category),
+        };
+      }),
     [catalog, categoryIndex]
   );
 
-  const filtered = useMemo(() => {
+  const entryById = useMemo(() => new Map(indexedCatalog.map((e) => [e.id, e])), [indexedCatalog]);
+
+  // Each parent's children, biggest sub-pack first (a 6-pack before a single).
+  const childrenByParent = useMemo(() => {
+    const map = new Map();
+    for (const entry of indexedCatalog) {
+      if (!entry.parentId) continue;
+      if (!map.has(entry.parentId)) map.set(entry.parentId, []);
+      map.get(entry.parentId).push(entry);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => b.unitsPerChild - a.unitsPerChild || String(a.product.name).localeCompare(String(b.product.name)));
+    }
+    return map;
+  }, [indexedCatalog]);
+
+  // Category and search.
+  const matches = useMemo(() => {
     const tokens = searchTerm.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return indexedCatalog.filter(
       (entry) =>
@@ -246,6 +319,21 @@ export default function PriceTagGenerator({
         tokens.every((token) => entry.haystack.includes(token))
     );
   }, [indexedCatalog, categoryFilter, searchTerm]);
+
+  // The matches that have stock, each parent followed by its children that have stock.
+  const inStockMatches = useMemo(
+    () =>
+      stockAware
+        ? familyOrder(
+            matches.filter((e) => e.inStock),
+            childrenByParent,
+            { withStockedChildren: true }
+          )
+        : [],
+    [stockAware, matches, childrenByParent]
+  );
+
+  const filtered = inStockOnly ? inStockMatches : matches;
 
   // A category that no longer exists in the loaded catalogue (after switching to
   // "Price Changed", say) falls back to all categories.
@@ -271,21 +359,31 @@ export default function PriceTagGenerator({
     );
   }, []);
 
-  const addFiltered = async () => {
-    const toAdd = filtered.filter((e) => !selectedIds.has(e.id)).map((e) => e.product);
+  /** Add these entries, one tag each, families kept together, skipping any already listed. */
+  const addEntries = async (entries, what = "products") => {
+    const toAdd = familyOrder(entries, childrenByParent)
+      .filter((e) => !selectedIds.has(e.id))
+      .map((e) => e.product);
     if (toAdd.length === 0) return;
     if (toAdd.length > LARGE_ADD) {
       const ok = await showConfirmDialog({
         title: "Add a large batch?",
-        message: `This adds ${toAdd.length.toLocaleString()} products to the tag list${
+        message: `This adds ${toAdd.length.toLocaleString()} ${what} to the tag list${
           categoryLabel ? ` from ${categoryLabel}` : ""
-        }. Continue?`,
+        }, one tag each. Continue?`,
         confirmLabel: "Add them",
       });
       if (!ok) return;
     }
-    setTags((prev) => [...prev, ...toAdd.map((p) => toTag(p))]);
+    setTags((prev) => [...prev, ...toAdd.map((p) => toTag(p, 1))]);
   };
+
+  const addFiltered = () => addEntries(filtered, inStockOnly ? "in-stock products" : "products");
+  const addInStock = () => addEntries(inStockMatches, "in-stock products");
+  const inStockToAdd = useMemo(
+    () => inStockMatches.filter((e) => !selectedIds.has(e.id)).length,
+    [inStockMatches, selectedIds]
+  );
 
   const removeFiltered = () => {
     const ids = new Set(filtered.map((e) => e.id));
@@ -520,18 +618,40 @@ export default function PriceTagGenerator({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {stockAware && (
+                  <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer mr-2">
+                    <input
+                      type="checkbox"
+                      checked={inStockOnly}
+                      onChange={(e) => setInStockOnly(e.target.checked)}
+                      className="w-4 h-4 rounded cursor-pointer"
+                    />
+                    In stock only
+                  </label>
+                )}
                 <p className="text-xs text-gray-600 mr-auto">
                   {catalogLoading ? (
                     "Loading products…"
                   ) : (
                     <>
-                      <strong>{filtered.length.toLocaleString()}</strong> product{filtered.length === 1 ? "" : "s"}
+                      <strong>{filtered.length.toLocaleString()}</strong> {inStockOnly ? "in-stock " : ""}product
+                      {filtered.length === 1 ? "" : "s"}
                       {categoryLabel && <> in <strong>{categoryLabel}</strong></>}
                       {searchTerm.trim() && <> matching “{searchTerm.trim()}”</>}
+                      {stockAware && !inStockOnly && <> · {inStockMatches.length.toLocaleString()} in stock</>}
                       {filteredOnList > 0 && <> · {filteredOnList.toLocaleString()} on the tag list</>}
                     </>
                   )}
                 </p>
+                {stockAware && !inStockOnly && inStockToAdd > 0 && (
+                  <button
+                    onClick={addInStock}
+                    className="btn-action btn-action-success btn-sm"
+                    title="Every product with stock, one tag each. A pack brings its child units that have stock with it."
+                  >
+                    Add {inStockToAdd.toLocaleString()} in stock (1 tag each)
+                  </button>
+                )}
                 {!allFilteredOnList && filtered.length > 0 && (
                   <button onClick={addFiltered} className="btn-action btn-action-primary btn-sm">
                     Add {filtered.length - filteredOnList === filtered.length ? "all " : ""}
@@ -551,10 +671,11 @@ export default function PriceTagGenerator({
               {filtered.length > 0 ? (
                 <>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 p-2">
-                    {filtered.slice(0, PICKER_RENDER_CAP).map(({ product, id }) => {
+                    {filtered.slice(0, PICKER_RENDER_CAP).map(({ product, id, parentId, inStock, stockLabel }) => {
                       const selected = selectedIds.has(id);
                       const packSize = Number(product.qtyPerPack) || 1;
                       const category = categoryIndex.labelFor(product.category);
+                      const parentName = parentId ? entryById.get(parentId)?.product.name : "";
                       return (
                         <label
                           key={id}
@@ -578,9 +699,21 @@ export default function PriceTagGenerator({
                                 .filter(Boolean)
                                 .join(" · ") || "No barcode"}
                             </p>
-                            <p className="text-sm font-semibold theme-accent-text mt-1">
-                              {formatPrice(product.salePriceIncTax ?? product.sellingPrice ?? product.price ?? 0, currency)}
-                            </p>
+                            {parentName && (
+                              <p className="text-xs text-gray-500 truncate" title={parentName}>
+                                ↳ Unit of {parentName}
+                              </p>
+                            )}
+                            <div className="mt-1 flex items-baseline justify-between gap-2">
+                              <p className="text-sm font-semibold theme-accent-text">
+                                {formatPrice(product.salePriceIncTax ?? product.sellingPrice ?? product.price ?? 0, currency)}
+                              </p>
+                              {stockAware && (
+                                <span className={`text-[11px] font-medium whitespace-nowrap ${inStock ? "text-emerald-700" : "text-gray-400"}`}>
+                                  {inStock ? `In stock: ${stockLabel}` : "Out of stock"}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </label>
                       );
@@ -642,12 +775,19 @@ export default function PriceTagGenerator({
                   {tags.slice(0, visibleRows).map((t) => (
                     <tr key={t.key} className="border-t">
                       <td className="px-3 py-1.5">
-                        <input
-                          value={t.name}
-                          onChange={(e) => updateTag(t.key, "name", e.target.value)}
-                          className="w-full border rounded px-2 py-1 text-sm"
-                          placeholder="Product name"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          {t.isChild && (
+                            <span className="text-gray-400 pl-2" title="Child unit of the pack above">
+                              ↳
+                            </span>
+                          )}
+                          <input
+                            value={t.name}
+                            onChange={(e) => updateTag(t.key, "name", e.target.value)}
+                            className="w-full border rounded px-2 py-1 text-sm"
+                            placeholder="Product name"
+                          />
+                        </div>
                       </td>
                       <td className="px-3 py-1.5">
                         <input

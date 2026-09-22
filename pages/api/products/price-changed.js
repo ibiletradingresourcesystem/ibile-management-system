@@ -35,7 +35,7 @@ export default async function handler(req, res) {
       isChildProduct: { $ne: true },
       isArchived: { $ne: true },
     })
-      .select("_id name salePriceIncTax costPrice barcode category updatedAt")
+      .select("_id name salePriceIncTax costPrice barcode category quantity qtyPerPack packType updatedAt")
       .sort({ updatedAt: -1 })
       .lean();
 

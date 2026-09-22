@@ -325,9 +325,12 @@ export default async function handler(req, res) {
       // cached: a tag printed from a price that changed a minute ago is a wrong tag.
       if (req.query.priceTags === "true") {
         const products = await Product.find(filter)
-          .select("name barcode category salePriceIncTax isChildProduct parentProduct packType qtyPerPack unitsPerChild")
+          .select("name barcode category salePriceIncTax quantity isStockManaged isChildProduct parentProduct packType qtyPerPack unitsPerChild")
           .sort({ name: 1 })
           .lean();
+        // Children hold no stock of their own; give them the count their parent's stock
+        // makes, so "in stock" means the same thing for both.
+        await deriveChildQuantities(products);
         res.setHeader("Cache-Control", "private, no-store");
         return res.json({ success: true, data: products, total: products.length });
       }
