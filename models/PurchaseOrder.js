@@ -3,9 +3,14 @@ import mongoose, { Schema, models } from "mongoose";
 const PurchaseOrderProductSchema = new Schema({
   productId: { type: Schema.Types.ObjectId, ref: "Product" },
   name: { type: String, required: true },
+  // Counted in whatever the vendor sells by: packs when there is a supply pack size,
+  // otherwise the product's own stock unit. `price` matches it.
   quantity: { type: Number, default: 0 },
   price: { type: Number, default: 0 },
   total: { type: Number, default: 0 },
+  // Units of stock in one ordered pack; 1 when ordered in the product's own unit.
+  supplyPackSize: { type: Number, default: 1 },
+  supplyPackLabel: { type: String },
 });
 
 const PurchaseOrderSchema = new Schema(

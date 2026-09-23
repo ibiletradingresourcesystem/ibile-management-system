@@ -5,6 +5,13 @@ import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
 import StockOrderList from "@/components/StockOrderList";
+import {
+  getSupplyPackLabel,
+  getSupplyPackSize,
+  isCataloguePack,
+  normalizeSupplyPackSize,
+  orderLineToStock,
+} from "@/lib/supplyPacks";
 import useProgress from "@/lib/useProgress";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
@@ -27,6 +34,9 @@ function createEmptyVendorProduct({ isNewProductCard = false } = {}) {
     price: 0,
     packType: "unit",
     qtyPerPack: 1,
+    // How this vendor supplies it: 1 means by the unit (see lib/supplyPacks).
+    supplyPackSize: 1,
+    supplyPackLabel: "",
     isNewProductCard,
   };
 }
@@ -342,16 +352,23 @@ export default function VendorsPage() {
   // Place Order handler - pre-fill form with vendor's products
   function handlePlaceOrder(vendor) {
     setSelectedVendor(vendor);
-    const products = (vendor.products || []).map((p) => ({
-      _id: p.product?._id || p.product || "",
-      name: p.productName || p.product?.name || p.name || "",
-      quantity: 0,
-      costPrice: p.price || 0,
-    }));
+    const products = (vendor.products || []).map((p) => {
+      // With a supply pack, the quantity ordered is a number of packs and the price
+      // is the pack price. Catalogue packs keep their own behaviour (size 1 here).
+      const supplyPackSize = getSupplyPackSize(p, p.product);
+      return {
+        _id: p.product?._id || p.product || "",
+        name: p.productName || p.product?.name || p.name || "",
+        quantity: 0,
+        costPrice: p.price || 0,
+        supplyPackSize,
+        supplyPackLabel: supplyPackSize > 1 ? getSupplyPackLabel(p) : "",
+      };
+    });
     setOrderForm({
       date: getToday(),
       contact: vendor.repPhone || "",
-      products: products.length > 0 ? products : [{ _id: "", name: "", quantity: 0, costPrice: 0 }],
+      products: products.length > 0 ? products : [{ _id: "", name: "", quantity: 0, costPrice: 0, supplyPackSize: 1, supplyPackLabel: "" }],
     });
     setOrders([]);
     setEditingOrder(false);
@@ -371,13 +388,18 @@ export default function VendorsPage() {
       });
       return;
     }
-    const newOrders = validProducts.map((prod) => ({
-      productId: prod._id,
-      name: prod.name,
-      quantity: Number(prod.quantity),
-      price: Number(prod.costPrice),
-      total: Number(prod.quantity) * Number(prod.costPrice),
-    }));
+    const newOrders = validProducts.map((prod) => {
+      const supplyPackSize = normalizeSupplyPackSize(prod.supplyPackSize);
+      return {
+        productId: prod._id,
+        name: prod.name,
+        quantity: Number(prod.quantity),
+        price: Number(prod.costPrice),
+        total: Number(prod.quantity) * Number(prod.costPrice),
+        supplyPackSize,
+        supplyPackLabel: supplyPackSize > 1 ? prod.supplyPackLabel || "" : "",
+      };
+    });
     setOrders((prev) => {
       const nextOrders = [...prev, ...newOrders];
       setTimeout(() => {
@@ -407,6 +429,8 @@ export default function VendorsPage() {
           quantity: o.quantity,
           price: o.price,
           total: o.total,
+          supplyPackSize: o.supplyPackSize || 1,
+          supplyPackLabel: o.supplyPackLabel || "",
         })),
         grandTotal: orders.reduce((sum, o) => sum + o.total, 0),
       };
@@ -444,7 +468,7 @@ export default function VendorsPage() {
   function addOrderProductRow() {
     setOrderForm((prev) => ({
       ...prev,
-      products: [...prev.products, { _id: "", name: "", quantity: 0, costPrice: 0 }],
+      products: [...prev.products, { _id: "", name: "", quantity: 0, costPrice: 0, supplyPackSize: 1, supplyPackLabel: "" }],
     }));
   }
 
@@ -725,7 +749,15 @@ export default function VendorsPage() {
                     </div>
                   </div>
 
-                  {orderForm.products.map((product, index) => (
+                  {orderForm.products.map((product, index) => {
+                    const packSize = normalizeSupplyPackSize(product.supplyPackSize);
+                    const packLabel = (product.supplyPackLabel || "pack").toLowerCase();
+                    const { stockQuantity, unitCost, lineTotal } = orderLineToStock({
+                      quantity: product.quantity,
+                      price: product.costPrice,
+                      supplyPackSize: packSize,
+                    });
+                    return (
                     <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                         <div className="sm:col-span-2">
@@ -740,7 +772,9 @@ export default function VendorsPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Quantity</label>
+                          <label className="block text-xs text-gray-500 mb-1">
+                            {packSize > 1 ? `Quantity (${packLabel}s of ${packSize})` : "Quantity"}
+                          </label>
                           <input
                             type="number"
                             min="0"
@@ -750,7 +784,9 @@ export default function VendorsPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Cost Price</label>
+                          <label className="block text-xs text-gray-500 mb-1">
+                            {packSize > 1 ? `Cost per ${packLabel}` : "Cost Price"}
+                          </label>
                           <input
                             type="number"
                             min="0"
@@ -761,11 +797,19 @@ export default function VendorsPage() {
                           />
                         </div>
                       </div>
-                      <div className="text-right text-sm text-gray-600">
-                        Subtotal: <span className="font-semibold text-blue-700">{formatCurrency((Number(product.quantity) || 0) * (Number(product.costPrice) || 0))}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600">
+                        {packSize > 1 && (
+                          <span className="text-xs text-blue-700">
+                            {stockQuantity.toLocaleString()} units into stock · {formatCurrency(unitCost)} a unit
+                          </span>
+                        )}
+                        <span className="ml-auto">
+                          Subtotal: <span className="font-semibold text-blue-700">{formatCurrency(lineTotal)}</span>
+                        </span>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
 
                   <div className="flex justify-between w-full text-right font-medium pt-2">
                     <div className="text-gray-700">Total</div>
@@ -795,7 +839,8 @@ export default function VendorsPage() {
                       <th className="px-4 py-2 border">#</th>
                       <th className="px-4 py-2 border">Product Name</th>
                       <th className="px-4 py-2 border">Quantity</th>
-                      <th className="px-4 py-2 border">Unit Price</th>
+                      <th className="px-4 py-2 border">Into stock</th>
+                      <th className="px-4 py-2 border">Price</th>
                       <th className="px-4 py-2 border">Total</th>
                     </tr>
                   </thead>
@@ -810,6 +855,14 @@ export default function VendorsPage() {
                               onChange={(e) => { const u = [...orders]; u[index].quantity = parseFloat(e.target.value) || 0; u[index].total = u[index].quantity * u[index].price; setOrders(u); }}
                               className="w-16 border rounded px-1 py-0.5 text-sm" />
                           ) : item.quantity}
+                          {(item.supplyPackSize || 1) > 1 && (
+                            <span className="ml-1 text-xs text-gray-500">
+                              {(item.supplyPackLabel || "pack").toLowerCase()}{Number(item.quantity) === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 border text-gray-600">
+                          {((item.supplyPackSize || 1) * (Number(item.quantity) || 0)).toLocaleString()} units
                         </td>
                         <td className="px-4 py-2 border">
                           {editingOrder ? (
@@ -824,7 +877,7 @@ export default function VendorsPage() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-blue-100 text-blue-800 font-bold">
-                      <td colSpan="4" className="px-4 py-2 text-right border">Grand Total:</td>
+                      <td colSpan="5" className="px-4 py-2 text-right border">Grand Total:</td>
                       <td className="px-4 py-2 border">{formatCurrency(orders.reduce((sum, o) => sum + o.total, 0))}</td>
                     </tr>
                   </tfoot>
@@ -1046,43 +1099,67 @@ export default function VendorsPage() {
                           </Link>
                         )}
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Cost Price</label>
-                          <input
-                            type="number" min="0" step="0.01" placeholder="Cost price"
-                            value={vp.price}
-                            onChange={(e) => updateVendorProduct(i, "price", Number(e.target.value))}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-right focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Type</label>
-                          <select
-                            value={vp.packType || "unit"}
-                            disabled
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
-                          >
-                            <option value="unit">Unit</option>
-                            <option value="pack">Pack</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs text-gray-500 mb-1">Qty/Pack</label>
-                          <input
-                            type="number" min="1" placeholder="1"
-                            value={vp.qtyPerPack || 1}
-                            readOnly
-                            disabled
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-right bg-gray-100 text-gray-500 cursor-not-allowed"
-                          />
-                        </div>
-                      </div>
-                      {vp.packType === "pack" && vp.product && vp.qtyPerPack > 1 && (
-                        <p className="text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded">
-                          This vendor is attached to the existing pack product &quot;{vp.productName}&quot; with qty per pack {vp.qtyPerPack}.
-                        </p>
-                      )}
+                      {(() => {
+                        // A product that is already a pack in the catalogue is ordered as
+                        // itself. Only a unit product can be given a supply pack here.
+                        const cataloguePack = isCataloguePack(vp);
+                        const packSize = normalizeSupplyPackSize(vp.supplyPackSize);
+                        const suppliedInPacks = !cataloguePack && packSize > 1;
+                        return (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <div>
+                                <label className="block text-xs text-gray-500 mb-1">
+                                  {suppliedInPacks ? `Cost per ${(vp.supplyPackLabel || "pack").toLowerCase()}` : "Cost Price"}
+                                </label>
+                                <input
+                                  type="number" min="0" step="0.01" placeholder="Cost price"
+                                  value={vp.price}
+                                  onChange={(e) => updateVendorProduct(i, "price", Number(e.target.value))}
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-right focus:ring-2 focus:ring-blue-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-500 mb-1">Units per pack</label>
+                                <input
+                                  type="number" min="1" step="1" placeholder="1"
+                                  value={cataloguePack ? vp.qtyPerPack || 1 : vp.supplyPackSize ?? 1}
+                                  disabled={cataloguePack}
+                                  onChange={(e) => updateVendorProduct(i, "supplyPackSize", e.target.value === "" ? "" : Number(e.target.value))}
+                                  onBlur={(e) => updateVendorProduct(i, "supplyPackSize", normalizeSupplyPackSize(e.target.value))}
+                                  onWheel={(e) => e.currentTarget.blur()}
+                                  className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-right ${cataloguePack ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "focus:ring-2 focus:ring-blue-500"}`}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-500 mb-1">Pack called</label>
+                                <input
+                                  type="text" placeholder="Carton, bag, crate…"
+                                  value={vp.supplyPackLabel || ""}
+                                  disabled={cataloguePack || packSize <= 1}
+                                  onChange={(e) => updateVendorProduct(i, "supplyPackLabel", e.target.value)}
+                                  className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm ${cataloguePack || packSize <= 1 ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "focus:ring-2 focus:ring-blue-500"}`}
+                                />
+                              </div>
+                            </div>
+                            {cataloguePack ? (
+                              <p className="text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded">
+                                &quot;{vp.productName}&quot; is already a pack of {vp.qtyPerPack} in the catalogue, so it is ordered in its own packs.
+                              </p>
+                            ) : suppliedInPacks ? (
+                              <p className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded">
+                                Ordered from this vendor by the {(vp.supplyPackLabel || "pack").toLowerCase()}: 1 = {packSize} units at{" "}
+                                {formatCurrency((Number(vp.price) || 0) / packSize)} a unit. Receiving puts {packSize} units into stock for each one.
+                                The product itself is unchanged.
+                              </p>
+                            ) : (
+                              <p className="text-xs text-gray-500 px-2">
+                                Ordered by the unit. Set units per pack if this vendor only sells it by the carton or bag.
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                           </>
                         );
                       })()}

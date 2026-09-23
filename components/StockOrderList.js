@@ -163,6 +163,10 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
           quantity: Number(line.quantity) || 0,
           price: Number(line.price) || 0,
           total: (Number(line.quantity) || 0) * (Number(line.price) || 0),
+          // Carried through, or an order in the vendor's cartons would come back as
+          // that many single units when it is received.
+          supplyPackSize: line.supplyPackSize || 1,
+          supplyPackLabel: line.supplyPackLabel || "",
         })),
       });
       refresh();
@@ -297,7 +301,16 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                               <tbody>
                                 {draftLines.map((line, index) => (
                                   <tr key={index} className="border-t theme-border-soft">
-                                    <td className="py-2 pr-3 text-gray-800">{line.name}</td>
+                                    <td className="py-2 pr-3 text-gray-800">
+                                      {line.name}
+                                      {(line.supplyPackSize || 1) > 1 && (
+                                        <span className="block text-xs text-gray-500">
+                                          ordered by the {(line.supplyPackLabel || "pack").toLowerCase()} of{" "}
+                                          {line.supplyPackSize} — {((Number(line.quantity) || 0) * line.supplyPackSize).toLocaleString()} units
+                                          into stock
+                                        </span>
+                                      )}
+                                    </td>
                                     <td className="py-2">
                                       <input
                                         type="number"

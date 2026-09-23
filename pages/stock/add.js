@@ -16,6 +16,7 @@ import {
   splitPackQuantity,
 } from "@/lib/packUnits";
 import { calculateMarginPercent, calculateSalePriceIncTax, roundMoney } from "@/lib/pricing";
+import { normalizeSupplyPackSize } from "@/lib/supplyPacks";
 
 /** Reasons that take stock out of a location, and so can run it short. */
 const OUTBOUND_REASONS = new Set(["Transfer", "Return", "Adjustment", "Operational Loss"]);
@@ -162,7 +163,12 @@ export default function StockMovementAdd() {
         const unmatched = [];
         for (const poProduct of order.products || []) {
           if (!poProduct.name && !poProduct.productId) continue;
-          const poQty = Number(poProduct.quantity) || 1;
+          // Ordered by the vendor's pack (a carton of 30) but kept in units: what
+          // arrives is units. A product that is a pack in its own right has a pack
+          // size of 1 here and is received as before.
+          const orderedQty = Number(poProduct.quantity) || 1;
+          const supplyPackSize = normalizeSupplyPackSize(poProduct.supplyPackSize);
+          const poQty = orderedQty * supplyPackSize;
 
           try {
             let found = null;
@@ -204,9 +210,13 @@ export default function StockMovementAdd() {
             if (existing) {
               existing.quantity += target.quantity;
             } else {
+              const packNote =
+                supplyPackSize > 1
+                  ? `${orderedQty} × ${(poProduct.supplyPackLabel || "pack").toLowerCase()} of ${supplyPackSize}`
+                  : "";
               matched.push(
                 makeLine(target.product, target.quantity, "", {
-                  receivedAs: target.from ? `${poQty} × ${target.from.name}` : "",
+                  receivedAs: [packNote, target.from ? `${poQty} × ${target.from.name}` : ""].filter(Boolean).join(" · "),
                 })
               );
             }

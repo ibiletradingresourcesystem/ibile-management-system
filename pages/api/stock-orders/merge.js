@@ -28,13 +28,23 @@ export function mergeOrderGroup(orders) {
     for (const product of order.products || []) {
       const name = String(product.name || "").trim();
       if (!name) continue;
-      const key = name.toLowerCase();
       const quantity = Number(product.quantity) || 0;
       const price = Number(product.price) || 0;
+      const supplyPackSize = Number(product.supplyPackSize) || 1;
+      // Ordered by the pack on one order and by the unit on another, the two are not
+      // the same line: adding 3 packs to 4 units would mean neither.
+      const key = `${name.toLowerCase()}|${supplyPackSize}`;
 
       const existing = lines.get(key);
       if (!existing) {
-        lines.set(key, { productId: product.productId, name, quantity, price });
+        lines.set(key, {
+          productId: product.productId,
+          name,
+          quantity,
+          price,
+          supplyPackSize,
+          supplyPackLabel: product.supplyPackLabel,
+        });
         continue;
       }
       existing.quantity += quantity;

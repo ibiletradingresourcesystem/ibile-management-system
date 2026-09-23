@@ -56,9 +56,20 @@ const VendorSchema = new Schema(
       {
         product: { type: Schema.Types.ObjectId, ref: "Product" },
         productName: { type: String },
+        // With a supply pack, this is the price of one pack; otherwise of one unit.
         price: { type: Number, default: 0 },
+        // Mirrors the catalogue product's own pack settings, for reference.
         packType: { type: String, enum: ["unit", "pack"], default: "unit" },
         qtyPerPack: { type: Number, default: 1 },
+        /*
+         * How this vendor supplies a product the catalogue keeps in single units:
+         * one ordered pack is this many units (a carton of 30 biscuits). Orders to
+         * this vendor are then placed in packs and received as units. It changes
+         * nothing about the product itself, and is ignored for a product that is
+         * already a pack in the catalogue.
+         */
+        supplyPackSize: { type: Number, default: 1 },
+        supplyPackLabel: { type: String, trim: true },
       },
     ],
     onboardingToken: {

@@ -14,9 +14,12 @@ import mongoose, { Schema, models } from "mongoose";
 const StockOrderProductSchema = new Schema({
   productId: { type: Schema.Types.ObjectId, ref: "Product" },
   name: { type: String, required: true },
+  // In the vendor's selling unit: packs where a supply pack size is set.
   quantity: { type: Number, default: 0 },
   price: { type: Number, default: 0 },
   total: { type: Number, default: 0 },
+  supplyPackSize: { type: Number, default: 1 },
+  supplyPackLabel: { type: String },
 });
 
 const StockOrderSchema = new Schema(
