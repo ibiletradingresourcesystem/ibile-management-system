@@ -12,6 +12,18 @@ import { showConfirmDialog } from "@/lib/dialogs";
 import { STAFF_ROLE_OPTIONS, normalizeStaffRole, POS_PERMISSION_KEYS, POS_PERMISSION_LABELS, getDefaultPosPermissions, normalizePosPermissions } from "@/lib/pos-permissions";
 import { showToastMessage } from "@/lib/toast-state";
 import { useTableSort, SortableTh } from "@/components/SortableTable";
+import {
+  chunkPayroll,
+  missingBankDetails,
+  payrollExclusions,
+  payrollRows,
+  payrollTotal,
+  staffNetPay,
+  staffPenaltyTotal,
+} from "@/lib/payroll";
+
+/** How many staff go on one transfer memo, as the bank letters are written. */
+const MEMO_TABLE_SIZE = 5;
 
 function toCamelCase(str) {
   return str
@@ -275,19 +287,49 @@ export default function StaffPage() {
     catch (err) { setMessage(err.response?.data?.error || "Failed to delete staff"); }
   };
 
-  const calculateGrandTotal = () => staffList.reduce((sum, s) => sum + (parseFloat(s.salary) || 0), 0);
+  // What is actually paid, after penalties — the same figure the memo and the email use.
+  const paySlipRows = payrollRows(staffList);
+  const payChunks = chunkPayroll(paySlipRows, MEMO_TABLE_SIZE);
+  const payTotal = payrollTotal(paySlipRows);
+  const notBeingPaid = payrollExclusions(staffList);
+  const missingBanks = missingBankDetails(paySlipRows);
+
+  /** Open the transfer memo for one table of staff. */
+  const openMemo = (chunk, index) => {
+    const ids = chunk.map((row) => row._id).join(",");
+    window.open(`/memo/salary?ids=${encodeURIComponent(ids)}&part=${index + 1}&of=${payChunks.length}`, "_blank");
+  };
 
   const handleSendingMail = async () => {
+    if (paySlipRows.length === 0) {
+      setMessage("Nobody is due to be paid, so there is nothing to send.");
+      return;
+    }
+    const confirmed = await showConfirmDialog({
+      title: "Send the salary schedule?",
+      message: `${paySlipRows.length} staff, ${formatCurrency(payTotal)} in total, will be emailed to the payroll address.` +
+        (missingBanks.length > 0 ? ` ${missingBanks.length} of them have no bank details yet.` : ""),
+      confirmLabel: "Send email",
+    });
+    if (!confirmed) return;
+
     setIsSending(true);
-    try { const r = await apiClient.post("/api/salary-mail", {}); setMessage(r.data.message || "Salary email sent!"); }
-    catch (err) { setMessage(err.response?.data?.error || "Failed to send salary emails"); }
-    finally { setIsSending(false); }
+    try {
+      const r = await apiClient.post("/api/salary-mail", {});
+      setMessage(r.data.message || "Salary schedule sent.");
+    } catch (err) {
+      setMessage(err.response?.data?.error || "Failed to send the salary schedule");
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handlePrintSalaryTable = () => {
     const printWindow = window.open("", "", "width=900,height=600");
-    const tableHTML = document.querySelector(".salary-print-table")?.outerHTML || "";
-    const totalAmount = formatCurrency(calculateGrandTotal() || 0, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const tableHTML = [...document.querySelectorAll(".salary-print-table")]
+      .map((table) => table.outerHTML)
+      .join("<div style='height:18px'></div>");
+    const totalAmount = formatCurrency(payTotal || 0, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     printWindow.document.write(`<html><head><title>Salary Report</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#333}h1{color:#1e3a8a;text-align:center}table{width:100%;border-collapse:collapse;margin:20px 0}th{background:#dbeafe;padding:12px;text-align:left;border:1px solid #bfdbfe;font-weight:bold}td{padding:10px;border:1px solid #e5e7eb}tr:nth-child(even){background:#f9fafb}.total{background:#dbeafe;padding:15px;margin-top:20px;text-align:right;font-weight:bold;font-size:16px;border-radius:5px}</style></head><body><h1>Staff Salary Report</h1><p style="text-align:center;color:#666;font-size:12px">${new Date().toLocaleDateString()}</p>${tableHTML}<div class="total">Grand Total: ${totalAmount}</div></body></html>`);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -453,11 +495,11 @@ export default function StaffPage() {
                                 </a>
                               </>
                             )}
-                            {staff.onboardingComplete && (
-                              <button onClick={() => setExpandedProfile(expandedProfile === staff._id ? null : staff._id)} className="flex items-center gap-1 text-xs bg-gray-50 text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition">
-                                {expandedProfile === staff._id ? <><ChevronUp size={12} /> Hide</> : <><ChevronDown size={12} /> View</>}
-                              </button>
-                            )}
+                            {/* Available for everyone: the pay and bank details are worth
+                                seeing whether or not the onboarding form came back. */}
+                            <button onClick={() => setExpandedProfile(expandedProfile === staff._id ? null : staff._id)} className="flex items-center gap-1 text-xs bg-gray-50 text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition">
+                              {expandedProfile === staff._id ? <><ChevronUp size={12} /> Hide</> : <><ChevronDown size={12} /> Details</>}
+                            </button>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -469,10 +511,47 @@ export default function StaffPage() {
                         </>
                       )}
                     </tr>
-                    {expandedProfile === staff._id && staff.onboardingComplete && (
+                    {expandedProfile === staff._id && (
                       <tr>
                         <td colSpan={7} className="px-4 pb-4">
                           <div className="bg-gray-50 rounded-lg p-3 text-xs space-y-3">
+                            <div>
+                              <h4 className="font-semibold text-blue-700 mb-1">Account &amp; Pay</h4>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+                                <p><span className="text-gray-500">Account Name:</span> {staff.accountName ? toCamelCase(staff.accountName) : "—"}</p>
+                                <p><span className="text-gray-500">Account Number:</span> {staff.accountNumber || "—"}</p>
+                                <p><span className="text-gray-500">Bank:</span> {staff.bankName ? toCamelCase(staff.bankName) : "—"}</p>
+                                <p><span className="text-gray-500">Salary:</span> {formatCurrency(Number(staff.salary) || 0)}</p>
+                                <p><span className="text-gray-500">Penalties:</span>{" "}
+                                  {staffPenaltyTotal(staff) > 0 ? <span className="text-red-600">−{formatCurrency(staffPenaltyTotal(staff))}</span> : "None"}
+                                </p>
+                                <p><span className="text-gray-500">Net Pay:</span> <strong>{formatCurrency(staffNetPay(staff))}</strong></p>
+                                <p><span className="text-gray-500">Location:</span> {staff.location ? toCamelCase(staff.location) : "—"}</p>
+                                <p><span className="text-gray-500">On POS:</span> {staff.showOnPos !== false ? "Yes" : "No"}</p>
+                              </div>
+                            </div>
+
+                            {staff.penalty?.length > 0 && (
+                              <div>
+                                <h4 className="font-semibold text-blue-700 mb-1">Penalties ({staff.penalty.length})</h4>
+                                <ul className="space-y-0.5">
+                                  {staff.penalty.map((p, i) => (
+                                    <li key={i} className="text-gray-700">
+                                      <span className="text-red-600 font-medium">{formatCurrency(Number(p.amount) || 0)}</span>
+                                      {p.reason ? <span className="italic"> — {p.reason}</span> : null}
+                                      {p.date ? <span className="text-gray-500"> ({new Date(p.date).toLocaleDateString()})</span> : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {!staff.onboardingComplete && (
+                              <p className="text-amber-700">
+                                The onboarding form has not been returned yet, so personal and guarantor details are not on file.
+                              </p>
+                            )}
+
                             {staff.onboardingData && (
                               <div>
                                 <h4 className="font-semibold text-blue-700 mb-1">Personal Details</h4>
@@ -583,38 +662,74 @@ export default function StaffPage() {
           {/* Salary Table */}
           <div className="bg-white mt-8 p-6 shadow rounded-lg w-full">
             <h2 className="text-xl font-semibold text-blue-700 mb-6">Salary Table</h2>
-            {staffList.length > 0 ? (
+            {paySlipRows.length > 0 ? (
               <>
-                <div className="overflow-x-auto">
-                  <table className="salary-print-table w-full text-sm">
-                    <thead className="table-header-gradient text-white text-xs uppercase tracking-wider border-b-2 border-blue-300">
-                      <tr>
-                        <th className="px-6 py-3 text-left font-bold">Staff Name</th>
-                        <th className="px-6 py-3 text-left font-bold">Location</th>
-                        <th className="px-6 py-3 text-left font-bold">Account Name</th>
-                        <th className="px-6 py-3 text-left font-bold">Bank Account</th>
-                        <th className="px-6 py-3 text-left font-bold">Bank Name</th>
-                        <th className="px-6 py-3 text-right font-bold">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {staffList.map((s) => (
-                        <tr key={s._id} className="border-b border-gray-200 hover:bg-blue-50">
-                          <td className="px-6 py-3 font-medium text-gray-900">{toCamelCase(s.name || "")}</td>
-                          <td className="px-6 py-3 text-gray-700">{toCamelCase(s.location || "-")}</td>
-                          <td className="px-6 py-3 text-gray-700">{toCamelCase(s.accountName || "-")}</td>
-                          <td className="px-6 py-3 text-gray-700">{s.accountNumber || "-"}</td>
-                          <td className="px-6 py-3 text-gray-700">{toCamelCase(s.bankName || "-")}</td>
-                          <td className="px-6 py-3 text-right font-medium text-gray-900">{(parseFloat(s.salary) || 0).toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="flex justify-between items-center mt-8 bg-blue-100 px-6 py-4 rounded-lg border-2 border-blue-400 mb-6">
+                <p className="text-sm text-gray-500 -mt-4 mb-4">
+                  {paySlipRows.length} staff to pay, in {payChunks.length} table{payChunks.length === 1 ? "" : "s"} of up to{" "}
+                  {MEMO_TABLE_SIZE} — each one is a transfer memo of its own. Penalties are already taken off.
+                </p>
+
+                {payChunks.map((chunk, index) => {
+                  const subtotal = payrollTotal(chunk);
+                  return (
+                    <div key={index} className="mb-6">
+                      <div className="overflow-x-auto">
+                        <table className="salary-print-table w-full text-sm">
+                          <thead className="table-header-gradient text-white text-xs uppercase tracking-wider border-b-2 border-blue-300">
+                            <tr>
+                              <th className="px-6 py-3 text-left font-bold">Staff Name</th>
+                              <th className="px-6 py-3 text-left font-bold">Location</th>
+                              <th className="px-6 py-3 text-left font-bold">Account Name</th>
+                              <th className="px-6 py-3 text-left font-bold">Bank Account</th>
+                              <th className="px-6 py-3 text-left font-bold">Bank Name</th>
+                              <th className="px-6 py-3 text-right font-bold">Salary</th>
+                              <th className="px-6 py-3 text-right font-bold">Penalties</th>
+                              <th className="px-6 py-3 text-right font-bold">Net Pay</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {chunk.map((row) => (
+                              <tr key={row._id} className="border-b border-gray-200 hover:bg-blue-50">
+                                <td className="px-6 py-3 font-medium text-gray-900">{toCamelCase(row.name || "")}</td>
+                                <td className="px-6 py-3 text-gray-700">{toCamelCase(row.location || "-")}</td>
+                                <td className="px-6 py-3 text-gray-700">{toCamelCase(row.accountName || "-")}</td>
+                                <td className={`px-6 py-3 ${row.accountNumber ? "text-gray-700" : "text-red-600"}`}>{row.accountNumber || "missing"}</td>
+                                <td className={`px-6 py-3 ${row.bankName ? "text-gray-700" : "text-red-600"}`}>{row.bankName ? toCamelCase(row.bankName) : "missing"}</td>
+                                <td className="px-6 py-3 text-right text-gray-700">{row.salary.toLocaleString()}</td>
+                                <td className="px-6 py-3 text-right text-red-600">{row.penalties ? `−${row.penalties.toLocaleString()}` : "—"}</td>
+                                <td className="px-6 py-3 text-right font-semibold text-gray-900">{row.netPay.toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="flex flex-wrap justify-between items-center gap-3 mt-2 bg-blue-50 border border-blue-200 px-4 py-3 rounded-lg">
+                        <span className="text-sm font-semibold text-blue-800">
+                          Table {index + 1} subtotal: {formatCurrency(subtotal)}
+                        </span>
+                        <button onClick={() => openMemo(chunk, index)} className="btn-action btn-action-primary btn-sm">
+                          View Memo
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="flex justify-between items-center mt-8 bg-blue-100 px-6 py-4 rounded-lg border-2 border-blue-400 mb-4">
                   <span className="text-xl font-bold text-blue-900">T-Total</span>
-                  <span className="text-xl font-bold text-blue-900">{calculateGrandTotal().toLocaleString()}</span>
+                  <span className="text-xl font-bold text-blue-900">{payTotal.toLocaleString()}</span>
                 </div>
+
+                {missingBanks.length > 0 && (
+                  <p className="text-sm text-red-600 mb-2">
+                    No account number or bank for: {missingBanks.map((row) => toCamelCase(row.name)).join(", ")} — the bank cannot pay those.
+                  </p>
+                )}
+                {notBeingPaid.length > 0 && (
+                  <p className="text-sm text-gray-500 mb-4">
+                    Not on the payroll: {notBeingPaid.map((row) => `${toCamelCase(row.name)} (${row.reason.toLowerCase()})`).join(", ")}.
+                  </p>
+                )}
                 <div className="flex justify-end gap-3">
                   <button onClick={handleSendingMail} disabled={isSending} className={`${isSending ? "bg-gray-400 cursor-not-allowed" : "bg-gray-600 hover:bg-gray-700"} text-white px-6 py-2 rounded-lg font-semibold flex items-center gap-2`}>
                     <Mail size={18} /> {isSending ? "Sending..." : "Send Salary Mail"}
@@ -625,7 +740,13 @@ export default function StaffPage() {
                 </div>
               </>
             ) : (
-              <div className="text-center py-12"><p className="text-gray-500">No staff members found</p></div>
+              <div className="text-center py-12">
+                <p className="text-gray-500">
+                  {staffList.length === 0
+                    ? "No staff members found"
+                    : "Nobody is due to be paid — set a salary on a staff member, or check whether penalties cover it."}
+                </p>
+              </div>
             )}
           </div>
         </div>
