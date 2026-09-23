@@ -8,6 +8,8 @@
  * POST — send it now (admin, or a cron call carrying CRON_SECRET).
  * GET  — what would be sent, without sending (`?preview=true`).
  */
+import fs from "fs";
+import path from "path";
 import { mongooseConnect } from "@/lib/mongodb";
 import Staff from "@/models/Staff";
 import { createMailTransport, getMailEnvValue, getMailFromAddress } from "@/lib/mail";
@@ -16,59 +18,97 @@ import { missingBankDetails, payrollExclusions, payrollRows, payrollTotal } from
 
 const money = (value) => `₦${Number(value || 0).toLocaleString("en-NG")}`;
 
-function buildHtml({ rows, total, monthLabel, incomplete }) {
+/** Email clients render pasted markup, so anything from a record is escaped first. */
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+/**
+ * The salary schedule as it goes out: letterhead logo, the month, and one table of
+ * who is paid what. `logoCid` is the attached logo; without it the heading stands alone.
+ */
+function buildHtml({ rows, total, monthLabel, incomplete, logoCid }) {
   const tableRows = rows
     .map(
-      (row, index) => `
-        <tr style="background:${index % 2 ? "#f9fafb" : "#ffffff"}">
-          <td style="padding:8px 10px;border:1px solid #e5e7eb;">${index + 1}</td>
-          <td style="padding:8px 10px;border:1px solid #e5e7eb;">${row.name}</td>
-          <td style="padding:8px 10px;border:1px solid #e5e7eb;">${row.accountName || "—"}</td>
-          <td style="padding:8px 10px;border:1px solid #e5e7eb;">${row.accountNumber || "—"}</td>
-          <td style="padding:8px 10px;border:1px solid #e5e7eb;">${row.bankName || "—"}</td>
-          <td style="padding:8px 10px;border:1px solid #e5e7eb;text-align:right;">${money(row.netPay)}</td>
-        </tr>`
+      (row) => `
+          <tr>
+            <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(row.name)}</td>
+            <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(row.accountName || "N/A")}</td>
+            <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(row.accountNumber || "N/A")}</td>
+            <td style="border:1px solid #ddd;padding:8px;">${escapeHtml(row.bankName || "N/A")}</td>
+            <td style="border:1px solid #ddd;padding:8px;text-align:right;">${money(row.netPay)}</td>
+          </tr>`
     )
     .join("");
 
   const warning =
     incomplete.length > 0
-      ? `<p style="margin:16px 0 0;padding:10px 12px;background:#fef2f2;border-left:4px solid #ef4444;font-size:13px;color:#991b1b;">
-           Missing bank details: ${incomplete.map((row) => row.name).join(", ")}. Those transfers cannot be made until the details are added.
+      ? `<p style="margin:24px 0 0;padding:10px 12px;background:#fef2f2;border-left:4px solid #ef4444;font-size:13px;color:#991b1b;">
+           No account number or bank on file for: ${escapeHtml(incomplete.map((row) => row.name).join(", "))}.
+           Those transfers cannot be made until the details are added.
          </p>`
       : "";
 
   return `
-    <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;padding:20px;">
-      <div style="background:#1f2937;color:#ffffff;padding:20px;border-radius:8px;margin-bottom:20px;">
-        <h1 style="margin:0;font-size:20px;">Salary Schedule</h1>
-        <p style="margin:5px 0 0;opacity:0.8;font-size:13px;">${monthLabel}</p>
-      </div>
-      <p style="font-size:14px;color:#374151;">
-        ${rows.length} staff to be paid, totalling <strong>${money(total)}</strong>. Penalties have already been taken off.
+  <div style="font-family:'Segoe UI',Roboto,sans-serif;background:#f0f4f8;padding:30px;">
+    <div style="max-width:700px;margin:auto;background:#ffffff;padding:40px 30px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.1);border:1px solid #e1e1e1;">
+
+      ${
+        logoCid
+          ? `<div style="text-align:center;margin-bottom:30px;">
+               <img src="cid:${logoCid}" alt="Ibile Mart" style="max-width:120px;height:auto;" />
+             </div>`
+          : ""
+      }
+
+      <h2 style="text-align:center;color:#003366;font-size:22px;margin-bottom:10px;">Salary Payment Schedule</h2>
+      <p style="text-align:center;color:#555;font-size:15px;margin-bottom:30px;"><strong>${monthLabel}</strong></p>
+
+      <p style="font-size:14px;color:#444;line-height:1.6;margin-bottom:30px;">
+        Dear Sir,<br><br>
+        Please find below the salary schedule for the month of <strong>${monthLabel}</strong>. Kindly review and proceed accordingly.
       </p>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;">
-        <thead>
-          <tr style="background:#dbeafe;">
-            <th style="padding:10px;border:1px solid #bfdbfe;text-align:left;">#</th>
-            <th style="padding:10px;border:1px solid #bfdbfe;text-align:left;">Staff</th>
-            <th style="padding:10px;border:1px solid #bfdbfe;text-align:left;">Account Name</th>
-            <th style="padding:10px;border:1px solid #bfdbfe;text-align:left;">Account Number</th>
-            <th style="padding:10px;border:1px solid #bfdbfe;text-align:left;">Bank</th>
-            <th style="padding:10px;border:1px solid #bfdbfe;text-align:right;">Amount</th>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead style="background:#25476a;color:#fff;">
+          <tr>
+            <th style="border:1px solid #ccc;padding:10px;text-align:left;">Staff Name</th>
+            <th style="border:1px solid #ccc;padding:10px;text-align:left;">Account Name</th>
+            <th style="border:1px solid #ccc;padding:10px;text-align:left;">Bank Account</th>
+            <th style="border:1px solid #ccc;padding:10px;text-align:left;">Bank Name</th>
+            <th style="border:1px solid #ccc;padding:10px;text-align:right;">Amount</th>
           </tr>
         </thead>
-        <tbody>${tableRows}</tbody>
-        <tfoot>
-          <tr style="background:#dbeafe;font-weight:bold;">
-            <td colspan="5" style="padding:10px;border:1px solid #bfdbfe;text-align:right;">Total</td>
-            <td style="padding:10px;border:1px solid #bfdbfe;text-align:right;">${money(total)}</td>
+        <tbody>
+          ${tableRows}
+          <tr style="background:#f1f1f1;font-weight:bold;">
+            <td colspan="4" style="border:1px solid #ccc;padding:10px;text-align:right;">Total</td>
+            <td style="border:1px solid #ccc;padding:10px;text-align:right;">${money(total)}</td>
           </tr>
-        </tfoot>
+        </tbody>
       </table>
+
       ${warning}
-      <p style="margin-top:20px;font-size:11px;color:#6b7280;">Sent from Ibile Inventory · ${new Date().toLocaleString("en-NG")}</p>
-    </div>`;
+
+      <p style="font-size:12px;color:#999;text-align:center;margin-top:40px;">
+        Powered by Hetch Tech (Ayoola).<br/>
+        &copy; ${new Date().getFullYear()} Ibile Trading Resources Limited. All rights reserved.
+      </p>
+    </div>
+  </div>`;
+}
+
+/** The letterhead logo, attached so it shows even where remote images are blocked. */
+function logoAttachment() {
+  const logoPath = path.resolve(process.cwd(), "public", "images", "logoName.png");
+  if (!fs.existsSync(logoPath)) {
+    console.warn("Salary mail: logo not found at", logoPath);
+    return null;
+  }
+  return { filename: "logo.png", path: logoPath, cid: "ibile_logo" };
 }
 
 export default async function handler(req, res) {
@@ -129,12 +169,15 @@ export default async function handler(req, res) {
       });
     }
 
+    const logo = logoAttachment();
+
     await transporter.sendMail({
-      from: getMailFromAddress("Ibile Inventory"),
+      from: getMailFromAddress("Ibile Mail"),
       to: recipient,
       cc: getMailEnvValue("SALARY_MAIL_CC") || undefined,
-      subject: `Salary schedule ${monthLabel} — ${money(total)} for ${rows.length} staff`,
-      html: buildHtml({ rows, total, monthLabel, incomplete }),
+      subject: `${monthLabel} Salary Schedule`,
+      html: buildHtml({ rows, total, monthLabel, incomplete, logoCid: logo?.cid }),
+      attachments: logo ? [logo] : [],
     });
 
     return res.status(200).json({

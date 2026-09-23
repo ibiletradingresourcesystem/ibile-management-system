@@ -44,8 +44,19 @@ const SalaryMemo = forwardRef(
       ? `${toWords(Math.round(total)).replace(/\b\w/g, (c) => c.toUpperCase())} Naira Only`
       : "";
 
-    const cell = { border: "1px solid #999", padding: "5px 7px", fontSize: "12px" };
-    const headCell = { ...cell, fontWeight: "bold", backgroundColor: "#eef6f8", textAlign: "left" };
+    const cell = { border: "1px solid #999", padding: "5px 7px", fontSize: "12px", verticalAlign: "top" };
+    // Headings stay on one line and the columns keep fixed widths, so a long account
+    // name cannot squeeze "Account Number" into two lines and throw the table out.
+    const headCell = {
+      ...cell,
+      fontWeight: "bold",
+      backgroundColor: "#25476a",
+      color: "#ffffff",
+      textAlign: "left",
+      whiteSpace: "nowrap",
+      fontSize: "11.5px",
+      letterSpacing: "0.02em",
+    };
 
     return (
       <div>
@@ -112,13 +123,22 @@ const SalaryMemo = forwardRef(
                 <strong>₦{total.toLocaleString()}</strong> (<em>{amountInWords}</em>) and transfer as follows:
               </p>
 
-              <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "1.5rem" }}>
+              <table
+                style={{ width: "100%", borderCollapse: "collapse", marginBottom: "1.5rem", tableLayout: "fixed" }}
+              >
+                <colgroup>
+                  <col style={{ width: "6%" }} />
+                  <col style={{ width: "34%" }} />
+                  <col style={{ width: "21%" }} />
+                  <col style={{ width: "21%" }} />
+                  <col style={{ width: "18%" }} />
+                </colgroup>
                 <thead>
                   <tr>
-                    <th style={{ ...headCell, width: "28px", textAlign: "center" }}>#</th>
+                    <th style={{ ...headCell, textAlign: "center" }}>S/N</th>
                     <th style={headCell}>Account Name</th>
-                    <th style={headCell}>Account Number</th>
-                    <th style={headCell}>Bank</th>
+                    <th style={headCell}>Bank Account</th>
+                    <th style={headCell}>Bank Name</th>
                     <th style={{ ...headCell, textAlign: "right" }}>Amount (₦)</th>
                   </tr>
                 </thead>
@@ -126,19 +146,21 @@ const SalaryMemo = forwardRef(
                   {rows.map((row, index) => (
                     <tr key={row._id || index}>
                       <td style={{ ...cell, textAlign: "center" }}>{index + 1}</td>
-                      <td style={cell}>{row.accountName || row.name}</td>
+                      <td style={{ ...cell, wordBreak: "break-word" }}>{row.accountName || row.name}</td>
                       <td style={cell}>{row.accountNumber || "—"}</td>
-                      <td style={cell}>{row.bankName || "—"}</td>
-                      <td style={{ ...cell, textAlign: "right" }}>{row.netPay.toLocaleString()}</td>
+                      <td style={{ ...cell, wordBreak: "break-word" }}>{row.bankName || "—"}</td>
+                      <td style={{ ...cell, textAlign: "right", whiteSpace: "nowrap" }}>{row.netPay.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr>
+                  <tr style={{ backgroundColor: "#f1f1f1" }}>
                     <td colSpan={4} style={{ ...cell, fontWeight: "bold", textAlign: "right" }}>
                       Total
                     </td>
-                    <td style={{ ...cell, fontWeight: "bold", textAlign: "right" }}>₦{total.toLocaleString()}</td>
+                    <td style={{ ...cell, fontWeight: "bold", textAlign: "right", whiteSpace: "nowrap" }}>
+                      ₦{total.toLocaleString()}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
