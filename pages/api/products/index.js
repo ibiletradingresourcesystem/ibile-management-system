@@ -4,6 +4,7 @@ import { Category } from "@/models/Category";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { syncVendorAssignmentsForProduct } from "@/lib/vendorProductSync";
 import { deleteProductImages } from "@/lib/s3";
+import { archiveFields, restoreFields } from "@/lib/productArchive";
 import { deriveChildrenForParent } from "@/lib/syncPackQty";
 import { resolveChildCost, syncChildCostsForParent } from "@/lib/childPricing";
 import { deriveChildQuantity, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
@@ -564,11 +565,12 @@ export default async function handler(req, res) {
       }
 
       if (restore) {
-        updateData.isArchived = false;
-        updateData.archivedAt = null;
-        updateData.archivedReason = "";
+        // Puts web visibility back to what it was before archiving, rather than
+        // republishing to the shop something that was deliberately hidden.
+        Object.assign(updateData, restoreFields(existingProduct));
+        if (updateData.archivedShowOnWeb === undefined) delete updateData.archivedShowOnWeb;
       } else if (updateData.isArchived) {
-        updateData.archivedAt = updateData.archivedAt || new Date();
+        Object.assign(updateData, archiveFields(existingProduct, updateData.archivedReason || "manual-archive"));
       }
 
       if (
@@ -736,16 +738,9 @@ export default async function handler(req, res) {
         });
       }
 
-      const deleted = await Product.findByIdAndUpdate(
-        id,
-        {
-          isArchived: true,
-          archivedAt: new Date(),
-          archivedReason: "manual-delete",
-          quantity: 0,
-        },
-        { new: true }
-      );
+      // Archived, not destroyed — and hidden from the till and the web shop with it.
+      const existing = await Product.findById(id).select("showOnWeb").lean();
+      const deleted = await Product.findByIdAndUpdate(id, archiveFields(existing), { new: true });
 
       if (!deleted) {
         return res.status(404).json({

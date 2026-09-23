@@ -5,11 +5,13 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/router";
 import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
-import { useIndexedDBCache } from "@/lib/useIndexedDBCache";
+import { useIndexedDBCache, clearCache } from "@/lib/useIndexedDBCache";
 import { getCachedCategories } from "@/lib/categoriesCache";
 import { getPackSize } from "@/lib/packUnits";
 import { useTableSort, SortableTh } from "@/components/SortableTable";
 import ExportMenu from "@/components/ExportMenu";
+import { apiClient } from "@/lib/api-client";
+import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 
 const LOCATION_FILTER_KEY = "stockManagement:locationFilter";
 const CARD_FILTER_KEY = "stockManagement:cardFilter";
@@ -154,6 +156,12 @@ function matchesStockState(product, stockFilter) {
     return quantity > 0;
   }
 
+  // Nothing in stock: the dead entries worth clearing out. A blank quantity reads as
+  // zero above, and negative stock is a different problem with its own filter.
+  if (stockFilter === "noStock") {
+    return quantity === 0;
+  }
+
   if (stockFilter === "negativeStock") {
     return quantity < 0;
   }
@@ -203,6 +211,8 @@ export default function StockManagement() {
       ? sessionStorage.getItem(LOCATION_FILTER_KEY) || queryLocation || "all"
       : queryLocation || "all"
   );
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [archiving, setArchiving] = useState(false);
   const [selectedStockFilter, setSelectedStockFilter] = useState(
     typeof window !== "undefined"
       ? sessionStorage.getItem(CARD_FILTER_KEY) || "all"
@@ -493,6 +503,129 @@ export default function StockManagement() {
     [parentProducts]
   );
 
+  const stockValueOf = useCallback(
+    (product) => (Number(product?.quantity) || 0) * (Number(product?.costPrice) || 0),
+    []
+  );
+
+  /**
+   * What the rows on screen are worth. Negative stock is counted separately as well as
+   * in the total: it is stock the system says was sold but never received, and the
+   * accounts need the figure on its own rather than netted quietly into the total.
+   */
+  const tableTotals = useMemo(() => {
+    let units = 0;
+    let value = 0;
+    let negativeUnits = 0;
+    let negativeValue = 0;
+    let negativeProducts = 0;
+    let noStockProducts = 0;
+
+    for (const product of filteredItems) {
+      const quantity = Number(product.quantity) || 0;
+      const value1 = stockValueOf(product);
+      units += quantity;
+      value += value1;
+      if (quantity < 0) {
+        negativeProducts += 1;
+        negativeUnits += quantity;
+        negativeValue += value1;
+      }
+      if (quantity === 0) noStockProducts += 1;
+    }
+
+    return {
+      products: filteredItems.length,
+      units,
+      value,
+      negativeProducts,
+      negativeUnits,
+      negativeValue,
+      noStockProducts,
+      // What is actually on the shelves, ignoring the negative entries.
+      positiveValue: value - negativeValue,
+    };
+  }, [filteredItems, stockValueOf]);
+
+  const noStockCount = useMemo(
+    () => parentProducts.filter((p) => !Number(p.quantity)).length,
+    [parentProducts]
+  );
+
+  /* ── Selecting rows to archive ─────────────────────────────────── */
+
+  const toggleSelected = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const shownIds = useMemo(() => filteredItems.map((product) => getProductId(product)), [filteredItems]);
+  const allShownSelected = shownIds.length > 0 && shownIds.every((id) => selectedIds.has(id));
+  const someShownSelected = shownIds.some((id) => selectedIds.has(id));
+
+  const toggleAllShown = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const selectAll = !shownIds.every((id) => next.has(id));
+      shownIds.forEach((id) => (selectAll ? next.add(id) : next.delete(id)));
+      return next;
+    });
+  }, [shownIds]);
+
+  const selectedProducts = useMemo(
+    () => parentProducts.filter((product) => selectedIds.has(getProductId(product))),
+    [parentProducts, selectedIds]
+  );
+
+  const handleArchiveSelected = useCallback(async () => {
+    if (selectedProducts.length === 0) return;
+    const withStock = selectedProducts.filter((product) => Number(product.quantity) > 0);
+    const names = selectedProducts.slice(0, 5).map((product) => product.name).join(", ");
+    const more = selectedProducts.length > 5 ? ` and ${selectedProducts.length - 5} more` : "";
+
+    const confirmed = await showConfirmDialog({
+      title: `Archive ${selectedProducts.length} product${selectedProducts.length === 1 ? "" : "s"}?`,
+      message:
+        `${names}${more} will be hidden from the till and the web shop, and moved to Archived where they can be restored.` +
+        (withStock.length > 0
+          ? ` ${withStock.length} of them still has stock, which will be set to zero.`
+          : ""),
+      confirmLabel: "Archive them",
+      tone: withStock.length > 0 ? "warning" : "info",
+    });
+    if (!confirmed) return;
+
+    setArchiving(true);
+    try {
+      const res = await apiClient.post("/api/products/bulk", {
+        ids: selectedProducts.map((product) => getProductId(product)),
+        action: "archive",
+        reason: "stock-management",
+      });
+      setSelectedIds(new Set());
+      // The stock list is cached, so it has to be refetched to drop the archived rows.
+      await Promise.allSettled([clearCache("stock_products_cache"), clearCache("products_cache")]);
+      await refreshProducts();
+      await showAlertDialog({
+        title: "Products archived",
+        message: res.data?.message || "Done.",
+        tone: "success",
+      });
+    } catch (err) {
+      await showAlertDialog({
+        title: "Could not archive",
+        message: err.response?.data?.error || "Something went wrong.",
+        tone: "danger",
+      });
+    } finally {
+      setArchiving(false);
+    }
+  }, [selectedProducts, refreshProducts]);
+
   return (
     <Layout>
       <div className="page-container">
@@ -595,6 +728,12 @@ export default function StockManagement() {
                 active={selectedStockFilter === "negativeStock"}
                 onClick={() => setSelectedStockFilter("negativeStock")}
               />
+              <StatCard
+                label="No Stock"
+                value={`${noStockCount} products`}
+                active={selectedStockFilter === "noStock"}
+                onClick={() => setSelectedStockFilter("noStock")}
+              />
             </section>
 
             <div className="mb-6">
@@ -635,13 +774,50 @@ export default function StockManagement() {
               </div>
               <p className="mt-3 text-sm text-gray-500">
                 Showing {filteredItems.length} of {parentProducts.length} stock products
+                {selectedIds.size > 0 ? ` · ${selectedIds.size} selected` : ""}
               </p>
+
+              {selectedIds.size > 0 && (
+                <div className="content-card mt-3 flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-medium text-gray-700">
+                    {selectedIds.size} selected
+                    <span className="text-gray-400">
+                      {" "}· worth {formatCurrency(selectedProducts.reduce((sum, p) => sum + stockValueOf(p), 0))}
+                    </span>
+                  </span>
+                  <div className="ml-auto flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setSelectedIds(new Set())} className="btn-action btn-action-secondary btn-sm">
+                      Clear selection
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleArchiveSelected}
+                      disabled={archiving}
+                      className="btn-action btn-action-danger btn-sm disabled:opacity-50"
+                    >
+                      {archiving ? "Archiving…" : `Archive ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}`}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <section className="data-table-container">
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th className="w-10">
+                      {/* Ticks every row the filters leave, not just what fits on screen. */}
+                      <input
+                        type="checkbox"
+                        aria-label="Select all shown products"
+                        checked={allShownSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someShownSelected && !allShownSelected;
+                        }}
+                        onChange={toggleAllShown}
+                      />
+                    </th>
                     {[
                       { key: "name", label: "Name" },
                       { key: "category", label: "Category" },
@@ -672,7 +848,7 @@ export default function StockManagement() {
                 <tbody className="divide-y divide-gray-200">
                   {sortedItems.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="px-6 py-4 text-center text-gray-500">
+                      <td colSpan="9" className="px-6 py-4 text-center text-gray-500">
                         No products match the current filters.
                       </td>
                     </tr>
@@ -682,8 +858,22 @@ export default function StockManagement() {
                       const childProducts = childProductsByParent.get(getProductId(product)) || [];
                       const status = getProductStatus(product);
 
+                      const productId = getProductId(product);
+                      const isSelected = selectedIds.has(productId);
+
                       return (
-                        <tr key={product._id} className={`hover:bg-gray-50 ${qty < 0 ? "bg-red-50" : ""}`}>
+                        <tr
+                          key={product._id}
+                          className={`hover:bg-gray-50 ${isSelected ? "bg-sky-50" : qty < 0 ? "bg-red-50" : ""}`}
+                        >
+                          <td className="px-6 py-4">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${product.name || "product"}`}
+                              checked={isSelected}
+                              onChange={() => toggleSelected(productId)}
+                            />
+                          </td>
                           <td className="px-6 py-4 font-medium text-gray-900">
                             {product.name || "N/A"}
                             {childProducts.length > 0 && <span className="ml-2 text-xs text-blue-600 font-normal">mother product</span>}
@@ -718,6 +908,48 @@ export default function StockManagement() {
                 })
               )}
             </tbody>
+            {sortedItems.length > 0 && (
+              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                <tr>
+                  <td colSpan="3" className="px-6 py-3 text-sm font-semibold text-gray-700">
+                    {tableTotals.products} product{tableTotals.products === 1 ? "" : "s"} shown
+                    {tableTotals.noStockProducts > 0 && (
+                      <span className="font-normal text-gray-500"> · {tableTotals.noStockProducts} with no stock</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-3 text-sm font-semibold text-gray-900">
+                    {formatQuantity(tableTotals.units)} units
+                  </td>
+                  <td colSpan="3" className="px-6 py-3 text-sm text-right font-semibold text-gray-700">
+                    Total stock value
+                  </td>
+                  <td className="px-6 py-3 text-sm font-bold text-gray-900">
+                    {formatCurrency(tableTotals.value, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </td>
+                  <td className="px-6 py-3" />
+                </tr>
+                {tableTotals.negativeProducts > 0 && (
+                  <tr className="bg-red-50">
+                    <td colSpan="3" className="px-6 py-3 text-sm font-semibold text-red-700">
+                      Of which negative: {tableTotals.negativeProducts} product{tableTotals.negativeProducts === 1 ? "" : "s"}
+                    </td>
+                    <td className="px-6 py-3 text-sm font-semibold text-red-700">
+                      {formatQuantity(tableTotals.negativeUnits)} units
+                    </td>
+                    <td colSpan="3" className="px-6 py-3 text-sm text-right font-semibold text-red-700">
+                      Negative value · stock on hand
+                    </td>
+                    <td className="px-6 py-3 text-sm font-bold text-red-700">
+                      {formatCurrency(tableTotals.negativeValue, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      <span className="block text-xs font-semibold text-gray-600">
+                        {formatCurrency(tableTotals.positiveValue, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3" />
+                  </tr>
+                )}
+              </tfoot>
+            )}
           </table>
             </section>
           </>

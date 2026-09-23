@@ -89,6 +89,9 @@ const ProductSchema = new Schema(
     isArchived: { type: Boolean, default: false, index: true },
     archivedAt: { type: Date },
     archivedReason: { type: String, default: "" },
+    // Whether the product was on the web shop before it was archived, so restoring
+    // puts it back as it was instead of republishing something that was hidden.
+    archivedShowOnWeb: { type: Boolean },
 
     /* =====================
        VENDOR ASSOCIATION
