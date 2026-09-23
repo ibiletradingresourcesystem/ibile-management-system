@@ -3,25 +3,8 @@ import PurchaseOrder from "@/models/PurchaseOrder";
 import Vendor from "@/models/Vendor";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
+import { derivePaymentStatus, generateOrderRef } from "@/lib/purchaseOrders";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
-
-function derivePaymentStatus({ paymentMade = 0, grandTotal = 0, payBeforeSupply = false, receivedStatus = "Pending" }) {
-  const paidAmount = Number(paymentMade) || 0;
-  const totalAmount = Number(grandTotal) || 0;
-  const fullyPaid = totalAmount > 0 && paidAmount >= totalAmount;
-
-  if (paidAmount <= 0) return "Not Paid";
-  if (payBeforeSupply && receivedStatus !== "Received" && fullyPaid) return "Credit";
-  if (fullyPaid) return "Paid";
-  return "Partly Paid";
-}
-
-function generateOrderRef() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `PO-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${rand}`;
-}
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);

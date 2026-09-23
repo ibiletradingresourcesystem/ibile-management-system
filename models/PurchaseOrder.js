@@ -92,6 +92,14 @@ const PurchaseOrderSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: "StockMovement",
     },
+    // The stock order this came from, when it was raised by receiving one.
+    stockOrderId: {
+      type: Schema.Types.ObjectId,
+      ref: "StockOrder",
+    },
+    // Where a seeded record came from, so importing the same file twice is safe.
+    sourceApp: { type: String },
+    sourceId: { type: String, index: true },
     notes: {
       type: String,
     },

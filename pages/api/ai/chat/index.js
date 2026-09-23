@@ -17,7 +17,7 @@ const KNOWLEDGE_RESPONSES = [
   { keywords: ["end of day", "eod", "close till"], response: "Go to **Reporting → EOD Reports**. Select location and date, then reconcile your till against expected values. The system calculates variance automatically." },
   { keywords: ["expense", "add expense"], response: "Go to **Expenses → Expense Management**. Enter title, amount, category, and location. Cash entries can be added for daily operations." },
   { keywords: ["credit", "credit sale"], response: "Credit sales are tracked per customer. Go to the customer's profile to see outstanding credit. Mark payments as they come in." },
-  { keywords: ["purchase order", "vendor payment"], response: "Go to **Manage → Vendor Payment Tracker** to manage purchase orders. Use Quick Entry for fast recording, or Sync Stock Orders to import from inventory." },
+  { keywords: ["purchase order", "vendor payment"], response: "Go to **Manage → Vendor Payment Tracker** to manage purchase orders. Use Quick Entry for fast recording, or Seed Data to import vendors and orders from the expense app. Orders placed in **Manage → Vendors** wait in Submitted Stock Orders until they are received." },
 ];
 
 export default async function handler(req, res) {

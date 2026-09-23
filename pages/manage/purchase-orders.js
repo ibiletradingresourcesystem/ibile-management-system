@@ -3,10 +3,11 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import Layout from "@/components/Layout";
 import { Loader } from "@/components/ui";
 import { apiClient } from "@/lib/api-client";
-import { showAlertDialog } from "@/lib/dialogs";
+import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
-import { Plus, X, RefreshCw } from "lucide-react";
+import SeedDataModal from "@/components/SeedDataModal";
+import { Plus, X, Database, Trash2 } from "lucide-react";
 
 const STATUS_COLORS = {
   "Not Paid": "bg-red-100 text-red-700",
@@ -55,8 +56,8 @@ export default function PurchaseOrdersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const entriesPerPage = 15;
 
-  // Sync stock orders
-  const [syncingStock, setSyncingStock] = useState(false);
+  // Seeding from the expense app
+  const [showSeed, setShowSeed] = useState(false);
 
   const toNumber = (v) => {
     const n = Number(String(v ?? 0).replace(/,/g, ""));
@@ -147,6 +148,9 @@ export default function PurchaseOrdersPage() {
   const paginatedOrders = filteredOrdersForTable.slice((currentPage - 1) * entriesPerPage, currentPage * entriesPerPage);
   useEffect(() => { setCurrentPage(1); setEditIndex(null); }, [tableFilter, search, vendorFilter]);
 
+  const allFilteredSelected = filteredOrdersForTable.length > 0 && filteredOrdersForTable.every((o) => selectedOrders.has(o._id));
+  const someFilteredSelected = filteredOrdersForTable.some((o) => selectedOrders.has(o._id));
+
   // Quick check total for selected
   const selectedTotal = useMemo(() => {
     if (selectedOrders.size === 0) return 0;
@@ -201,23 +205,54 @@ export default function PurchaseOrdersPage() {
     } catch {} finally { setIsBusy(false); }
   }
 
-  async function handleDelete(id) {
-    const confirmed = await showAlertDialog({ title: "Delete Order", message: "Are you sure?", tone: "danger", confirm: "Delete" });
+  // showAlertDialog only ever returns an acknowledgement, so the old delete here ran
+  // whatever the person pressed. A delete has to ask with a confirm dialog.
+  async function handleDelete(order) {
+    const confirmed = await showConfirmDialog({
+      title: "Delete this order?",
+      message: `${order.vendorName || "This order"} — ${formatCurrency(order.grandTotal)}${order.receivedStatus === "Received" ? ". It has already been received; the stock it added stays." : "."} This cannot be undone.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
     if (!confirmed) return;
-    try { await apiClient.delete(`/api/purchase-orders/${id}`); fetchOrders(); } catch {}
+    setIsBusy(true);
+    try {
+      await apiClient.delete(`/api/purchase-orders/${order._id}`);
+      setSelectedOrders((prev) => { const next = new Set(prev); next.delete(order._id); return next; });
+      fetchOrders();
+    } catch (err) {
+      await showAlertDialog({ title: "Could not delete", message: err.response?.data?.error || "Failed to delete the order.", tone: "danger" });
+    } finally { setIsBusy(false); }
   }
 
-  async function handleSyncStockOrders() {
-    setSyncingStock(true);
-    try {
-      const res = await apiClient.post("/api/purchase-orders/sync-stock-orders");
-      const msg = res.data?.message || `Synced ${res.data?.synced || 0} orders`;
-      await showAlertDialog({ title: "Sync Complete", message: msg, tone: "info", confirm: "OK" });
-      if (res.data?.synced > 0) fetchOrders();
-    } catch (err) {
-      await showAlertDialog({ title: "Sync Failed", message: err.response?.data?.error || "Failed to sync", tone: "danger" });
-    } finally {
-      setSyncingStock(false);
+  async function handleDeleteSelected() {
+    const list = orders.filter((o) => selectedOrders.has(o._id));
+    if (list.length === 0) return;
+    const confirmed = await showConfirmDialog({
+      title: `Delete ${list.length} orders?`,
+      message: `${formatCurrency(list.reduce((sum, o) => sum + toNumber(o.grandTotal), 0))} across ${list.length} orders will be deleted. This cannot be undone.`,
+      confirmLabel: `Delete ${list.length}`,
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    setIsBusy(true);
+    const failed = [];
+    for (const order of list) {
+      try {
+        await apiClient.delete(`/api/purchase-orders/${order._id}`);
+      } catch {
+        failed.push(order.vendorName || order.orderRef || order._id);
+      }
+    }
+    setSelectedOrders(new Set());
+    fetchOrders();
+    setIsBusy(false);
+    if (failed.length > 0) {
+      await showAlertDialog({
+        title: "Some were not deleted",
+        message: `${failed.length} could not be deleted: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""}`,
+        tone: "warning",
+      });
     }
   }
 
@@ -234,9 +269,11 @@ export default function PurchaseOrdersPage() {
               <button onClick={() => setShowQuickEntry(true)} className="btn-action-primary flex items-center gap-2 text-sm">
                 <Plus size={16} /> Quick Entry
               </button>
-              <button onClick={handleSyncStockOrders} disabled={syncingStock} className="border border-blue-600 text-blue-600 px-4 py-2 rounded text-sm font-medium hover:bg-blue-50 flex items-center gap-2 disabled:opacity-50">
-                <RefreshCw size={16} className={syncingStock ? "animate-spin" : ""} /> {syncingStock ? "Syncing..." : "Sync Stock Orders"}
-              </button>
+              {isAdmin && (
+                <button onClick={() => setShowSeed(true)} className="border border-blue-600 text-blue-600 px-4 py-2 rounded text-sm font-medium hover:bg-blue-50 flex items-center gap-2">
+                  <Database size={16} /> Seed Data
+                </button>
+              )}
             </div>
           </div>
 
@@ -347,8 +384,12 @@ export default function PurchaseOrdersPage() {
               <thead>
                 <tr className="border-b border-gray-200 text-gray-600 text-xs uppercase">
                   <th className="py-3 px-2 w-8">
-                    <input type="checkbox" checked={paginatedOrders.length > 0 && paginatedOrders.every(o => selectedOrders.has(o._id))}
-                      onChange={(e) => { setSelectedOrders((prev) => { const next = new Set(prev); paginatedOrders.forEach(o => { if (e.target.checked) next.add(o._id); else next.delete(o._id); }); return next; }); }} />
+                    {/* Ticks every order the filters leave, not just the page on screen —
+                        the totals below are only useful over the whole set. */}
+                    <input type="checkbox" aria-label="Select all matching orders"
+                      ref={(el) => { if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected; }}
+                      checked={allFilteredSelected}
+                      onChange={(e) => { setSelectedOrders((prev) => { const next = new Set(prev); filteredOrdersForTable.forEach(o => { if (e.target.checked) next.add(o._id); else next.delete(o._id); }); return next; }); }} />
                   </th>
                   <th className="py-3 px-3 text-left">Date</th>
                   <th className="py-3 px-3 text-left">Vendor</th>
@@ -361,6 +402,7 @@ export default function PurchaseOrdersPage() {
                   <th className="py-3 px-3 text-left">Status</th>
                   <th className="py-3 px-3 text-center">Type</th>
                   <th className="py-3 px-3 text-center">Memo</th>
+                  <th className="py-3 px-3 text-center">Delete</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -414,9 +456,16 @@ export default function PurchaseOrdersPage() {
                     <td className="py-3 px-3 text-center">
                       <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full hover:bg-blue-200 font-medium">Memo</a>
                     </td>
+                    <td className="py-3 px-3 text-center">
+                      <button onClick={() => handleDelete(order)} disabled={isBusy}
+                        aria-label={`Delete order for ${order.vendorName || "vendor"}`}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded p-1.5 transition disabled:opacity-50">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
-                {paginatedOrders.length === 0 && <tr><td colSpan="12" className="text-center py-8 text-gray-400">No orders found</td></tr>}
+                {paginatedOrders.length === 0 && <tr><td colSpan="13" className="text-center py-8 text-gray-400">No orders found</td></tr>}
               </tbody>
             </table>
 
@@ -433,19 +482,28 @@ export default function PurchaseOrdersPage() {
             {selectedOrders.size > 0 && (
               <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 bg-white border border-blue-200 rounded-2xl shadow-2xl px-4 sm:px-5 py-3 flex flex-wrap items-center gap-3 sm:gap-5 w-[calc(100vw-1rem)] sm:w-auto max-w-[95vw]" style={{ animation: 'slideUp 0.3s ease-out' }}>
                 <div className="text-sm font-medium text-gray-600">
-                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{selectedOrders.size}</span>{" "}selected
+                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{selectedOrders.size}</span>{" "}
+                  selected of {filteredOrdersForTable.length}
                 </div>
                 <div className="flex flex-wrap gap-4 text-sm">
                   <div className="text-center"><div className="text-xs text-gray-400 uppercase">Total</div><div className="font-bold text-blue-700">{formatCurrency(selectedTotal)}</div></div>
                   <div className="text-center"><div className="text-xs text-gray-400 uppercase">Paid</div><div className="font-bold text-green-600">{formatCurrency(selectedPaidTotal)}</div></div>
                   <div className="text-center"><div className="text-xs text-gray-400 uppercase">Balance</div><div className="font-bold text-red-600">{formatCurrency(selectedBalance)}</div></div>
                 </div>
-                <button onClick={() => setSelectedOrders(new Set())} className="text-xs bg-gray-100 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full px-3 py-1 border border-gray-200 transition">Clear</button>
+                <div className="flex items-center gap-2">
+                  <button onClick={handleDeleteSelected} disabled={isBusy}
+                    className="text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded-full px-3 py-1 border border-red-200 transition inline-flex items-center gap-1 disabled:opacity-50">
+                    <Trash2 size={12} /> Delete selected
+                  </button>
+                  <button onClick={() => setSelectedOrders(new Set())} className="text-xs bg-gray-100 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full px-3 py-1 border border-gray-200 transition">Clear</button>
+                </div>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {showSeed && <SeedDataModal onClose={() => setShowSeed(false)} onImported={fetchOrders} />}
 
       {/* Quick Entry Modal */}
       {showQuickEntry && (

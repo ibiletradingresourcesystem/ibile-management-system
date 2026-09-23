@@ -7,19 +7,9 @@ import { deriveChildQty } from "@/lib/syncPackQty";
 import { childQtyToParentQty, isDerivedChild } from "@/lib/packUnits";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
+import { derivePaymentStatus } from "@/lib/purchaseOrders";
 import { postPurchaseOrderPayment } from "@/lib/accounting";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
-
-function derivePaymentStatus({ paymentMade = 0, grandTotal = 0, payBeforeSupply = false, receivedStatus = "Pending" }) {
-  const paidAmount = Number(paymentMade) || 0;
-  const totalAmount = Number(grandTotal) || 0;
-  const fullyPaid = totalAmount > 0 && paidAmount >= totalAmount;
-
-  if (paidAmount <= 0) return "Not Paid";
-  if (payBeforeSupply && receivedStatus !== "Received" && fullyPaid) return "Credit";
-  if (fullyPaid) return "Paid";
-  return "Partly Paid";
-}
 
 function generateTransRef() {
   const d = new Date();

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
+import StockOrderList from "@/components/StockOrderList";
 import useProgress from "@/lib/useProgress";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
@@ -61,6 +62,8 @@ export default function VendorsPage() {
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [orderForm, setOrderForm] = useState({ date: getToday(), contact: "", products: [] });
   const [orders, setOrders] = useState([]); // staged orders before submit
+  const [stockOrders, setStockOrders] = useState([]); // submitted, waiting to be received
+  const [loadingStockOrders, setLoadingStockOrders] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [editingOrder, setEditingOrder] = useState(false);
   const orderFormRef = useRef(null);
@@ -68,7 +71,7 @@ export default function VendorsPage() {
 
   const [form, setForm] = useState(() => createEmptyForm());
 
-  useEffect(() => { fetchVendors(); fetchProducts(); }, []);
+  useEffect(() => { fetchVendors(); fetchProducts(); fetchStockOrders(); }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -161,6 +164,19 @@ export default function VendorsPage() {
       const list = res.data?.data || res.data?.products || res.data;
       setAllProducts(Array.isArray(list) ? list : []);
     } catch { }
+  }
+
+  async function fetchStockOrders() {
+    setLoadingStockOrders(true);
+    try {
+      const res = await apiClient.get("/api/stock-orders?stage=Submitted");
+      const list = res.data?.orders || res.data;
+      setStockOrders(Array.isArray(list) ? list : []);
+    } catch {
+      setStockOrders([]);
+    } finally {
+      setLoadingStockOrders(false);
+    }
   }
 
   function addVendorProduct() {
@@ -394,14 +410,18 @@ export default function VendorsPage() {
         })),
         grandTotal: orders.reduce((sum, o) => sum + o.total, 0),
       };
-      await apiClient.post("/api/purchase-orders", payload);
+      // Goes to the stock order list, not straight to the payment tracker: an order
+      // can still be merged with others for the same vendor, edited, or dropped, and
+      // becomes a purchase order only when it is received.
+      await apiClient.post("/api/stock-orders", payload);
         await showAlertDialog({
           title: "Order submitted",
-          message: "Purchase order submitted successfully.",
+          message: "Stock order submitted. It is now in Submitted Stock Orders, where it can be merged and received.",
           tone: "success",
         });
       setOrders([]);
       setSelectedVendor(null);
+      fetchStockOrders();
     } catch (err) {
         await showAlertDialog({
           title: "Order submission failed",
@@ -767,7 +787,7 @@ export default function VendorsPage() {
           {/* Order Review / Summary */}
           {orders.length > 0 && (
             <section ref={orderSummaryRef} className="content-card space-y-4 sm:space-y-6">
-              <h2 className="text-lg sm:text-xl font-bold text-gray-800 border-b pb-2">Purchase Order Summary</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-gray-800 border-b pb-2">Stock Order Summary</h2>
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm text-left border border-gray-200">
                   <thead className="bg-blue-50 text-gray-700 uppercase tracking-wide">
@@ -837,6 +857,9 @@ export default function VendorsPage() {
               </div>
             </section>
           )}
+
+          {/* Orders placed and waiting to be received */}
+          <StockOrderList orders={stockOrders} loading={loadingStockOrders} onChanged={fetchStockOrders} />
         </div>
       </div>
 
