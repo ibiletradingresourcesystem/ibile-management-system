@@ -8,6 +8,10 @@ import { getCachedCategories } from "@/lib/categoriesCache";
 import { clearCache } from "@/lib/useIndexedDBCache";
 import { useAuth } from "@/lib/useAuth";
 import { useTableSort, SortableTh } from "@/components/SortableTable";
+import { runInBatches } from "@/lib/batches";
+
+/** Products per request when restoring or deleting a long selection. */
+const BULK_BATCH_SIZE = 200;
 
 const UNCATEGORISED = "__uncategorised";
 
@@ -16,6 +20,7 @@ export default function Archived() {
   const [categoryMap, setCategoryMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(null);
   const [restoringId, setRestoringId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [search, setSearch] = useState("");
@@ -104,6 +109,11 @@ export default function Archived() {
 
   const selectedProducts = archivedProducts.filter((product) => selected.has(product._id));
 
+  const busyLabel =
+    progress && progress.total > BULK_BATCH_SIZE
+      ? `${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}…`
+      : "Working…";
+
   /* ─── Actions ─────────────────────────────────────────────────── */
 
   const afterChange = async () => {
@@ -129,13 +139,29 @@ export default function Archived() {
     if (!confirmed) return;
 
     setBusy(true);
+    setProgress({ done: 0, total: selected.size });
     try {
-      const res = await axios.post("/api/products/bulk", { ids: [...selected], action });
+      // A few hundred per request: the route refuses a list of thousands, and a batch
+      // that fails leaves the ones already done alone.
+      const outcome = await runInBatches(
+        [...selected],
+        (batch) => axios.post("/api/products/bulk", { ids: batch, action }),
+        { size: BULK_BATCH_SIZE, onProgress: setProgress }
+      );
       await afterChange();
       await showAlertDialog({
-        title: action === "restore" ? "Products restored" : "Products deleted",
-        message: res.data?.message || "Done.",
-        tone: "success",
+        title:
+          outcome.failed > 0
+            ? "Some products were not changed"
+            : action === "restore"
+              ? "Products restored"
+              : "Products deleted",
+        message:
+          outcome.failed > 0
+            ? `${outcome.succeeded} of ${outcome.total} done. ${outcome.failed} failed: ${outcome.errors.join("; ")}`
+            : `${outcome.succeeded} product${outcome.succeeded === 1 ? "" : "s"} ${action === "restore" ? "restored" : "deleted"}` +
+              (outcome.batches > 1 ? `, in ${outcome.batches} batches.` : "."),
+        tone: outcome.failed > 0 ? "warning" : "success",
       });
     } catch (error) {
       await showAlertDialog({
@@ -145,6 +171,7 @@ export default function Archived() {
       });
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -257,11 +284,11 @@ export default function Archived() {
                   Clear selection
                 </button>
                 <button onClick={() => runBulk("restore")} disabled={busy} className="btn-action btn-action-success btn-sm disabled:opacity-50">
-                  {busy ? "Working…" : `Restore ${selected.size}`}
+                  {busy ? busyLabel : `Restore ${selected.size}`}
                 </button>
                 {isAdmin && (
                   <button onClick={() => runBulk("delete")} disabled={busy} className="btn-action btn-action-danger btn-sm disabled:opacity-50">
-                    {busy ? "Working…" : `Delete ${selected.size} permanently`}
+                    {busy ? busyLabel : `Delete ${selected.size} permanently`}
                   </button>
                 )}
               </div>

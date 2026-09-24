@@ -12,6 +12,11 @@ import { useTableSort, SortableTh } from "@/components/SortableTable";
 import ExportMenu from "@/components/ExportMenu";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
+import { runInBatches } from "@/lib/batches";
+import { STOCK_STATES, getStockState, getStockStateLabel } from "@/lib/stockState";
+
+/** Products per request when archiving a long selection (the route accepts 500). */
+const ARCHIVE_BATCH_SIZE = 200;
 
 const LOCATION_FILTER_KEY = "stockManagement:locationFilter";
 const CARD_FILTER_KEY = "stockManagement:cardFilter";
@@ -150,33 +155,19 @@ function matchesStockState(product, stockFilter) {
   }
 
   const quantity = Number(product?.quantity) || 0;
-  const minStock = Number(product?.minStock) || 0;
 
   if (stockFilter === "positiveStock") {
     return quantity > 0;
   }
 
-  // Nothing in stock: the dead entries worth clearing out. A blank quantity reads as
-  // zero above, and negative stock is a different problem with its own filter.
-  if (stockFilter === "noStock") {
-    return quantity === 0;
-  }
-
-  if (stockFilter === "negativeStock") {
-    return quantity < 0;
-  }
-
-  if (stockFilter === "wellStocked") {
-    return quantity > minStock;
-  }
-
-  if (stockFilter === "critical") {
-    return quantity < minStock / 2;
-  }
-
-  if (stockFilter === "lowStock") {
-    return quantity < minStock;
-  }
+  // Each card picks exactly one band, so the cards no longer overlap: a product that
+  // is critical is not also counted as low stock.
+  const state = getStockState(product);
+  if (stockFilter === "noStock") return state === STOCK_STATES.NONE;
+  if (stockFilter === "negativeStock") return state === STOCK_STATES.NEGATIVE;
+  if (stockFilter === "wellStocked") return state === STOCK_STATES.HEALTHY;
+  if (stockFilter === "critical") return state === STOCK_STATES.CRITICAL;
+  if (stockFilter === "lowStock") return state === STOCK_STATES.LOW;
 
   return true;
 }
@@ -213,6 +204,7 @@ export default function StockManagement() {
   );
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [archiving, setArchiving] = useState(false);
+  const [archiveProgress, setArchiveProgress] = useState(null);
   const [selectedStockFilter, setSelectedStockFilter] = useState(
     typeof window !== "undefined"
       ? sessionStorage.getItem(CARD_FILTER_KEY) || "all"
@@ -440,15 +432,7 @@ export default function StockManagement() {
     },
   ];
 
-  const getProductStatus = useCallback((product) => {
-    const quantity = Number(product?.quantity || 0);
-    const minStock = Number(product?.minStock || 0);
-
-    if (quantity < 0) return "Negative Stock";
-    if (quantity === 0) return "Out of Stock";
-    if (quantity < minStock) return "Low Stock";
-    return "In Stock";
-  }, []);
+  const getProductStatus = useCallback((product) => getStockStateLabel(product), []);
 
   const buildReportRows = useCallback((sourceProducts) => {
     return sourceProducts.map((product) => {
@@ -486,22 +470,17 @@ export default function StockManagement() {
         .reduce((sum, item) => sum + (item.quantity || 0), 0),
     [parentProducts]
   );
-  const totalWellStocked = useMemo(
-    () => parentProducts.filter((p) => (p.quantity || 0) > (p.minStock || 0)).length,
-    [parentProducts]
-  );
-  const totalCritical = useMemo(
-    () => parentProducts.filter((p) => (p.quantity || 0) < (p.minStock || 0) / 2).length,
-    [parentProducts]
-  );
-  const lowStockCount = useMemo(
-    () => parentProducts.filter((p) => p.quantity < (p.minStock || 0)).length,
-    [parentProducts]
-  );
-  const negativeStockCount = useMemo(
-    () => parentProducts.filter((p) => Number(p.quantity || 0) < 0).length,
-    [parentProducts]
-  );
+  // One pass, one band each: the five cards below add up to every product listed.
+  const stateCounts = useMemo(() => {
+    const counts = { negative: 0, none: 0, critical: 0, low: 0, healthy: 0 };
+    for (const product of parentProducts) counts[getStockState(product)] += 1;
+    return counts;
+  }, [parentProducts]);
+
+  const totalWellStocked = stateCounts.healthy;
+  const totalCritical = stateCounts.critical;
+  const lowStockCount = stateCounts.low;
+  const negativeStockCount = stateCounts.negative;
 
   const stockValueOf = useCallback(
     (product) => (Number(product?.quantity) || 0) * (Number(product?.costPrice) || 0),
@@ -547,10 +526,7 @@ export default function StockManagement() {
     };
   }, [filteredItems, stockValueOf]);
 
-  const noStockCount = useMemo(
-    () => parentProducts.filter((p) => !Number(p.quantity)).length,
-    [parentProducts]
-  );
+  const noStockCount = stateCounts.none;
 
   /* ── Selecting rows to archive ─────────────────────────────────── */
 
@@ -600,20 +576,29 @@ export default function StockManagement() {
     if (!confirmed) return;
 
     setArchiving(true);
+    setArchiveProgress({ done: 0, total: selectedProducts.length });
     try {
-      const res = await apiClient.post("/api/products/bulk", {
-        ids: selectedProducts.map((product) => getProductId(product)),
-        action: "archive",
-        reason: "stock-management",
-      });
+      // Sent a few hundred at a time: one request with thousands of ids is refused by
+      // the route and risks timing out, and a batch that fails does not undo the rest.
+      const outcome = await runInBatches(
+        selectedProducts.map((product) => getProductId(product)),
+        (batch) => apiClient.post("/api/products/bulk", { ids: batch, action: "archive", reason: "stock-management" }),
+        { size: ARCHIVE_BATCH_SIZE, onProgress: setArchiveProgress }
+      );
+
       setSelectedIds(new Set());
       // The stock list is cached, so it has to be refetched to drop the archived rows.
       await Promise.allSettled([clearCache("stock_products_cache"), clearCache("products_cache")]);
       await refreshProducts();
+
       await showAlertDialog({
-        title: "Products archived",
-        message: res.data?.message || "Done.",
-        tone: "success",
+        title: outcome.failed > 0 ? "Some products were not archived" : "Products archived",
+        message:
+          outcome.failed > 0
+            ? `${outcome.succeeded} of ${outcome.total} archived. ${outcome.failed} could not be: ${outcome.errors.join("; ")}`
+            : `${outcome.succeeded} product${outcome.succeeded === 1 ? "" : "s"} archived and hidden from the till and the web shop` +
+              (outcome.batches > 1 ? `, in ${outcome.batches} batches.` : "."),
+        tone: outcome.failed > 0 ? "warning" : "success",
       });
     } catch (err) {
       await showAlertDialog({
@@ -623,6 +608,7 @@ export default function StockManagement() {
       });
     } finally {
       setArchiving(false);
+      setArchiveProgress(null);
     }
   }, [selectedProducts, refreshProducts]);
 
@@ -705,25 +691,29 @@ export default function StockManagement() {
               <StatCard
                 label="Well Stocked"
                 value={`${totalWellStocked} products`}
+                hint="at or above min stock"
                 active={selectedStockFilter === "wellStocked"}
                 onClick={() => setSelectedStockFilter("wellStocked")}
               />
               <StatCard
                 label="Critical Level"
                 value={`${totalCritical} products`}
+                hint="half of min stock or less"
+                highlight
                 active={selectedStockFilter === "critical"}
                 onClick={() => setSelectedStockFilter("critical")}
               />
               <StatCard
                 label="Low Stock Alerts"
                 value={lowStockCount}
-                highlight
+                hint="under min, above critical"
                 active={selectedStockFilter === "lowStock"}
                 onClick={() => setSelectedStockFilter("lowStock")}
               />
               <StatCard
                 label="Negative Stock"
                 value={negativeStockCount}
+                hint="below zero"
                 highlight
                 active={selectedStockFilter === "negativeStock"}
                 onClick={() => setSelectedStockFilter("negativeStock")}
@@ -731,6 +721,7 @@ export default function StockManagement() {
               <StatCard
                 label="No Stock"
                 value={`${noStockCount} products`}
+                hint="nothing left"
                 active={selectedStockFilter === "noStock"}
                 onClick={() => setSelectedStockFilter("noStock")}
               />
@@ -795,7 +786,11 @@ export default function StockManagement() {
                       disabled={archiving}
                       className="btn-action btn-action-danger btn-sm disabled:opacity-50"
                     >
-                      {archiving ? "Archiving…" : `Archive ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}`}
+                      {archiving
+                        ? archiveProgress && archiveProgress.total > ARCHIVE_BATCH_SIZE
+                          ? `Archiving ${archiveProgress.done.toLocaleString()} of ${archiveProgress.total.toLocaleString()}…`
+                          : "Archiving…"
+                        : `Archive ${selectedIds.size} product${selectedIds.size === 1 ? "" : "s"}`}
                     </button>
                   </div>
                 </div>
@@ -890,12 +885,12 @@ export default function StockManagement() {
                           <td className="px-6 py-4">{formatCurrency(product.costPrice || 0, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</td>
                           <td
                             className={`px-6 py-4 font-semibold ${
-                              status === "Linked"
-                                ? "text-blue-600"
-                                : status === "In Stock"
+                              status === "In Stock"
                                 ? "text-green-600"
                                 : status === "Low Stock"
                                 ? "text-yellow-600"
+                                : status === "Critical"
+                                ? "text-orange-600"
                                 : status === "Negative Stock"
                                 ? "text-red-700"
                                 : "text-red-600"
@@ -960,7 +955,7 @@ export default function StockManagement() {
   );
 }
 
-function StatCard({ label, value, highlight = false, active = false, onClick }) {
+function StatCard({ label, value, hint = "", highlight = false, active = false, onClick }) {
   return (
     <button
       type="button"
@@ -971,6 +966,7 @@ function StatCard({ label, value, highlight = false, active = false, onClick }) 
     >
       <p className="stat-card-label">{label}</p>
       <p className="stat-card-value mt-2">{value}</p>
+      {hint && <p className="mt-1 text-[11px] text-gray-400">{hint}</p>}
     </button>
   );
 }
