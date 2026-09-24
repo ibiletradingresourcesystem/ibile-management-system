@@ -681,10 +681,12 @@ export default function StockManagement() {
           </div>
         ) : (
           <>
-            <section className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
+            {/* Six cards in a five-column grid left one on a row of its own; on a wide
+                screen they all sit on one line, and step down as it narrows. */}
+            <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 xl:gap-4 mb-6">
               <StatCard
                 label="Total Stock"
-                value={`${parseFloat(totalStock.toFixed(2))} units`}
+                value={`${parseFloat(totalStock.toFixed(2)).toLocaleString()} units`}
                 active={selectedStockFilter === "all"}
                 onClick={() => setSelectedStockFilter("all")}
               />
@@ -955,18 +957,22 @@ export default function StockManagement() {
   );
 }
 
+/**
+ * Padding and type are tightened against the shared card style, so all six cards fit
+ * across one row on a wide screen without a figure wrapping mid-number.
+ */
 function StatCard({ label, value, hint = "", highlight = false, active = false, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`stat-card w-full text-center transition-all duration-200 hover:-translate-y-0.5 ${
+      className={`stat-card w-full text-center transition-all duration-200 hover:-translate-y-0.5 !p-3 xl:!p-4 ${
         highlight ? "border-2 border-amber-400" : ""
       } ${active ? "ring-2 ring-sky-300 border-sky-400 bg-sky-50" : ""}`}
     >
-      <p className="stat-card-label">{label}</p>
-      <p className="stat-card-value mt-2">{value}</p>
-      {hint && <p className="mt-1 text-[11px] text-gray-400">{hint}</p>}
+      <p className="stat-card-label !mt-0 !text-xs leading-tight">{label}</p>
+      <p className="mt-1.5 text-base xl:text-lg font-bold text-gray-900 leading-tight tabular-nums break-words">{value}</p>
+      {hint && <p className="mt-1 text-[10px] leading-tight text-gray-400">{hint}</p>}
     </button>
   );
 }

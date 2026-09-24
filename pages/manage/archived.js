@@ -31,7 +31,9 @@ export default function Archived() {
   async function loadArchived() {
     try {
       setLoading(true);
-      const res = await axios.get("/api/products?archived=true");
+      // listAll, or only the first 100 archived products come back — the plain list is
+      // paginated. The timestamp defeats any cached copy after a restore or delete.
+      const res = await axios.get(`/api/products?archived=true&listAll=true&t=${Date.now()}`);
       const rows = Array.isArray(res?.data)
         ? res.data
         : Array.isArray(res?.data?.data)

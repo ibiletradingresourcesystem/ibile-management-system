@@ -337,11 +337,16 @@ export default async function handler(req, res) {
       // Full list mode - returns all products with list-view fields (no pagination cap)
       if (req.query.listAll === "true") {
         const products = await Product.find(filter)
-          .select("name barcode category costPrice taxRate margin salePriceIncTax quantity minStock maxStock locations isStockManaged isChildProduct parentProduct packType qtyPerPack unitsPerChild childSalePrice expiryDate isExpired showOnWeb description")
+          .select("name barcode category costPrice taxRate margin salePriceIncTax quantity minStock maxStock locations isStockManaged isChildProduct parentProduct packType qtyPerPack unitsPerChild childSalePrice expiryDate isExpired showOnWeb description archivedAt archivedReason")
           .sort({ createdAt: -1 })
           .lean();
         await deriveChildQuantities(products);
-        res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+        // The archived list is read straight after restoring or deleting something, so
+        // a cached copy would show the product still sitting there.
+        res.setHeader(
+          "Cache-Control",
+          archived === "true" ? "private, no-store" : "public, s-maxage=60, stale-while-revalidate=300"
+        );
         return res.json({ success: true, data: products, total: products.length });
       }
 
@@ -367,8 +372,11 @@ export default async function handler(req, res) {
       res.setHeader('X-Total-Pages', Math.ceil(total / limit));
 
       await deriveChildQuantities(products);
-      
-      res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
+
+      res.setHeader(
+        "Cache-Control",
+        archived === "true" ? "private, no-store" : "public, s-maxage=30, stale-while-revalidate=120"
+      );
       return res.json({ success: true, data: products, total });
     }
 
@@ -458,7 +466,9 @@ export default async function handler(req, res) {
       }
 
       const existingProduct = await Product.findById(_id)
-        .select("name vendors packType qtyPerPack category productType isStockManaged images costPrice salePriceIncTax taxRate isChildProduct parentProduct")
+        // showOnWeb and archivedShowOnWeb are needed so a restore puts web visibility
+        // back as it was, instead of republishing a product that was hidden.
+        .select("name vendors packType qtyPerPack category productType isStockManaged images costPrice salePriceIncTax taxRate isChildProduct parentProduct showOnWeb archivedShowOnWeb isArchived")
         .lean();
 
       if (!existingProduct) {
