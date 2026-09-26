@@ -12,6 +12,7 @@ import { getCachedSetup } from "@/lib/setupCache";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { aggregateProductSales } from "@/lib/product-sales-report";
 import AIDecisionCenter from "@/components/AIDecisionCenter";
+import RecentTransactionsCard from "@/components/RecentTransactionsCard";
 import {
   ArrowRight,
   ChevronDown,
@@ -472,6 +473,13 @@ export default function Home() {
   const heldTransactions = useMemo(() => {
     return dashboardTransactions.filter((tx) => {
       if (tx.status !== "held") return false;
+      if (!matchesSelectedLocation(tx, selectedLocation)) return false;
+      return isWithinPeriod(tx.createdAt);
+    });
+  }, [dashboardTransactions, selectedLocation, selectedPeriod, customDateRange]);
+
+  const periodTransactions = useMemo(() => {
+    return dashboardTransactions.filter((tx) => {
       if (!matchesSelectedLocation(tx, selectedLocation)) return false;
       return isWithinPeriod(tx.createdAt);
     });
@@ -1021,7 +1029,7 @@ export default function Home() {
               </ChartCard>
             </section>
 
-            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <ListCard
                 title="Recent Orders"
                 emptyMessage={
@@ -1049,6 +1057,13 @@ export default function Home() {
                   label: expense.title,
                   meta: formatCurrency(expense.amount),
                 }))}
+              />
+
+              <RecentTransactionsCard
+                transactions={periodTransactions}
+                onViewMore={(status) =>
+                  router.push(`/reporting/completed-transactions${status ? `?status=${status}` : ""}`)
+                }
               />
             </section>
 

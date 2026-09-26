@@ -2,6 +2,7 @@
 import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { saveAs } from "file-saver";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -46,6 +47,7 @@ function getReportDateKey(value) {
 }
 
 export default function CompletedTransactions() {
+  const router = useRouter();
   const { isAdmin } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [allTransactions, setAllTransactions] = useState([]);
@@ -56,6 +58,8 @@ export default function CompletedTransactions() {
   const [expandedTxId, setExpandedTxId] = useState(null);
   const [locationFilter, setLocationFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  // Arriving from the dashboard card: open on the tab it was showing.
+  const appliedQueryStatusRef = useRef(false);
   const [locations, setLocations] = useState([]);
   const [selectedDate, setSelectedDate] = useState(() => getReportDateKey(new Date()));
   const [startDate, setStartDate] = useState("");
@@ -164,6 +168,18 @@ async function fetchTransactions(signal, options = {}) {
   }
 }
 
+  useEffect(() => {
+    if (!router.isReady || appliedQueryStatusRef.current) return;
+    const requested = String(router.query.status || "");
+    if (["completed", "held", "refunded", "edited", "void", "credit", "credit-recovered"].includes(requested)) {
+      appliedQueryStatusRef.current = true;
+      setStatusFilter(requested);
+      // The report opens on today; a link from the dashboard means "find these",
+      // so the day filter is lifted and the range filters take over.
+      setSelectedDate(null);
+    }
+  }, [router.isReady, router.query.status]);
+
   async function handleLoadMore() {
     if (loadingMore || !hasMore) return;
     const controller = new AbortController();
@@ -182,6 +198,9 @@ function applyFilters() {
         filtered = filtered.filter(
           (tx) => tx.status === "completed" && tx.subStatus === "edited"
         );
+      } else if (statusFilter === "void") {
+        // A void is recorded against a completed sale, not as a status of its own.
+        filtered = filtered.filter((tx) => tx.subStatus === "void" || tx.status === "voided");
       } else if (statusFilter === "credit-recovered") {
         filtered = filtered.filter((tx) => tx.creditStatus === "paid");
       } else if (statusFilter === "credit") {
@@ -752,6 +771,7 @@ function applyFilters() {
                 <option value="completed">Completed</option>
                 <option value="held">Held</option>
                 <option value="refunded">Refunded</option>
+                <option value="void">Voided</option>
                 <option value="edited">Edited</option>
                 <option value="credit">Credit (Open/Partial)</option>
                 <option value="credit-recovered">Credit Recovered</option>
