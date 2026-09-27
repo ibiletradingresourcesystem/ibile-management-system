@@ -754,10 +754,17 @@ a:active,
 }
 
 .data-table th {
-  @apply text-left text-xs sm:text-sm font-semibold;
+  @apply text-xs sm:text-sm font-semibold;
   padding: var(--cell-pad-y, 0.75rem) var(--cell-pad-x, 1rem);
   color: var(--table-header-ink, #ffffff);
   white-space: nowrap;
+}
+
+/* Headers read left unless one asks otherwise. The alignment used to sit in the rule
+   above, where `.data-table th` outranks Tailwind's `.text-right`, so every heading
+   over a numeric column was forced to the left of its own figures. */
+.data-table th:not(.text-right):not(.text-center) {
+  text-align: left;
 }
 
 .data-table tbody {

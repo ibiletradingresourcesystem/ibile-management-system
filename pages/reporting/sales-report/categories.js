@@ -10,7 +10,10 @@ import {
   getReportStaffName,
   isCompletedSale,
 } from "@/lib/sales-report-utils";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+/** Transactions per page in the breakdown below the categories. */
+const TX_PAGE_SIZE = 25;
 import Link from "next/link";
 import { Bar, Doughnut } from "react-chartjs-2";
 import {
@@ -37,6 +40,9 @@ export default function CategoriesSales() {
   const [staff, setStaff] = useState("All");
   const [allLocations, setAllLocations] = useState([]);
   const [allStaff, setAllStaff] = useState([]);
+  // Picking a category up top narrows the transactions underneath.
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [txPage, setTxPage] = useState(1);
 
   function normalizeId(id) {
     if (!id) return '';
@@ -158,6 +164,25 @@ export default function CategoriesSales() {
   );
 
   const totalSales = categories.reduce((sum, c) => sum + c.sales, 0);
+
+  // Only the transactions that touched the chosen category, a page at a time.
+  const visibleTransactions = useMemo(
+    () =>
+      selectedCategory
+        ? transactions.filter((tx) => (tx.categories || []).some((cat) => cat.category === selectedCategory))
+        : transactions,
+    [transactions, selectedCategory]
+  );
+  const totalTxPages = Math.max(1, Math.ceil(visibleTransactions.length / TX_PAGE_SIZE));
+  const safePage = Math.min(txPage, totalTxPages);
+  const pageStart = (safePage - 1) * TX_PAGE_SIZE;
+  const pagedTransactions = visibleTransactions.slice(pageStart, pageStart + TX_PAGE_SIZE);
+
+  // Back to the first page whenever the list underneath changes, so the reader is
+  // never left looking at an empty page 7 of a shorter list.
+  useEffect(() => {
+    setTxPage(1);
+  }, [selectedCategory, transactions]);
   const topCategory = categories[0];
 
   return (
@@ -319,9 +344,25 @@ export default function CategoriesSales() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {categories.map((cat, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <tr
+                      key={idx}
+                      onClick={() => setSelectedCategory((current) => (current === cat.name ? "" : cat.name))}
+                      title={`Show only transactions with ${cat.name}`}
+                      className={`cursor-pointer transition-colors ${
+                        selectedCategory === cat.name
+                          ? "bg-cyan-50 hover:bg-cyan-100"
+                          : idx % 2 === 0
+                            ? "bg-white hover:bg-gray-50"
+                            : "bg-gray-50 hover:bg-gray-100"
+                      }`}
+                    >
                       <td className="px-4 py-3 font-bold text-cyan-600">#{idx + 1}</td>
-                      <td className="px-4 py-3 font-medium text-gray-800">{cat.name}</td>
+                      <td className="px-4 py-3 font-medium text-gray-800">
+                        {cat.name}
+                        {selectedCategory === cat.name && (
+                          <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-cyan-700">filtering</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-right font-semibold">{formatCurrency(cat.sales)}</td>
                       <td className="px-4 py-3 text-right">{formatNumber(cat.units || 0)}</td>
                       <td className="px-4 py-3 text-right text-gray-600">{totalSales > 0 ? ((cat.sales / totalSales) * 100).toFixed(1) : 0}%</td>
@@ -335,9 +376,31 @@ export default function CategoriesSales() {
 
           {/* Transactions by Category */}
           <div className="data-table-container">
-            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <h2 className="text-lg font-bold text-gray-800">Transaction Sales by Product Categories</h2>
-              <p className="text-gray-600 text-sm mt-1">Breakdown of each transaction showing category-wise product sales</p>
+            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-gray-800">Transaction Sales by Product Categories</h2>
+                <p className="text-gray-600 text-sm mt-1">
+                  {selectedCategory
+                    ? `Transactions containing ${selectedCategory} — click the category again to clear`
+                    : "Breakdown of each transaction showing category-wise product sales. Click a category above to filter."}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {selectedCategory && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory("")}
+                    className="btn-action btn-action-secondary btn-sm"
+                  >
+                    Clear filter
+                  </button>
+                )}
+                <span className="text-sm text-gray-600 whitespace-nowrap">
+                  {visibleTransactions.length === 0
+                    ? "No transactions"
+                    : `${pageStart + 1}–${Math.min(pageStart + TX_PAGE_SIZE, visibleTransactions.length)} of ${visibleTransactions.length}`}
+                </span>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="data-table">
@@ -352,7 +415,7 @@ export default function CategoriesSales() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {transactions.length > 0 ? transactions.map((tx, idx) => (
+                  {pagedTransactions.length > 0 ? pagedTransactions.map((tx, idx) => (
                     <tr key={tx.id} className={idx % 2 === 0 ? "bg-white hover:bg-gray-50" : "bg-gray-50 hover:bg-gray-100"}>
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900">{tx.date}</div>
@@ -363,22 +426,73 @@ export default function CategoriesSales() {
                       <td className="px-4 py-3"><span className={`badge ${tx.device === 'POS' ? 'badge-primary' : 'badge-secondary'}`}>{tx.device}</span></td>
                       <td className="px-4 py-3">
                         <div className="space-y-1">
-                          {tx.categories.map((cat, i) => (
-                            <div key={i} className="text-xs">
-                              <div className="font-semibold text-gray-800">{cat.category}</div>
-                              <div className="text-gray-600">{cat.units} unit{cat.units !== 1 ? 's' : ''} — {formatCurrency(cat.sales)}</div>
-                            </div>
-                          ))}
+                          {tx.categories.map((cat, i) => {
+                            const isChosen = selectedCategory && cat.category === selectedCategory;
+                            return (
+                              <div key={i} className={`text-xs ${isChosen ? "bg-cyan-50 border border-cyan-200 rounded px-2 py-1" : ""}`}>
+                                <div className={`font-semibold ${isChosen ? "text-cyan-800" : "text-gray-800"}`}>{cat.category}</div>
+                                <div className="text-gray-600">{cat.units} unit{cat.units !== 1 ? 's' : ''} — {formatCurrency(cat.sales)}</div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-cyan-600">{formatCurrency(tx.total)}</td>
                     </tr>
                   )) : (
-                    <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-500">No transactions found</td></tr>
+                    <tr>
+                      <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                        {selectedCategory ? `No transactions included ${selectedCategory} in this period` : "No transactions found"}
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
             </div>
+
+            {/* Paging: a month of sales is thousands of rows, and scrolling through
+                them all to reach the older ones was the only way to read them. */}
+            {totalTxPages > 1 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-gray-200 bg-gray-50">
+                <span className="text-sm text-gray-600">
+                  Page {safePage} of {totalTxPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTxPage(1)}
+                    disabled={safePage === 1}
+                    className="btn-action btn-action-secondary btn-sm disabled:opacity-40"
+                  >
+                    First
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTxPage(Math.max(1, safePage - 1))}
+                    disabled={safePage === 1}
+                    className="btn-action btn-action-secondary btn-sm disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTxPage(Math.min(totalTxPages, safePage + 1))}
+                    disabled={safePage === totalTxPages}
+                    className="btn-action btn-action-secondary btn-sm disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTxPage(totalTxPages)}
+                    disabled={safePage === totalTxPages}
+                    className="btn-action btn-action-secondary btn-sm disabled:opacity-40"
+                  >
+                    Last
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

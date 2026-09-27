@@ -15,7 +15,7 @@ import {
 } from "chart.js";
 import { Line, Bar, Pie } from "react-chartjs-2";
 import Layout from "@/components/Layout";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatNumber } from "@/lib/format";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import AIBusinessInsight from "@/components/AIBusinessInsight";
@@ -295,41 +295,19 @@ export default function Reporting() {
           <PieChart title="Tender Split" data={salesByTender || {}} />
           <BarChart title="Sales by Location" data={salesByLocation || {}} borderRadius={1} />
           <div className="content-card">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Top Products</h3>
-              <p className="text-sm text-gray-500">Based on completed transactions in the selected range.</p>
-            </div>
+            <ChartHeading title="Top Products" subtitle="Units sold on completed transactions in the selected range." />
             <div className="h-[250px] md:h-[300px]">
               <Bar
                 data={{
-                  labels: (bestSellingProducts || []).map((p) => p[0] || "Unknown"),
-                  datasets: [
-                    {
-                      label: "Units Sold",
-                      data: (bestSellingProducts || []).map((p) => p[1]),
-                      backgroundColor: [
-                        "#3b82f6",
-                        "#10b981",
-                        "#f59e0b",
-                        "#ef4444",
-                        "#8b5cf6",
-                      ],
-                      borderRadius: 4,
-                      borderSkipped: false,
-                    },
-                  ],
+                  labels: (bestSellingProducts || []).map((p) =>
+                    String(p[0] || "Unknown").length > 22 ? `${String(p[0]).slice(0, 21)}…` : p[0] || "Unknown"
+                  ),
+                  datasets: [barDataset("Units Sold", (bestSellingProducts || []).map((p) => p[1]))],
                 }}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
+                options={barOptions({
                   indexAxis: "y",
-                  plugins: {
-                    legend: { display: false },
-                  },
-                  scales: {
-                    x: { beginAtZero: true },
-                  },
-                }}
+                  valueLabel: (value) => `${formatNumber(value)} units`,
+                })}
               />
             </div>
           </div>
@@ -513,12 +491,14 @@ export default function Reporting() {
                 {dates.length > 0 && (
                   <div className="mt-6 overflow-x-auto">
                     <table className="w-full text-sm">
+                      {/* Darker ink on a tinted row: the old gray-500 and sky-600 on
+                          white were too faint to read at this size. */}
                       <thead>
-                        <tr className="border-b border-gray-200">
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-sky-600 uppercase">{cmpLabels.current}</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-purple-600 uppercase">{cmpLabels.previous}</th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Δ Change</th>
+                        <tr className="border-b-2 border-gray-200 bg-gray-50">
+                          <th className="px-3 py-2.5 text-left text-xs font-bold text-gray-700 uppercase tracking-wide">Date</th>
+                          <th className="px-3 py-2.5 text-right text-xs font-bold text-sky-800 uppercase tracking-wide">{cmpLabels.current}</th>
+                          <th className="px-3 py-2.5 text-right text-xs font-bold text-purple-800 uppercase tracking-wide">{cmpLabels.previous}</th>
+                          <th className="px-3 py-2.5 text-right text-xs font-bold text-gray-700 uppercase tracking-wide">Δ Change</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -627,7 +607,7 @@ function PieChart({ title, data }) {
 
   return (
     <div className="content-card">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
+      <ChartHeading title={title} subtitle="Share of takings by payment method." />
       <div className="h-[250px] md:h-[300px]">
         <Pie 
           data={{ 
@@ -662,6 +642,63 @@ function PieChart({ title, data }) {
   );
 }
 
+/*
+ * One look for every bar chart on this page: square-ish bars rather than the chunky
+ * 8px corners, no legend for a single series, no vertical grid, and bars that cannot
+ * balloon when there are only two or three of them.
+ */
+const BAR_ACCENT = "#06B6D4";
+
+const barDataset = (label, values) => ({
+  label,
+  data: values,
+  backgroundColor: BAR_ACCENT,
+  hoverBackgroundColor: "#0891b2",
+  borderRadius: 3,
+  borderSkipped: false,
+  maxBarThickness: 26,
+  categoryPercentage: 0.75,
+  barPercentage: 0.9,
+});
+
+const barTicks = { font: { size: 11 }, color: "#6b7280" };
+
+/** @param {"x"|"y"} indexAxis  which way the bars run */
+const barOptions = ({ indexAxis = "x", valueLabel = (value) => value } = {}) => {
+  const valueScale = {
+    beginAtZero: true,
+    border: { display: false },
+    grid: { color: "#f3f4f6", drawTicks: false },
+    ticks: { ...barTicks, callback: (value) => valueLabel(Number(value || 0)) },
+  };
+  const categoryScale = { grid: { display: false }, border: { display: false }, ticks: barTicks };
+
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    indexAxis,
+    layout: { padding: { top: 4, right: 8 } },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => valueLabel(Number(indexAxis === "y" ? ctx.parsed.x : ctx.parsed.y) || 0),
+        },
+      },
+    },
+    scales: indexAxis === "y" ? { x: valueScale, y: categoryScale } : { x: categoryScale, y: valueScale },
+  };
+};
+
+function ChartHeading({ title, subtitle }) {
+  return (
+    <div className="mb-3">
+      <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+      {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+    </div>
+  );
+}
+
 function BarChart({ title, data }) {
   let labels = Object.keys(data || {}).filter(Boolean);
 
@@ -683,34 +720,16 @@ function BarChart({ title, data }) {
 
   return (
     <div className="content-card">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
+      <ChartHeading title={title} subtitle="Completed sales in the selected range, by location." />
       <div className="h-[250px] md:h-[300px]">
-        <Bar 
-          data={{ 
-            labels: displayLabels.length > 0 ? displayLabels : ["No Data"], 
-            datasets: [{ 
-              label: "Sales",
-              data: sortedValues.length > 0 ? sortedValues : [0],
-              backgroundColor: "#06B6D4",
-              borderRadius: 8,
-              borderSkipped: false,
-            }] 
+        <Bar
+          data={{
+            labels: displayLabels.length > 0 ? displayLabels : ["No Data"],
+            datasets: [barDataset("Sales", sortedValues.length > 0 ? sortedValues : [0])],
           }}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: true, position: "top" },
-            },
-            scales: {
-              y: {
-                beginAtZero: true,
-                ticks: {
-                  callback: (value) => formatCurrency(Number(value || 0)),
-                },
-              },
-            },
-          }}
+          options={barOptions({
+            valueLabel: (value) => formatCurrency(value, { maximumFractionDigits: 0 }),
+          })}
         />
       </div>
     </div>

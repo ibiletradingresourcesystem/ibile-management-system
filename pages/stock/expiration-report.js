@@ -261,7 +261,7 @@ export default function ExpirationReport() {
           {/* Sold-Out Alert Banner */}
           {stats.soldOut > 0 && !dismissedSoldOutAlert && (
             <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
-              <FontAwesomeIcon icon={faBell} className="text-amber-600 text-lg mt-0.5 flex-shrink-0" />
+              <FontAwesomeIcon icon={faBell} className="text-amber-600 text-base mt-0.5 flex-shrink-0" />
               <div className="flex-1">
                 <p className="font-semibold text-amber-800">Sold-Out Batches Detected</p>
                 <p className="text-sm text-amber-700 mt-1">
@@ -285,73 +285,103 @@ export default function ExpirationReport() {
             </div>
           )}
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
-            {/* Total Card */}
-            <div className="stat-card border-t-4 border-sky-600">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-card-label">Total Batches</p>
-                  <p className="stat-card-value text-gray-900">{stats.total}</p>
+          {/* Summary Cards — each one filters the list below it */}
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+            <button
+              type="button"
+              onClick={() => setFilterStatus("all")}
+              className={`stat-card !p-4 text-left w-full border-t-4 border-sky-600 transition hover:-translate-y-0.5 ${
+                filterStatus === "all" ? "ring-2 ring-sky-300" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="stat-card-label truncate">Total Batches</p>
+                  <p className="stat-card-value !text-xl text-gray-900">{stats.total}</p>
                 </div>
-                <FontAwesomeIcon icon={faBox} className="text-3xl text-sky-200" />
+                <FontAwesomeIcon icon={faBox} className="text-lg text-sky-300 flex-shrink-0" />
               </div>
-            </div>
+            </button>
 
-            {/* Sold Out Card */}
-            <div className="stat-card border-t-4 border-gray-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-card-label">Sold Out</p>
-                  <p className="stat-card-value text-gray-700">{stats.soldOut}</p>
+            <button
+              type="button"
+              onClick={() => setFilterStatus("soldOut")}
+              className={`stat-card !p-4 text-left w-full border-t-4 border-gray-600 transition hover:-translate-y-0.5 ${
+                filterStatus === "soldOut" ? "ring-2 ring-sky-300" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="stat-card-label truncate">Sold Out</p>
+                  <p className="stat-card-value !text-xl text-gray-700">{stats.soldOut}</p>
                 </div>
-                <FontAwesomeIcon icon={faCheckCircle} className="text-3xl text-gray-300" />
+                <FontAwesomeIcon icon={faCheckCircle} className="text-lg text-gray-300 flex-shrink-0" />
               </div>
-            </div>
+            </button>
 
-            {/* Expired Card */}
-            <div className="stat-card border-t-4 border-red-600">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-card-label">Expired</p>
-                  <p className="stat-card-value text-red-600">{stats.expired}</p>
+            <button
+              type="button"
+              onClick={() => setFilterStatus("expired")}
+              className={`stat-card !p-4 text-left w-full border-t-4 border-red-600 transition hover:-translate-y-0.5 ${
+                filterStatus === "expired" ? "ring-2 ring-sky-300" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="stat-card-label truncate">Expired</p>
+                  <p className="stat-card-value !text-xl text-red-600">{stats.expired}</p>
                 </div>
-                <FontAwesomeIcon icon={faExclamationTriangle} className="text-3xl text-red-200" />
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-lg text-red-300 flex-shrink-0" />
               </div>
-            </div>
+            </button>
 
-            {/* Critical Card */}
-            <div className="stat-card border-t-4 border-orange-600">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-card-label">Critical (≤7 days)</p>
-                  <p className="stat-card-value text-orange-600">{stats.critical}</p>
+            <button
+              type="button"
+              onClick={() => setFilterStatus("critical")}
+              className={`stat-card !p-4 text-left w-full border-t-4 border-orange-600 transition hover:-translate-y-0.5 ${
+                filterStatus === "critical" ? "ring-2 ring-sky-300" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="stat-card-label truncate">Critical (≤7 days)</p>
+                  <p className="stat-card-value !text-xl text-orange-600">{stats.critical}</p>
                 </div>
-                <FontAwesomeIcon icon={faClock} className="text-3xl text-orange-200" />
+                <FontAwesomeIcon icon={faClock} className="text-lg text-orange-300 flex-shrink-0" />
               </div>
-            </div>
+            </button>
 
-            {/* Warning Card */}
-            <div className="stat-card border-t-4 border-yellow-600">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-card-label">Warning (8-30 days)</p>
-                  <p className="stat-card-value text-yellow-600">{stats.warning}</p>
+            <button
+              type="button"
+              onClick={() => setFilterStatus("warning")}
+              className={`stat-card !p-4 text-left w-full border-t-4 border-yellow-600 transition hover:-translate-y-0.5 ${
+                filterStatus === "warning" ? "ring-2 ring-sky-300" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="stat-card-label truncate">Warning (8-30 days)</p>
+                  <p className="stat-card-value !text-xl text-yellow-600">{stats.warning}</p>
                 </div>
-                <FontAwesomeIcon icon={faExclamationTriangle} className="text-3xl text-yellow-200" />
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-lg text-yellow-300 flex-shrink-0" />
               </div>
-            </div>
+            </button>
 
-            {/* OK Card */}
-            <div className="stat-card border-t-4 border-green-600">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="stat-card-label">OK (&gt;30 days)</p>
-                  <p className="stat-card-value text-green-600">{stats.ok}</p>
+            <button
+              type="button"
+              onClick={() => setFilterStatus("ok")}
+              className={`stat-card !p-4 text-left w-full border-t-4 border-green-600 transition hover:-translate-y-0.5 ${
+                filterStatus === "ok" ? "ring-2 ring-sky-300" : ""
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="stat-card-label truncate">OK (&gt;30 days)</p>
+                  <p className="stat-card-value !text-xl text-green-600">{stats.ok}</p>
                 </div>
-                <FontAwesomeIcon icon={faCheckCircle} className="text-3xl text-green-200" />
+                <FontAwesomeIcon icon={faCheckCircle} className="text-lg text-green-300 flex-shrink-0" />
               </div>
-            </div>
+            </button>
           </div>
 
           {/* Filters and Search */}
@@ -417,14 +447,14 @@ export default function ExpirationReport() {
               </div>
             ) : filteredBatches.length === 0 ? (
               <div className="empty-state-container">
-                <FontAwesomeIcon icon={faCheckCircle} className="text-6xl text-green-400 mb-4" />
+                <FontAwesomeIcon icon={faCheckCircle} className="text-3xl text-green-400 mb-3" />
                 <p className="empty-state-text">No batches found matching your criteria</p>
                 {searchTerm && <p className="text-gray-500 text-sm mt-2">Try adjusting your search terms</p>}
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-[560px]">
                 <table className="data-table">
-                  <thead>
+                  <thead className="sticky top-0 z-10 bg-white">
                     <tr>
                       <th>Batch ID</th>
                       <th>Product Name</th>

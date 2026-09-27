@@ -248,6 +248,7 @@ export default function PriceTagGenerator({
   const [brandName, setBrandName] = useState(defaultBrandName);
   const [pickerOpen, setPickerOpen] = useState(!autoLoad);
   const [searchTerm, setSearchTerm] = useState("");
+  const [scanHint, setScanHint] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [inStockOnly, setInStockOnly] = useState(false);
   const [visibleRows, setVisibleRows] = useState(TABLE_PAGE);
@@ -391,15 +392,36 @@ export default function PriceTagGenerator({
   };
 
   // A scanner types the code and presses Enter: add that product and clear the box.
+  /*
+   * A scanned code is added straight away only when one product carries it. A pack and
+   * the units sold out of it share one barcode, so picking the first match meant the
+   * mother product every time — instead the list is left showing everyone on that
+   * code so the right one can be chosen.
+   */
   const handleSearchKeyDown = (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
     const term = searchTerm.trim();
     if (!term) return;
-    const match = indexedCatalog.find((entry) => hasBarcode(entry.product, term)) || (filtered.length === 1 ? filtered[0] : null);
-    if (!match) return;
-    if (!selectedIds.has(match.id)) setTags((prev) => [...prev, toTag(match.product)]);
-    setSearchTerm("");
+
+    const onThisCode = indexedCatalog.filter((entry) => hasBarcode(entry.product, term));
+    const candidates = onThisCode.length > 0 ? onThisCode : filtered;
+
+    if (candidates.length === 1) {
+      const match = candidates[0];
+      if (!selectedIds.has(match.id)) setTags((prev) => [...prev, toTag(match.product)]);
+      setSearchTerm("");
+      setScanHint("");
+      return;
+    }
+
+    setScanHint(
+      onThisCode.length > 1
+        ? `${onThisCode.length} products share this barcode — pick the one you want.`
+        : candidates.length === 0
+          ? "Nothing matches that code or name."
+          : `${candidates.length} products match — pick the one you want.`
+    );
   };
 
   const addManualProduct = () => {
@@ -596,7 +618,7 @@ export default function PriceTagGenerator({
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)] gap-3">
                 <input
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => { setSearchTerm(e.target.value); setScanHint(""); }}
                   onKeyDown={handleSearchKeyDown}
                   placeholder="Search by name or barcode, or scan and press Enter…"
                   className="form-input"
@@ -616,6 +638,13 @@ export default function PriceTagGenerator({
                   ))}
                 </select>
               </div>
+
+              {/* A scan that hits a whole family says so, rather than silently taking one */}
+              {scanHint && (
+                <p className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  {scanHint}
+                </p>
+              )}
 
               <div className="flex flex-wrap items-center gap-2">
                 {stockAware && (
