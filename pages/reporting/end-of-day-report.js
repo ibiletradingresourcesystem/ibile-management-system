@@ -307,9 +307,12 @@ export default function EndOfDayReporting() {
               />
             </div>
 
-            {/* Top Staff */}
+            {/* Till reports, by whoever closed them */}
             <div className="content-card">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Top Staff Performance</h2>
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Till Reports by Staff</h2>
+                <p className="text-xs text-gray-500">Who opened and closed the till — not necessarily who made the sales</p>
+              </div>
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                 {(summary.byStaff || [])
                   .sort((a, b) => b.totalSales - a.totalSales)
@@ -340,6 +343,52 @@ export default function EndOfDayReporting() {
                   ))}
               </div>
             </div>
+          </div>
+
+          {/* Who actually sold: a till is opened by one person and sold on by several */}
+          <div className="content-card mb-4 md:mb-6">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Sales by Staff</h2>
+              <p className="text-xs text-gray-500">
+                Every completed sale in this period, credited to the staff member who rang it up
+              </p>
+            </div>
+            {(summary.bySeller || []).length === 0 ? (
+              <p className="text-sm text-gray-500 py-6 text-center">No sales recorded for this period.</p>
+            ) : (
+              <div className="data-table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Staff</th>
+                      <th className="text-right">Transactions</th>
+                      <th className="text-right">Sales</th>
+                      <th className="text-right">Average sale</th>
+                      <th className="text-right">Days sold</th>
+                      <th>Locations</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(summary.bySeller || []).map((seller) => (
+                      <tr key={seller.staff}>
+                        <td className="font-medium text-gray-900 whitespace-nowrap">{seller.staff}</td>
+                        <td className="text-right">{formatNumber(seller.transactions)}</td>
+                        <td className="text-right font-medium">
+                          {seller.totalSales.toLocaleString("en-NG", { maximumFractionDigits: 0 })}
+                        </td>
+                        <td className="text-right text-gray-600">
+                          {(seller.transactions > 0 ? seller.totalSales / seller.transactions : 0).toLocaleString("en-NG", {
+                            maximumFractionDigits: 0,
+                          })}
+                        </td>
+                        <td className="text-right text-gray-600">{seller.days}</td>
+                        <td className="text-gray-600 text-sm">{(seller.locations || []).join(", ") || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Recent Reports Table */}
@@ -456,6 +505,35 @@ export default function EndOfDayReporting() {
                                 </div>
                               </div>
                               
+                              {/* Who sold during this till session */}
+                              <div className="md:col-span-3">
+                                <h4 className="font-semibold text-gray-800 mb-2">
+                                  Sold By {report.sellerCount > 0 ? `(${report.sellerCount})` : ""}
+                                </h4>
+                                {report.sellers?.length > 0 ? (
+                                  <div className="flex flex-wrap gap-2">
+                                    {report.sellers.map((seller) => (
+                                      <span
+                                        key={seller.staff}
+                                        className="inline-flex items-center gap-2 border border-gray-200 bg-gray-50 px-3 py-1.5 rounded-lg text-sm"
+                                      >
+                                        <span className="font-medium text-gray-800">{seller.staff}</span>
+                                        <span className="text-gray-500">
+                                          {formatNumber(seller.transactions)} sale{seller.transactions === 1 ? "" : "s"}
+                                        </span>
+                                        <span className="font-semibold text-gray-900">
+                                          {seller.totalSales.toLocaleString("en-NG", { maximumFractionDigits: 0 })}
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-gray-400">
+                                    No sales matched to this till session — the report was closed by {report.staffName || "N/A"}.
+                                  </p>
+                                )}
+                              </div>
+
                               {/* Notes */}
                               {report.closingNotes && (
                                 <div className="md:col-span-3">

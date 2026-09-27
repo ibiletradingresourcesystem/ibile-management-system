@@ -3,6 +3,11 @@ import EndOfDayReport from "@/models/EndOfDayReport";
 import { buildLocationCache, resolveLocationName } from "@/lib/serverLocationHelper";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { normalizeEndOfDayReports } from "@/lib/end-of-day-report-normalize";
+import { Transaction } from "@/models/Transactions";
+import { attachSellersToReports, summariseSellers } from "@/lib/endOfDaySellers";
+
+/** Sales are grouped by the shop's own day, not the server's. */
+const REPORT_TIME_ZONE = "Africa/Lagos";
 
 /**
  * GET /api/reporting/end-of-day-summary
@@ -97,6 +102,7 @@ export default async function handler(req, res) {
           status: { reconciled: 0, varianceNoted: 0 },
           byLocation: [],
           byStaff: [],
+          bySeller: [],
           tenderBreakdown: {},
           dailyData: [],
         },
@@ -120,6 +126,39 @@ export default async function handler(req, res) {
     }));
 
     const normalizedReports = normalizeEndOfDayReports(enrichedReports);
+
+    const salesWindow = dateLte ? { $gte: dateGte, $lte: dateLte } : { $gte: dateGte };
+    const locationNameFilter = locationId
+      ? await resolveLocationName(locationId, locationCache, storeId)
+      : "";
+
+    const sellerRows = await Transaction.aggregate([
+      {
+        $match: {
+          createdAt: salesWindow,
+          status: "completed",
+          subStatus: { $ne: "void" },
+          ...(locationNameFilter && locationNameFilter !== "Unknown" ? { location: locationNameFilter } : {}),
+        },
+      },
+      {
+        $group: {
+          _id: {
+            day: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt", timezone: REPORT_TIME_ZONE } },
+            location: { $ifNull: ["$location", "Unknown"] },
+            staff: { $ifNull: ["$staffName", "Unknown"] },
+          },
+          transactions: { $sum: 1 },
+          totalSales: { $sum: { $ifNull: ["$total", 0] } },
+          firstSale: { $min: "$createdAt" },
+          lastSale: { $max: "$createdAt" },
+        },
+      },
+      { $sort: { totalSales: -1 } },
+    ]);
+
+    const bySeller = summariseSellers(sellerRows);
+    attachSellersToReports(normalizedReports, sellerRows, REPORT_TIME_ZONE);
 
     console.log(`✅ Enriched ${normalizedReports.length} reports with location names`);
 
@@ -228,6 +267,8 @@ export default async function handler(req, res) {
       },
       byLocation: Object.values(byLocation),
       byStaff: Object.values(byStaff),
+      // Who made the sales, which is not always who closed the till.
+      bySeller,
       tenderBreakdown: tenderSummary,
       dailyData,
     };

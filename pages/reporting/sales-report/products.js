@@ -115,6 +115,7 @@ export default function ProductsSales() {
   const [data, setData] = useState(null);
   const [timeRange, setTimeRange] = useState("last7");
   const [selectedProductKey, setSelectedProductKey] = useState("");
+  const [productSearch, setProductSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const drilldownRef = useRef(null);
   const { progress, start, onFetch, onProcess, complete } = useProgress();
@@ -194,6 +195,19 @@ export default function ProductsSales() {
   ];
 
   const top10 = data ? data.products.slice(0, 10) : [];
+  /*
+   * The list is filtered for display only: a product keeps the rank it has in the
+   * whole period, so searching never renumbers what is on screen.
+   */
+  const rankedProducts = (data?.products || []).map((product, index) => ({ ...product, rank: index + 1 }));
+  const searchTokens = productSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const visibleProducts = searchTokens.length === 0
+    ? rankedProducts
+    : rankedProducts.filter((product) => {
+        const haystack = `${product.name || ""} ${product.barcode || ""} ${product.category || ""}`.toLowerCase();
+        return searchTokens.every((token) => haystack.includes(token));
+      });
+
   const selectedProduct = data?.products.find((product) => product.key === selectedProductKey) || null;
   const selectedProductTransactions = selectedProduct
     ? data?.productTransactions?.[selectedProduct.key] || []
@@ -286,23 +300,50 @@ export default function ProductsSales() {
 
               {/* Products Table */}
               <div className="content-card mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-800">All Products</h3>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-semibold text-gray-800">All Products</h3>
+                    <p className="text-xs text-gray-500">
+                      {visibleProducts.length === rankedProducts.length
+                        ? `${rankedProducts.length} products · click one to see its transactions`
+                        : `${visibleProducts.length} of ${rankedProducts.length} products`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 sm:ml-auto">
+                    <input
+                      type="text"
+                      value={productSearch}
+                      onChange={(event) => setProductSearch(event.target.value)}
+                      placeholder="Search products…"
+                      className="form-input !w-full sm:!w-64"
+                    />
+                    {productSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setProductSearch("")}
+                        className="btn-action btn-action-secondary btn-sm"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                   <ExportMenu
                     title="Sales by Product"
                     subtitle={"Range: " + timeRange}
                     columns={productExportColumns}
-                    rows={data?.products || []}
+                    rows={visibleProducts}
                     summary={[
-                      { label: "Products", value: String((data?.products || []).length) },
+                      { label: "Products", value: String(visibleProducts.length) },
                       { label: "Total Sales", value: formatCurrency(data?.totalSales || 0) },
                     ]}
                     orientation="l"
                   />
                 </div>
-              <div className="data-table-container">
+              {/* Its own scrolling panel, so choosing a product further down the list
+                  does not mean scrolling past every other one to reach it. */}
+              <div className="data-table-container max-h-[420px] overflow-y-auto">
                 <table className="data-table">
-                  <thead className="sticky top-0">
+                  <thead className="sticky top-0 z-10 bg-white">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold">Rank</th>
                       <th className="px-4 py-3 text-left font-semibold">Product</th>
@@ -312,18 +353,20 @@ export default function ProductsSales() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {data.products.length === 0 ? (
+                    {visibleProducts.length === 0 ? (
                       <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-500">
                         <p className="text-lg font-medium">No products found</p>
-                        <p className="text-sm mt-1">Try adjusting your time range filter</p>
+                        <p className="text-sm mt-1">
+                          {searchTokens.length > 0 ? "Nothing matches that search" : "Try adjusting your time range filter"}
+                        </p>
                       </td></tr>
-                    ) : data.products.map((prod, idx) => (
+                    ) : visibleProducts.map((prod, idx) => (
                       <tr
                         key={prod.key || idx}
                         className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} cursor-pointer transition-colors hover:bg-cyan-50 ${selectedProductKey === prod.key ? "bg-cyan-50" : ""}`}
                         onClick={() => setSelectedProductKey((current) => current === prod.key ? "" : prod.key)}
                       >
-                        <td className="px-4 py-3 font-medium text-gray-800">#{idx + 1}</td>
+                        <td className="px-4 py-3 font-medium text-gray-800">#{prod.rank}</td>
                         <td className="px-4 py-3 font-medium text-gray-800">{prod.name}</td>
                         <td className="px-4 py-3 text-right">{formatNumber(prod.unitsSold)}</td>
                         <td className="px-4 py-3 text-right">{formatCurrency(prod.totalSales)}</td>
@@ -364,9 +407,11 @@ export default function ProductsSales() {
                     </div>
                   </div>
 
-                  <div className="data-table-container">
+                  {/* Scrolls in place, like the product list above it, so a product
+                      with hundreds of sales does not stretch the page away. */}
+                  <div className="data-table-container max-h-[460px] overflow-y-auto">
                     <table className="data-table">
-                      <thead className="sticky top-0">
+                      <thead className="sticky top-0 z-10 bg-white">
                         <tr>
                           <th className="px-4 py-3 text-left font-semibold">Date</th>
                           <th className="px-4 py-3 text-left font-semibold">Transaction</th>
