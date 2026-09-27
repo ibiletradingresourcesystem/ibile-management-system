@@ -45,12 +45,23 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
     });
   };
 
+  // The saved field is `product`; `productId` is sent too so older screens keep working.
+  const linkedId = (row) => String(row?.product?._id || row?.product || row?.productId || "");
+
   const addProduct = (product) => {
-    const already = form.products.some((p) => p.productId === product._id);
+    const already = form.products.some((p) => linkedId(p) === String(product._id));
     if (already) return;
     setForm((prev) => ({
       ...prev,
-      products: [...prev.products, { productId: product._id, productName: product.name, price: product.costPrice || product.salePriceIncTax || 0 }],
+      products: [
+        ...prev.products,
+        {
+          product: product._id,
+          productId: product._id,
+          productName: product.name,
+          price: product.costPrice || product.salePriceIncTax || 0,
+        },
+      ],
     }));
     setProductSearch("");
     setProductResults([]);
@@ -59,7 +70,7 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
   useEffect(() => {
     const q = productSearch.trim().toLowerCase();
     if (q.length < 2) { setProductResults([]); return; }
-    const existingIds = new Set(form.products.map((p) => p.productId));
+    const existingIds = new Set(form.products.map((p) => linkedId(p)));
     const matches = allProducts
       .filter((p) => !existingIds.has(p._id) && (p.name?.toLowerCase().includes(q) || p.barcode?.toLowerCase().includes(q)))
       .slice(0, 8);

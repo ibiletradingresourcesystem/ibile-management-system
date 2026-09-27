@@ -81,6 +81,7 @@ export default async function handler(req, res) {
         requestDate,
         neededBy,
         products = [],
+        confirmNewProducts = false,
       } = req.body || {};
 
       const normalizedOrder = normalizeOrderValues({
@@ -117,11 +118,29 @@ export default async function handler(req, res) {
         email: req.user.email || "",
       };
 
-      // Process products: create if they don't exist
-      const processedProducts = await processProductsFromPettyCash(
+      /*
+       * Match the order's lines to catalogue products. Nothing is created here: a
+       * product the vendor is already linked to must not be duplicated because the
+       * typed name differs, and a genuinely new product is only added when an
+       * administrator has said so.
+       */
+      const isAdminUser = req.user?.role === "admin";
+      const { products: processedProducts, unmatched, created } = await processProductsFromPettyCash(
         products,
-        vendor._id
+        vendor._id,
+        { vendor, allowCreate: isAdminUser && confirmNewProducts === true }
       );
+
+      if (unmatched.length > 0) {
+        return res.status(400).json({
+          error: isAdminUser
+            ? `Not in the catalogue yet: ${unmatched.map((item) => item.productName).join(", ")}. Confirm to add them.`
+            : `Not in the catalogue yet: ${unmatched.map((item) => item.productName).join(", ")}. An administrator has to add them, or link them to this vendor, before this order can be raised.`,
+          needsConfirmation: isAdminUser,
+          canConfirm: isAdminUser,
+          unknownProducts: unmatched.map((item) => item.productName),
+        });
+      }
 
       const transaction = await PettyCashTransaction.create({
         vendor: vendor._id,
@@ -152,7 +171,8 @@ export default async function handler(req, res) {
 
       await transaction.populate("vendor");
 
-      return res.status(201).json({ success: true, transaction });
+      // Named back so the person can see what the confirmation actually added.
+      return res.status(201).json({ success: true, transaction, createdProducts: created });
     } catch (error) {
       console.error("Petty cash transaction create error:", error);
       return res.status(500).json({

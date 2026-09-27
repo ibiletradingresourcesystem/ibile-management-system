@@ -4,6 +4,7 @@ import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import { syncProductVendorAssignmentsForVendor } from "@/lib/vendorProductSync";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
+import { normalizeVendorProducts } from "@/lib/vendorProducts";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -43,10 +44,8 @@ export default async function handler(req, res) {
         bankName: sanitizePlainText(req.body?.bankName),
         accountName: sanitizePlainText(req.body?.accountName),
         accountNumber: sanitizePlainText(req.body?.accountNumber),
-        products: (Array.isArray(req.body?.products) ? req.body.products : []).map((product) => ({
-          ...product,
-          productName: sanitizePlainText(product?.productName),
-        })),
+        // Keeps the link to the catalogue product (sent as productId, stored as product).
+        products: normalizeVendorProducts(req.body?.products),
       };
       const vendor = await Vendor.findByIdAndUpdate(id, updatePayload, { new: true });
       if (!vendor) return res.status(404).json({ error: "Vendor not found" });

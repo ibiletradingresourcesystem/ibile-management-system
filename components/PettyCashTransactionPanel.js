@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiClient } from "@/lib/api-client";
+import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 
 function formatCurrency(val) {
   return `₦${Number(val || 0).toLocaleString("en-NG")}`;
@@ -60,6 +61,21 @@ function escapeCsvValue(val) {
   return str;
 }
 
+/**
+ * A vendor price-list row as an order line. The link to the catalogue product is
+ * carried through, so ordering something the vendor is already linked to reuses that
+ * product instead of creating another one under a slightly different name.
+ */
+function toOrderLine(row) {
+  const linked = row?.product?._id || row?.product || row?.productId || "";
+  return {
+    productId: linked ? String(linked) : "",
+    productName: row?.productName || row?.name || "",
+    quantity: 1,
+    costPrice: Number(row?.price) || 0,
+  };
+}
+
 export default function PettyCashTransactionPanel({
   vendors = [],
   currentLocation = "",
@@ -99,11 +115,7 @@ export default function PettyCashTransactionPanel({
   // Auto-open form when prefillVendor is set
   useEffect(() => {
     if (prefillVendor) {
-      const vendorProducts = (prefillVendor.products || []).map(p => ({
-        productName: p.productName || p.name || "",
-        quantity: 1,
-        costPrice: Number(p.price) || 0,
-      }));
+      const vendorProducts = (prefillVendor.products || []).map(toOrderLine);
       setFormData({
         vendor: prefillVendor._id,
         products: vendorProducts.length > 0 ? vendorProducts : [{ productName: "", quantity: 1, costPrice: 0 }],
@@ -150,7 +162,11 @@ export default function PettyCashTransactionPanel({
   const handleItemChange = (index, field, value) => {
     setFormData((prev) => {
       const products = [...prev.products];
-      products[index] = { ...products[index], [field]: field === "productName" ? value : Number(value) || 0 };
+      const next = { ...products[index], [field]: field === "productName" ? value : Number(value) || 0 };
+      // Renaming a line means it is no longer the product that was picked from the
+      // vendor's list, so the link goes with it.
+      if (field === "productName" && value !== products[index].productName) next.productId = "";
+      products[index] = next;
       return { ...prev, products };
     });
   };
@@ -158,7 +174,7 @@ export default function PettyCashTransactionPanel({
   const addItem = () => {
     setFormData((prev) => ({
       ...prev,
-      products: [...prev.products, { productName: "", quantity: 1, costPrice: 0 }],
+      products: [...prev.products, { productId: "", productName: "", quantity: 1, costPrice: 0 }],
     }));
   };
 
@@ -182,7 +198,7 @@ export default function PettyCashTransactionPanel({
     setSubmitting(true);
     try {
       const purpose = validProducts.map(p => `${p.productName} x${p.quantity}`).join(", ");
-      await apiClient.post("/api/petty-cash-transactions", {
+      const payload = {
         vendor: formData.vendor,
         purpose,
         description: formData.description,
@@ -192,8 +208,38 @@ export default function PettyCashTransactionPanel({
         location: formData.location,
         requestDate: formData.requestDate,
         neededBy: formData.neededBy || undefined,
-        products: validProducts, // Send products array
-      });
+        products: validProducts, // names, quantities and the links to system products
+      };
+
+      try {
+        await apiClient.post("/api/petty-cash-transactions", payload);
+      } catch (err) {
+        const data = err.response?.data;
+        // Something on the order is not in the catalogue. An administrator can add it
+        // from here; anyone else is told who can.
+        if (!data?.unknownProducts?.length) throw err;
+        if (!data.canConfirm) {
+          await showAlertDialog({
+            title: "Product not in the system",
+            message: data.error,
+            tone: "warning",
+          });
+          setSubmitting(false);
+          return;
+        }
+        const confirmed = await showConfirmDialog({
+          title: `Add ${data.unknownProducts.length} new product${data.unknownProducts.length === 1 ? "" : "s"}?`,
+          message:
+            `${data.unknownProducts.join(", ")} ${data.unknownProducts.length === 1 ? "is" : "are"} not in the catalogue. ` +
+            "Adding creates the product with this cost price and no stock. If it already exists under another name, cancel and link it to the vendor instead.",
+          confirmLabel: "Add and order",
+        });
+        if (!confirmed) {
+          setSubmitting(false);
+          return;
+        }
+        await apiClient.post("/api/petty-cash-transactions", { ...payload, confirmNewProducts: true });
+      }
 
       // Get vendor info for send dialog
       const vendor = vendors.find(v => v._id === formData.vendor);
@@ -202,7 +248,7 @@ export default function PettyCashTransactionPanel({
       setShowForm(false);
       setFormData({
         vendor: "",
-        products: [{ productName: "", quantity: 1, costPrice: 0 }],
+        products: [{ productId: "", productName: "", quantity: 1, costPrice: 0 }],
         description: "",
         location: currentLocation,
         requestDate: new Date().toISOString().split("T")[0],
@@ -416,11 +462,7 @@ export default function PettyCashTransactionPanel({
                   onChange={(e) => {
                     const vendorId = e.target.value;
                     const v = vendors.find(x => x._id === vendorId);
-                    const vendorProducts = (v?.products || []).map(p => ({
-                      productName: p.productName || p.name || "",
-                      quantity: 1,
-                      costPrice: Number(p.price) || 0,
-                    }));
+                    const vendorProducts = (v?.products || []).map(toOrderLine);
                     setFormData(prev => ({
                       ...prev,
                       vendor: vendorId,

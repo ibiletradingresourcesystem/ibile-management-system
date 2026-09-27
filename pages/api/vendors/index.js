@@ -3,6 +3,7 @@ import Vendor from "@/models/Vendor";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { syncProductVendorAssignmentsForVendor } from "@/lib/vendorProductSync";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
+import { normalizeVendorProducts } from "@/lib/vendorProducts";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -39,11 +40,9 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Company name is required" });
       }
 
-      const safeProducts = Array.isArray(products) ? products : [];
-      const sanitizedProducts = safeProducts.map((product) => ({
-        ...product,
-        productName: sanitizePlainText(product?.productName),
-      }));
+      // normalizeVendorProducts keeps the link to the catalogue product, which the
+      // old spread lost: forms send it as productId and the schema field is product.
+      const sanitizedProducts = normalizeVendorProducts(products);
 
       const vendor = await Vendor.create({
         companyName: sanitizePlainText(companyName),

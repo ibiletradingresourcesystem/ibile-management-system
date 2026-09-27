@@ -594,13 +594,50 @@ export default function Home() {
   /* =======================
      CHART DATA
   ======================= */
+  // The breakdown now sits in a small card, where a bar per expense is unreadable:
+  // the five biggest are shown across, with the rest gathered into one bar.
+  const topExpenses = useMemo(() => {
+    const sorted = [...filteredExpenses].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
+    const top = sorted.slice(0, 5);
+    const rest = sorted.slice(5);
+    const restTotal = rest.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    return restTotal > 0
+      ? [...top, { title: `Other (${rest.length})`, amount: restTotal }]
+      : top;
+  }, [filteredExpenses]);
+
+  const expenseTotal = useMemo(
+    () => filteredExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
+    [filteredExpenses]
+  );
+
+  const expenseChartOptions = {
+    indexAxis: "y",
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.parsed.x) } },
+    },
+    scales: {
+      x: { display: false, grid: { display: false } },
+      y: {
+        grid: { display: false },
+        border: { display: false },
+        ticks: { font: { size: 10 }, color: "#6b7280", crossAlign: "far" },
+      },
+    },
+  };
+
   const expenseChart = {
-    labels: filteredExpenses.map((e) => e.title),
+    labels: topExpenses.map((e) => (e.title || "").length > 18 ? `${e.title.slice(0, 17)}…` : e.title || "Untitled"),
     datasets: [
       {
         label: "Expenses",
-        data: filteredExpenses.map((e) => Number(e.amount || 0)),
+        data: topExpenses.map((e) => Number(e.amount || 0)),
         backgroundColor: "#ef4444",
+        borderRadius: 3,
+        barThickness: 12,
       },
     ],
   };
@@ -1021,12 +1058,12 @@ export default function Home() {
                 onViewMore={() => router.push("/reporting/reporting")}
               />
 
-              <ChartCard
-                title="Expenses Breakdown"
-                onViewMore={() => router.push("/expenses/analysis")}
-              >
-                <Bar data={expenseChart} />
-              </ChartCard>
+              <RecentTransactionsCard
+                transactions={periodTransactions}
+                onViewMore={(status) =>
+                  router.push(`/reporting/completed-transactions${status ? `?status=${status}` : ""}`)
+                }
+              />
             </section>
 
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1059,12 +1096,14 @@ export default function Home() {
                 }))}
               />
 
-              <RecentTransactionsCard
-                transactions={periodTransactions}
-                onViewMore={(status) =>
-                  router.push(`/reporting/completed-transactions${status ? `?status=${status}` : ""}`)
-                }
-              />
+              <ChartCard
+                title="Expenses Breakdown"
+                subtitle={`${filteredExpenses.length} entries · ${formatCurrency(expenseTotal)}`}
+                compact
+                onViewMore={() => router.push("/expenses/analysis")}
+              >
+                <Bar data={expenseChart} options={expenseChartOptions} />
+              </ChartCard>
             </section>
 
             {/* AI Decision Center */}
@@ -1282,22 +1321,35 @@ function TopProductsTable({ products, comparisonLabel, onViewMore }) {
   );
 }
 
-function ChartCard({ title, children, onViewMore }) {
+/**
+ * A chart in a card. `compact` is the size used in the small card row: the same
+ * height as the list cards beside it, with the heading and the link scaled down so
+ * the chart itself keeps the space.
+ */
+function ChartCard({ title, subtitle = "", children, onViewMore, compact = false }) {
   return (
-    <div className="border border-gray-200 bg-white p-4 sm:p-5" style={{ borderRadius: 'var(--radius-lg)' }}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+    <div
+      className={`border border-gray-200 bg-white flex flex-col ${
+        compact ? "p-4 h-[250px] sm:h-[280px] md:h-[320px]" : "p-4 sm:p-5"
+      }`}
+      style={{ borderRadius: 'var(--radius-lg)' }}
+    >
+      <div className="mb-2 flex items-start justify-between gap-2 flex-shrink-0">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-gray-900 truncate">{title}</h2>
+          {subtitle && <p className="text-[11px] text-gray-400 truncate">{subtitle}</p>}
+        </div>
         {onViewMore && (
           <button
             type="button"
-            className="btn-action-secondary !py-1.5 !px-3 text-xs"
+            className={compact ? "text-xs font-medium text-gray-500 hover:text-gray-900 transition-colors flex-shrink-0" : "btn-action-secondary !py-1.5 !px-3 text-xs"}
             onClick={onViewMore}
           >
-            View More
+            {compact ? "More" : "View More"}
           </button>
         )}
       </div>
-      <div className="h-[200px] sm:h-[250px] md:h-[300px] overflow-hidden">
+      <div className={compact ? "flex-1 min-h-0 overflow-hidden" : "h-[200px] sm:h-[250px] md:h-[300px] overflow-hidden"}>
         {children}
       </div>
     </div>
