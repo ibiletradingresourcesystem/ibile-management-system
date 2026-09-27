@@ -46,6 +46,7 @@ export default function AccountingReportsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [error, setError] = useState("");
+  const [reconciliation, setReconciliation] = useState(null);
   const printRef = useRef(null);
 
   function getPeriodLabel() {
@@ -185,6 +186,27 @@ export default function AccountingReportsPage() {
     }
   }
 
+  /**
+   * The books and the tax dashboard are built on one basis now, so the two
+   * should agree for any period. This is what says whether they do.
+   */
+  async function refreshReconciliation() {
+    try {
+      const params = new URLSearchParams();
+      if (dateFrom) params.set("from", dateFrom);
+      if (dateTo) params.set("to", dateTo);
+      const res = await fetch(`/api/accounting/reconciliation?${params}`);
+      if (!res.ok) {
+        setReconciliation(null);
+        return;
+      }
+      setReconciliation(await res.json());
+    } catch {
+      // A reconciliation that cannot be fetched must not hide the statement.
+      setReconciliation(null);
+    }
+  }
+
   async function fetchReport() {
     try {
       setLoading(true);
@@ -196,6 +218,7 @@ export default function AccountingReportsPage() {
       if (res.ok) {
         setData(await res.json());
         void refreshSyncStatus();
+        void refreshReconciliation();
       } else {
         setError("Failed to load report");
       }
@@ -313,7 +336,7 @@ export default function AccountingReportsPage() {
           </div>
         ) : (
           <div ref={printRef}>
-            {tab === "profit-loss" && <ProfitLoss data={data} dateFrom={dateFrom} dateTo={dateTo} />}
+            {tab === "profit-loss" && <ProfitLoss data={data} dateFrom={dateFrom} dateTo={dateTo} reconciliation={reconciliation} />}
             {tab === "balance-sheet" && <BalanceSheet data={data} dateFrom={dateFrom} dateTo={dateTo} />}
             {tab === "trial-balance" && <TrialBalance data={data} dateFrom={dateFrom} dateTo={dateTo} />}
           </div>
@@ -344,7 +367,100 @@ function ExecutiveMetricCard({ title, value, helper, tone = "neutral" }) {
   );
 }
 
-function ProfitLoss({ data, dateFrom, dateTo }) {
+/**
+ * Books against till. Both sides read sales the same way (lib/financial-basis.js),
+ * so anything left over is a posting problem — a sale the books never saw, or an
+ * entry still standing for a sale that was voided — and it is named as such.
+ */
+function ReconciliationPanel({ reconciliation }) {
+  if (!reconciliation?.lines) return null;
+
+  const { lines, issues = {}, agrees, period } = reconciliation;
+  const rows = [
+    { key: "revenue", label: "Revenue (net of VAT)" },
+    { key: "vat", label: "VAT payable" },
+    { key: "costOfSales", label: "Cost of sales" },
+    { key: "refunds", label: "Refunds" },
+    { key: "expenses", label: "Operating expenses" },
+    { key: "stockPurchases", label: "Stock bought (to inventory)" },
+  ].filter((row) => lines[row.key]);
+
+  const notes = [];
+  if (issues.unpostedSales > 0) {
+    notes.push(`${issues.unpostedSales} sale${issues.unpostedSales === 1 ? "" : "s"} worth ${formatMoney(issues.unpostedSalesValue || 0)} have no journal entry — run Sync Accounting.`);
+  }
+  if (issues.stalePostedVoids > 0) {
+    notes.push(`${issues.stalePostedVoids} posted entr${issues.stalePostedVoids === 1 ? "y" : "ies"} still stand${issues.stalePostedVoids === 1 ? "s" : ""} for a voided sale — a sync strikes them off.`);
+  }
+  if (issues.incompleteCostLines > 0) {
+    notes.push(`${issues.incompleteCostLines} sold line${issues.incompleteCostLines === 1 ? " has" : "s have"} no cost price, so cost of sales is understated.`);
+  }
+  if (issues.stockPurchaseExpenses > 0) {
+    notes.push(`${issues.stockPurchaseExpenses} expense${issues.stockPurchaseExpenses === 1 ? "" : "s"} treated as stock buying: held as inventory, not charged to profit until sold.`);
+  }
+  if (issues.voidedSales > 0) {
+    notes.push(`${issues.voidedSales} voided sale${issues.voidedSales === 1 ? "" : "s"} excluded from both reports.`);
+  }
+
+  return (
+    <div className="content-card mt-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div>
+          <h3 className="text-base font-semibold text-gray-900">Books vs Transactions</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            The same period read off the till and off the posted entries{period?.label ? ` — ${period.label}` : ""}. The
+            {" "}<a href="/accounting/tax-analysis" className="theme-link font-medium">tax dashboard</a> quotes the transactions column.
+          </p>
+        </div>
+        <span
+          className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+            agrees ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
+          }`}
+        >
+          {agrees ? "In agreement" : "Needs attention"}
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Figure</th>
+              <th className="text-right">Transactions</th>
+              <th className="text-right">Posted books</th>
+              <th className="text-right">Difference</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const line = lines[row.key];
+              return (
+                <tr key={row.key}>
+                  <td className="font-medium text-gray-800">{row.label}</td>
+                  <td className="text-right font-mono">{formatMoney(line.source)}</td>
+                  <td className="text-right font-mono">{formatMoney(line.posted)}</td>
+                  <td className={`text-right font-mono font-semibold ${line.agrees ? "text-gray-500" : "text-amber-700"}`}>
+                    {line.agrees ? "—" : formatMoney(line.difference)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {notes.length > 0 && (
+        <ul className="mt-4 space-y-1 text-xs text-gray-600 list-disc list-inside">
+          {notes.map((note, index) => (
+            <li key={index}>{note}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ProfitLoss({ data, dateFrom, dateTo, reconciliation }) {
   if (!data) return null;
   const netIncome = data.netIncome || 0;
   const summary = data.summary || {};
@@ -398,6 +514,8 @@ function ProfitLoss({ data, dateFrom, dateTo }) {
         <PLSection title="Revenue" items={data.revenue || []} total={data.totalRevenue || 0} color="green" />
         <PLSection title="Expenses" items={data.expenses || []} total={data.totalExpenses || 0} color="red" />
       </div>
+
+      <ReconciliationPanel reconciliation={reconciliation} />
     </div>
   );
 }

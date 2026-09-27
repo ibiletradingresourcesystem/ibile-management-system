@@ -1,8 +1,5 @@
-import { mongooseConnect } from "@/lib/mongodb";
-import Transaction from "@/models/Transactions";
-import Expense from "@/models/Expense";
-import Product from "@/models/Product";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { loadFinancialPeriod } from "@/lib/financial-period-data";
 import { buildPeriodRange, computeTaxAnalysis } from "@/lib/tax-analysis";
 
 export default async function handler(req, res) {
@@ -18,29 +15,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    await mongooseConnect();
-
     const { period = "last-month" } = req.query;
     const now = new Date();
     const { start, end, label } = buildPeriodRange(period, now);
-    const dateFilter = { createdAt: { $gte: start, $lte: end } };
-
-    const [transactions, expenses, products] = await Promise.all([
-      Transaction.find({ ...dateFilter, status: "completed" }).lean().exec(),
-      Expense.find(dateFilter).lean().exec(),
-      Product.find({}, { _id: 1, costPrice: 1, taxRate: 1 }).lean().exec(),
-    ]);
-
-    // Build product lookup map
-    const productMap = {};
-    for (const p of products) {
-      productMap[String(p._id)] = { costPrice: p.costPrice || 0, taxRate: p.taxRate || 0 };
-    }
+    const { sales, refunds, expenses, voidedCount, productMap, categoryTreatments } = await loadFinancialPeriod({ start, end });
 
     const summary = computeTaxAnalysis({
-      transactions,
+      sales,
+      refunds,
       expenses,
       productMap,
+      categoryTreatments,
+      voidedCount,
       period,
       generatedAt: now,
       periodLabel: label,

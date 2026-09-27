@@ -62,6 +62,25 @@ export default function CategoriesSales() {
   useEffect(() => { fetchAllFilters(); }, []);
   useEffect(() => { fetchCategoryData(); }, [timeRange, location, device, staff]);
 
+  // Only the transactions that touched the chosen category, a page at a time.
+  const visibleTransactions = useMemo(
+    () =>
+      selectedCategory
+        ? transactions.filter((tx) => (tx.categories || []).some((cat) => cat.category === selectedCategory))
+        : transactions,
+    [transactions, selectedCategory]
+  );
+  const totalTxPages = Math.max(1, Math.ceil(visibleTransactions.length / TX_PAGE_SIZE));
+  const safePage = Math.min(txPage, totalTxPages);
+  const pageStart = (safePage - 1) * TX_PAGE_SIZE;
+  const pagedTransactions = visibleTransactions.slice(pageStart, pageStart + TX_PAGE_SIZE);
+
+  // Back to the first page whenever the list underneath changes, so the reader is
+  // never left looking at an empty page 7 of a shorter list.
+  useEffect(() => {
+    setTxPage(1);
+  }, [selectedCategory, transactions]);
+
   async function fetchAllFilters() {
     try {
       const res = await fetch("/api/transactions/transactions?filters=true");
@@ -165,24 +184,6 @@ export default function CategoriesSales() {
 
   const totalSales = categories.reduce((sum, c) => sum + c.sales, 0);
 
-  // Only the transactions that touched the chosen category, a page at a time.
-  const visibleTransactions = useMemo(
-    () =>
-      selectedCategory
-        ? transactions.filter((tx) => (tx.categories || []).some((cat) => cat.category === selectedCategory))
-        : transactions,
-    [transactions, selectedCategory]
-  );
-  const totalTxPages = Math.max(1, Math.ceil(visibleTransactions.length / TX_PAGE_SIZE));
-  const safePage = Math.min(txPage, totalTxPages);
-  const pageStart = (safePage - 1) * TX_PAGE_SIZE;
-  const pagedTransactions = visibleTransactions.slice(pageStart, pageStart + TX_PAGE_SIZE);
-
-  // Back to the first page whenever the list underneath changes, so the reader is
-  // never left looking at an empty page 7 of a shorter list.
-  useEffect(() => {
-    setTxPage(1);
-  }, [selectedCategory, transactions]);
   const topCategory = categories[0];
 
   return (

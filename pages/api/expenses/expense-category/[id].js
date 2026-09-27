@@ -11,11 +11,27 @@ export default async function handler(req, res) {
   const { id } = req.query;
 
   if (req.method === "PUT") {
-    const { name } = req.body;
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: "Category name is required" });
+    const { name, treatment } = req.body;
+    const update = {};
+
+    if (name !== undefined) {
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Category name is required" });
+      }
+      update.name = name.trim();
     }
-    const category = await ExpenseCategory.findByIdAndUpdate(id, { name: name.trim() }, { new: true });
+
+    // How the spending is treated: a running cost, or stock that sits in
+    // inventory until it sells.
+    if (treatment !== undefined) {
+      update.treatment = String(treatment).toUpperCase() === "INVENTORY" ? "INVENTORY" : "EXPENSE";
+    }
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
+    const category = await ExpenseCategory.findByIdAndUpdate(id, update, { new: true });
     if (!category) return res.status(404).json({ error: "Category not found" });
     return res.status(200).json(category);
   }

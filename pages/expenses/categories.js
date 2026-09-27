@@ -40,6 +40,21 @@ export default function CategoriesPage() {
     }
   };
 
+  /**
+   * Stock buying is not a running cost: marking a category as stock keeps its
+   * spending out of the profit and loss statement until the goods sell, when it
+   * lands there as cost of goods sold instead.
+   */
+  const handleTreatmentChange = async (id, treatment) => {
+    const token = localStorage.getItem("auth_token");
+    const res = await fetch(`/api/expenses/expense-category/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ treatment }),
+    });
+    if (res.ok) fetchCategories();
+  };
+
   const handleSave = async (id) => {
     if (!editName.trim()) return;
     const token = localStorage.getItem("auth_token");
@@ -60,7 +75,11 @@ export default function CategoriesPage() {
         <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <h1 className="page-title">Expense Categories</h1>
-          <p className="page-subtitle">Create and manage categories to organize your business spending.</p>
+          <p className="page-subtitle">
+            Create and manage categories to organize your business spending. Mark a category as <strong>Stock</strong> when the
+            money buys goods for resale — that spending is held as inventory and reaches profit as cost of goods sold when it
+            sells, instead of being counted as a cost twice.
+          </p>
         </div>
 
         {/* Add New Category */}
@@ -96,6 +115,7 @@ export default function CategoriesPage() {
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="py-3 text-left text-gray-700 font-semibold">Category Name</th>
+                    <th className="py-3 text-left text-gray-700 font-semibold">Treated as</th>
                     <th className="py-3 text-right text-gray-700 font-semibold">Actions</th>
                   </tr>
                 </thead>
@@ -114,6 +134,17 @@ export default function CategoriesPage() {
                         ) : (
                           <span className="text-gray-800 font-medium">{cat.name}</span>
                         )}
+                      </td>
+                      <td className="py-3">
+                        <select
+                          value={(cat.effectiveTreatment || cat.treatment) === "INVENTORY" ? "INVENTORY" : "EXPENSE"}
+                          onChange={(e) => handleTreatmentChange(cat._id, e.target.value)}
+                          className="form-select text-xs py-1 w-40"
+                          title="Stock buying is held as inventory until it sells"
+                        >
+                          <option value="EXPENSE">Running cost</option>
+                          <option value="INVENTORY">Stock (inventory)</option>
+                        </select>
                       </td>
                       <td className="py-3 text-right">
                         <div className="flex justify-end gap-2">

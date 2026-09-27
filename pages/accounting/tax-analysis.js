@@ -147,9 +147,18 @@ export default function TaxAnalysisPage() {
             <>
               {/* Key Metrics - Top Section */}
               <div className="mb-6 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                <strong>Note:</strong> This dashboard calculates profit directly from completed transactions and product cost prices.
-                For the authoritative accounting figures (which rely on posted journal entries), refer to <a href="/accounting/reports" className="font-semibold underline hover:text-sky-900">Financial Reports</a>.
-                Values may differ if an accounting sync is pending.
+                <strong>Basis:</strong> turnover is net of VAT, credit sales count, voided sales do not, refunds reverse in the
+                period they were given, cost comes from the sale line, and money spent buying stock is held as inventory rather
+                than deducted twice — once as an expense and again as cost of goods sold. The books use the same rules, so
+                {" "}<a href="/accounting/reports" className="font-semibold underline hover:text-sky-900">Financial Reports</a>{" "}
+                should agree with this page — its <em>Books vs Transactions</em> panel says whether it does, and names any sale
+                still waiting to be posted.
+                {taxData.basis?.incompleteCostLines > 0 && (
+                  <span className="block mt-1">
+                    {formatNumber(taxData.basis.incompleteCostLines)} sold line
+                    {taxData.basis.incompleteCostLines === 1 ? " has" : "s have"} no cost price recorded, so cost of goods sold is understated.
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
                 <StatBox
@@ -179,7 +188,7 @@ export default function TaxAnalysisPage() {
                 <StatBox
                   icon={faMoneyBillWave}
                   label="Total Tax Liability"
-                  value={`${(taxData.totalTaxLiability || 0).toLocaleString()}`}
+                  value={`${formatNumber(taxData.totalTaxLiability || 0)}`}
                   bgColor="bg-rose-50"
                   borderColor="border-rose-200"
                   iconColor="text-rose-600"
@@ -194,41 +203,63 @@ export default function TaxAnalysisPage() {
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   <DetailBox
-                    label="Total Revenue"
-                    value={`${(taxData.totalRevenue || 0).toLocaleString()}`}
+                    label="Gross Sales"
+                    value={`${formatNumber(taxData.grossRevenue || 0)}`}
+                    icon={faMoneyBillWave}
+                    iconColor="text-sky-600"
+                    subtitle="What customers paid, VAT inside, refunds taken off"
+                  />
+                  <DetailBox
+                    label="Turnover (net of VAT)"
+                    value={`${formatNumber(taxData.totalRevenue || 0)}`}
                     icon={faMoneyBillWave}
                     iconColor="text-cyan-600"
+                    subtitle={`VAT collected ${formatNumber(taxData.vatCollected || 0)} is held for the taxman, not income`}
                   />
                   <DetailBox
                     label="Cost of Goods Sold"
-                    value={`${(taxData.totalCOGS || 0).toLocaleString()}`}
+                    value={`${formatNumber(taxData.totalCOGS || 0)}`}
                     icon={faMoneyBillWave}
                     iconColor="text-orange-600"
                   />
                   <DetailBox
-                    label="Gross Profit (Revenue − COGS)"
-                    value={`${(taxData.grossProfit || 0).toLocaleString()}`}
+                    label="Gross Profit (Turnover − COGS)"
+                    value={`${formatNumber(taxData.grossProfit || 0)}`}
                     icon={faMoneyBillWave}
                     iconColor="text-emerald-600"
                   />
                   <DetailBox
+                    label="Stock Purchases"
+                    value={`${formatNumber(taxData.stockPurchases || 0)}`}
+                    icon={faMoneyBillWave}
+                    iconColor="text-indigo-600"
+                    subtitle="Stock bought, not an expense: it reaches profit as COGS when it sells"
+                  />
+                  <DetailBox
                     label="Operating Expenses"
-                    value={`${(taxData.totalExpenses || 0).toLocaleString()}`}
+                    value={`${formatNumber(taxData.totalExpenses || 0)}`}
                     icon={faMoneyBillWave}
                     iconColor="text-red-600"
                   />
                   <DetailBox
                     label="Net Profit (Gross − Expenses)"
-                    value={`${(taxData.netProfit || 0).toLocaleString()}`}
+                    value={`${formatNumber(taxData.netProfit || 0)}`}
                     icon={faMoneyBillWave}
                     iconColor="text-green-600"
                   />
                   <DetailBox
-                    label="VAT-able Revenue"
-                    value={`${(taxData.vatableRevenue || 0).toLocaleString()}`}
+                    label="VAT-able Sales"
+                    value={`${formatNumber(taxData.vatableRevenue || 0)}`}
                     icon={faMoneyBillWave}
                     iconColor="text-sky-600"
-                    subtitle="Revenue from taxed products only"
+                    subtitle="Sales of taxed products, VAT inside"
+                  />
+                  <DetailBox
+                    label="Refunds Given"
+                    value={`${formatNumber(taxData.refundsNet || 0)}`}
+                    icon={faMoneyBillWave}
+                    iconColor="text-amber-600"
+                    subtitle="Reversed in the period the refund was given"
                   />
                 </div>
               </div>
@@ -241,21 +272,22 @@ export default function TaxAnalysisPage() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   <DetailBox
-                    label="VAT on Taxable Sales (7.5%)"
-                    value={`${(taxData.vatOnSales || 0).toLocaleString()}`}
+                    label="VAT Payable (7.5%)"
+                    value={`${formatNumber(taxData.vatOnSales || 0)}`}
                     icon={faCheckCircle}
                     iconColor="text-emerald-600"
-                    subtitle="Applied only to VAT-registered products"
+                    subtitle="The VAT inside taxed sales, less VAT handed back on refunds"
                   />
                   <DetailBox
                     label="Company Income Tax"
-                    value={`${(taxData.companyIncomeTax || 0).toLocaleString()}`}
+                    value={`${formatNumber(taxData.companyIncomeTax || 0)}`}
                     icon={faCheckCircle}
                     iconColor="text-purple-600"
+                    subtitle={`Charged on assessable profit of ${formatNumber(Math.max(taxData.taxableIncome || 0, 0))}`}
                   />
                   <DetailBox
                     label="National Health Insurance Levy (0.5%)"
-                    value={`${(taxData.nhlAmount || 0).toLocaleString()}`}
+                    value={`${formatNumber(taxData.nhlAmount || 0)}`}
                     icon={faCheckCircle}
                     iconColor="text-teal-600"
                   />
@@ -274,7 +306,8 @@ export default function TaxAnalysisPage() {
                       <thead className="table-header-gradient text-white">
                         <tr>
                           <th className="px-6 py-4 text-left text-sm font-semibold">Period</th>
-                          <th className="px-6 py-4 text-right text-sm font-semibold">Revenue (NGN)</th>
+                          <th className="px-6 py-4 text-right text-sm font-semibold">Turnover (NGN)</th>
+                          <th className="px-6 py-4 text-right text-sm font-semibold">COGS (NGN)</th>
                           <th className="px-6 py-4 text-right text-sm font-semibold">Expenses (NGN)</th>
                           <th className="px-6 py-4 text-right text-sm font-semibold">VAT (NGN)</th>
                           <th className="px-6 py-4 text-right text-sm font-semibold">CIT (NGN)</th>
@@ -287,6 +320,7 @@ export default function TaxAnalysisPage() {
                             <tr key={index} className={`transition-colors ${index % 2 === 0 ? 'bg-gray-50 hover:bg-gray-100' : 'bg-white hover:bg-gray-50'}`}>
                               <td className="px-6 py-4 text-sm font-medium text-gray-900">{item.month}</td>
                               <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono">{formatNumber(item.income || 0)}</td>
+                              <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono">{formatNumber(item.cogs || 0)}</td>
                               <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono">{formatNumber(item.expenses || 0)}</td>
                               <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono">{formatNumber(item.vat || 0)}</td>
                               <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono font-semibold">{formatNumber(item.cit || 0)}</td>
@@ -295,7 +329,7 @@ export default function TaxAnalysisPage() {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan="6" className="py-8 px-6 text-center text-gray-500">
+                            <td colSpan="7" className="py-8 px-6 text-center text-gray-500">
                               <FontAwesomeIcon icon={faExclamationTriangle} className="text-gray-400 mr-2" />
                               No breakdown data available for this period
                             </td>
@@ -307,7 +341,7 @@ export default function TaxAnalysisPage() {
                 </div>
                 <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                   <p className="text-xs text-gray-900 font-medium">
-                     <strong>Tax Calculation Basis:</strong> Nigeria Finance Act 2023 - CIT exemption up to NGN 25M (0%), NGN 25M-NGN 100M (20%), above NGN 100M (30%). VAT at 7.5%, NHL at 0.5%.
+                     <strong>Tax Calculation Basis:</strong> Nigeria Finance Act 2023 - CIT exemption up to NGN 25M turnover (0%), NGN 25M-NGN 100M (20%), above NGN 100M (30%), charged on assessable profit. VAT at 7.5% of the price, NHL at 0.5% of turnover. Turnover and profit are measured net of VAT, the same way the books state them.
                   </p>
                 </div>
               </div>

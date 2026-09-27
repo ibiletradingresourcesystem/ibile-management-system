@@ -12,33 +12,37 @@ export default async function handler(req, res) {
   try {
     await mongooseConnect();
 
-    const [analysis] = await Expense.aggregate([
-      { $facet: {
-        totals: [
-          { $group: { _id: null, totalSpent: { $sum: "$amount" }, count: { $sum: 1 } } }
-        ],
-        byCategory: [
-          { $group: {
-            _id: { $cond: { if: { $in: ["$categoryName", [null, ""]] }, then: "Uncategorized", else: "$categoryName" } },
-            total: { $sum: "$amount" }
-          }},
-          { $sort: { total: -1 } }
-        ],
-        byLocation: [
-          { $group: {
-            _id: { $cond: { if: { $in: ["$locationName", [null, ""]] }, then: "Unassigned", else: "$locationName" } },
-            total: { $sum: "$amount" }
-          }},
-          { $sort: { total: -1 } }
-        ],
-        byStaff: [
-          { $group: {
-            _id: { $cond: { if: { $in: ["$staffName", [null, ""]] }, then: "Unknown", else: "$staffName" } },
-            total: { $sum: "$amount" }
-          }},
-          { $sort: { total: -1 } }
-        ],
-      }}
+    const [[analysis], expenses] = await Promise.all([
+      Expense.aggregate([
+        { $facet: {
+          totals: [
+            { $group: { _id: null, totalSpent: { $sum: "$amount" }, count: { $sum: 1 } } }
+          ],
+          byCategory: [
+            { $group: {
+              _id: { $cond: { if: { $in: ["$categoryName", [null, ""]] }, then: "Uncategorized", else: "$categoryName" } },
+              total: { $sum: "$amount" }
+            }},
+            { $sort: { total: -1 } }
+          ],
+          byLocation: [
+            { $group: {
+              _id: { $cond: { if: { $in: ["$locationName", [null, ""]] }, then: "Unassigned", else: "$locationName" } },
+              total: { $sum: "$amount" }
+            }},
+            { $sort: { total: -1 } }
+          ],
+          byStaff: [
+            { $group: {
+              _id: { $cond: { if: { $in: ["$staffName", [null, ""]] }, then: "Unknown", else: "$staffName" } },
+              total: { $sum: "$amount" }
+            }},
+            { $sort: { total: -1 } }
+          ],
+        }}
+      ]),
+      // Dated by the spend, matching how the books and the tax report read expenses.
+      Expense.find({}).sort({ expenseDate: -1, createdAt: -1 }).limit(200).lean(),
     ]);
 
     const totalSpent = analysis.totals[0]?.totalSpent || 0;
@@ -267,7 +271,7 @@ export default async function handler(req, res) {
         .text(exp.categoryName?.substring(0, 15) || "Uncategorized", 180, yPos + 7)
         .text(exp.locationName?.substring(0, 12) || "N/A", 280, yPos + 7)
         .text(`₦${Number(exp.amount).toLocaleString()}`, 370, yPos + 7)
-        .text(new Date(exp.createdAt).toLocaleDateString(), 450, yPos + 7);
+        .text(new Date(exp.expenseDate || exp.createdAt).toLocaleDateString(), 450, yPos + 7);
 
       yPos += 22;
     });

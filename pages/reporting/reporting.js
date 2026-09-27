@@ -728,7 +728,7 @@ function BarChart({ title, data }) {
             datasets: [barDataset("Sales", sortedValues.length > 0 ? sortedValues : [0])],
           }}
           options={barOptions({
-            valueLabel: (value) => formatCurrency(value, { maximumFractionDigits: 0 }),
+            valueLabel: (value) => formatCurrency(value, { minimumFractionDigits: 0, maximumFractionDigits: 0 }),
           })}
         />
       </div>

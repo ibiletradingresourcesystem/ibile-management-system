@@ -1,10 +1,8 @@
 import PDFDocument from "pdfkit";
 import { mongooseConnect } from "@/lib/mongodb";
-import Transaction from "@/models/Transactions";
-import Expense from "@/models/Expense";
-import Product from "@/models/Product";
 import Store from "@/models/Store";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { loadFinancialPeriod } from "@/lib/financial-period-data";
 import { buildPeriodRange, computeTaxAnalysis } from "@/lib/tax-analysis";
 
 function money(value = 0) {
@@ -64,25 +62,18 @@ export default async function handler(req, res) {
     const period = String(req.query.period || "last-month");
     const now = new Date();
     const { start, end, label } = buildPeriodRange(period, now);
-    const dateFilter = { createdAt: { $gte: start, $lte: end } };
-
-    const [transactions, expenses, store, products] = await Promise.all([
-      Transaction.find({ ...dateFilter, status: "completed" }).lean().exec(),
-      Expense.find(dateFilter).lean().exec(),
+    const [{ sales, refunds, expenses, voidedCount, productMap, categoryTreatments }, store] = await Promise.all([
+      loadFinancialPeriod({ start, end }),
       Store.findOne({}).lean(),
-      Product.find({}, { _id: 1, costPrice: 1, taxRate: 1 }).lean().exec(),
     ]);
 
-    // Build product lookup map
-    const productMap = {};
-    for (const p of products) {
-      productMap[String(p._id)] = { costPrice: p.costPrice || 0, taxRate: p.taxRate || 0 };
-    }
-
     const tax = computeTaxAnalysis({
-      transactions,
+      sales,
+      refunds,
       expenses,
       productMap,
+      categoryTreatments,
+      voidedCount,
       period,
       generatedAt: now,
       periodLabel: label,
@@ -187,9 +178,13 @@ export default async function handler(req, res) {
     doc.font("Helvetica-Bold").fontSize(12).text("Tax Summary");
     doc.moveDown(0.3);
     doc.font("Helvetica").fontSize(10);
-    doc.text(`Total Revenue: ${money(tax.totalRevenue)}`);
+    doc.text(`Gross Sales (VAT inclusive): ${money(tax.grossRevenue)}`);
+    doc.text(`Turnover (net of VAT): ${money(tax.totalRevenue)}`);
+    doc.text(`Refunds Given: ${money(tax.refundsNet)}`);
+    doc.text(`Cost of Goods Sold: ${money(tax.totalCOGS)}`);
+    doc.text(`Gross Profit: ${money(tax.grossProfit)}`);
     doc.text(`Total Allowable Expenses: ${money(tax.totalExpenses)}`);
-    doc.text(`Net Profit: ${money(tax.netProfit)}`);
+    doc.text(`Net Profit (assessable): ${money(tax.netProfit)}`);
     doc.text(`Tax Band Classification: ${tax.band}`);
     doc.text(`Company Income Tax (CIT @ ${tax.citRate}%): ${money(tax.companyIncomeTax)}`);
     doc.text(`Value Added Tax (VAT @ ${tax.vatRate}%): ${money(tax.vatOnSales)}`);
