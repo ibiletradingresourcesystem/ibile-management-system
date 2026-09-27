@@ -35,6 +35,7 @@ export default function RecentTransactionsCard({ transactions = [], limit = 8, o
   };
 
   return (
+    // Same height as TopProductsTable beside it on the dashboard, so the two line up.
     <motion.div
       className="border border-gray-200 bg-white p-4 sm:p-5 flex flex-col h-[360px] sm:h-[420px]"
       style={{ borderRadius: "var(--radius-lg)" }}

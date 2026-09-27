@@ -1232,10 +1232,14 @@ function TrendBadge({ trend }) {
   );
 }
 
+/**
+ * Kept to the same height as the transactions card beside it (RecentTransactionsCard),
+ * so the pair line up however many products there are; the rows scroll instead.
+ */
 function TopProductsTable({ products, comparisonLabel, onViewMore }) {
   return (
     <div
-      className="border border-gray-200 bg-white overflow-hidden flex flex-col"
+      className="border border-gray-200 bg-white overflow-hidden flex flex-col h-[360px] sm:h-[420px]"
       style={{ borderRadius: 'var(--radius-lg)' }}
     >
       {/* Header */}
@@ -1259,9 +1263,10 @@ function TopProductsTable({ products, comparisonLabel, onViewMore }) {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto flex-1">
+      <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-xs">
-          <thead>
+          {/* Stays put while the rows scroll */}
+          <thead className="sticky top-0 z-10 bg-gray-50">
             <tr className="border-b border-gray-100 bg-gray-50">
               <th className="px-4 py-2.5 text-left font-semibold text-gray-500 w-8">#</th>
               <th className="px-3 py-2.5 text-left font-semibold text-gray-500">PRODUCT</th>
