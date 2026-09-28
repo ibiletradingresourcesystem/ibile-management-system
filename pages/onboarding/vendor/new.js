@@ -1,6 +1,17 @@
 import { useState, useEffect } from "react";
 import Head from "next/head";
 
+/** The vendor agreement, as the business words it. */
+const AGREEMENT = [
+  ["Accurate business details", "All company, representative, contact, and bank details submitted on this form should be complete, current, and accurate."],
+  ["Approved petty cash only", "Payments will only be processed for petty cash requests that have been approved internally and matched to the registered vendor record."],
+  ["Supporting documents", "The vendor is expected to provide quotations, invoices, receipts, and delivery confirmation where required before an order is confirmed and before payment is released."],
+  ["Registered payment account", "Ibile will only pay into the bank account submitted on this form unless the vendor provides an approved update or comes to the store for direct cash payment."],
+  ["Compliance and conduct", "False information, inflated pricing, or failure to deliver agreed goods or services may lead to suspension or termination of further business with Ibile."],
+  ["Returns and product quality", "All products supplied are expected to be fit for sale and customer use. Any product found to be defective, damaged, expired, or the subject of customer complaints will be returned or rejected."],
+  ["Contact and record keeping", "By submitting the form, the vendor authorizes Ibilemart to contact the representative provided and to keep the submitted record for operational and audit purposes."],
+];
+
 export default function VendorOnboardingForm() {
   const [form, setForm] = useState({
     companyName: "",
@@ -135,7 +146,7 @@ export default function VendorOnboardingForm() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: Form (2/3 width on desktop) */}
-          <form onSubmit={handleSubmit} className="lg:col-span-2 bg-white rounded-xl shadow-sm border p-6 space-y-5">
+          <form onSubmit={handleSubmit} className="order-2 lg:order-1 lg:col-span-2 bg-white rounded-xl shadow-sm border p-6 space-y-5">
             {/* Contact Info */}
             <div>
               <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Contact Information</h2>
@@ -227,16 +238,31 @@ export default function VendorOnboardingForm() {
               </div>
             </div>
 
-            {/* Terms acceptance checkbox — inline in form */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <label className="flex items-start gap-2 cursor-pointer">
+            {/* The agreement gates the submit, so it sits directly above the button
+                rather than beside terms that are on the right on a desktop and
+                further down the page on a phone. The link goes to them either way. */}
+            <div
+              className={`rounded-lg border p-4 transition-colors ${
+                form.termsAccepted ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-300"
+              }`}
+            >
+              <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={form.termsAccepted}
                   onChange={(e) => setForm(prev => ({ ...prev, termsAccepted: e.target.checked }))}
-                  className="mt-0.5 rounded"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-400 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-xs text-gray-700">I have read and agree to the <strong>Terms & Conditions</strong> shown on the right.</span>
+                <span className="text-sm text-gray-800 leading-snug">
+                  I have read and agree to the{" "}
+                  <a href="#vendor-terms" className="font-semibold text-blue-700 underline hover:text-blue-900">
+                    Terms &amp; Conditions
+                  </a>
+                  .
+                  <span className="block text-xs text-gray-500 mt-1">
+                    {form.termsAccepted ? "Thank you — you can submit the form now." : "Required before the form can be submitted."}
+                  </span>
+                </span>
               </label>
             </div>
 
@@ -251,23 +277,31 @@ export default function VendorOnboardingForm() {
             </button>
           </form>
 
-          {/* Right: Terms & Conditions sidebar (1/3 width on desktop) */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl shadow-sm border p-5 sticky top-8">
-              <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 border-b pb-2">Terms & Conditions</h2>
-              <div className="text-xs text-gray-600 space-y-3 leading-relaxed">
-                <p className="font-medium text-gray-700">By registering as a vendor, you agree to the following:</p>
-                <ol className="list-decimal pl-4 space-y-2.5">
-                  <li><strong>Accurate Pricing:</strong> All product prices provided are accurate and inclusive of applicable charges.</li>
-                  <li><strong>Order Fulfillment:</strong> Orders placed through this system are binding and must be fulfilled within the agreed timeframe.</li>
-                  <li><strong>Payment Terms:</strong> Payment will be processed according to agreed terms after delivery confirmation.</li>
-                  <li><strong>Quality Standards:</strong> Product quality must meet the standards discussed and agreed upon.</li>
-                  <li><strong>Price Changes:</strong> Any changes to pricing or product availability must be communicated in advance.</li>
-                  <li><strong>Relationship:</strong> The business reserves the right to discontinue vendor relationships with reasonable notice.</li>
-                  <li><strong>Data Accuracy:</strong> All information provided in this form is accurate and up to date.</li>
-                  <li><strong>Confidentiality:</strong> Vendor shall not disclose pricing or business terms to unauthorized third parties.</li>
-                </ol>
-              </div>
+          {/* Why the form is being asked for, then what is being agreed to. On a
+              phone both come before the form, so nothing is agreed to unread. */}
+          <div className="order-1 lg:order-2 lg:col-span-1 space-y-4 lg:sticky lg:top-8 lg:self-start">
+            <div className="bg-white rounded-xl shadow-sm border p-5">
+              <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-3 border-b pb-2">Why this form matters</h2>
+              <p className="text-sm font-medium text-gray-800">Welcome to the Ibile vendor network.</p>
+              <p className="text-xs text-gray-600 leading-relaxed mt-2">
+                This form helps Ibile keep accurate vendor records for communication, order processing, internal review, and
+                operational documentation.
+              </p>
+            </div>
+
+            <div id="vendor-terms" className="bg-white rounded-xl shadow-sm border p-5 scroll-mt-8">
+              <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide mb-1">Terms and Conditions</h2>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 border-b pb-2">
+                Vendor Agreement Summary
+              </p>
+              <ol className="text-xs text-gray-600 leading-relaxed space-y-3 list-decimal pl-4 lg:max-h-[60vh] lg:overflow-y-auto">
+                {AGREEMENT.map(([clause, detail]) => (
+                  <li key={clause}>
+                    <strong className="block text-gray-800">{clause}</strong>
+                    <span>{detail}</span>
+                  </li>
+                ))}
+              </ol>
             </div>
           </div>
           </div>
