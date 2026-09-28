@@ -14,6 +14,7 @@ import { authMiddleware, isStaff, isAdmin } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import {
   createPurchaseOrderFromStockOrder,
+  derivePaymentState,
   normalizeOrderProducts,
   sumTotals,
 } from "@/lib/purchaseOrders";
@@ -89,6 +90,9 @@ export default async function handler(req, res) {
         }
         order.products = normalized;
         order.grandTotal = sumTotals(normalized);
+        // The order is worth something different now, so what is owed — or what the
+        // vendor is holding, on a seeded order that was already paid on — moves with it.
+        Object.assign(order, derivePaymentState(order));
       }
 
       await order.save();

@@ -60,7 +60,10 @@ const StockOrderSchema = new Schema(
 
     // Payment fields the expense app records; the purchase order carries these onward.
     paymentMade: { type: Number, default: 0 },
+    // Signed: negative is the vendor holding more than the order came to.
     balance: { type: Number, default: 0 },
+    // What the vendor owes the store. See lib/orderPayments.js.
+    vendorCredit: { type: Number, default: 0 },
     status: {
       type: String,
       enum: ["Not Paid", "Partly Paid", "Paid", "Credit"],

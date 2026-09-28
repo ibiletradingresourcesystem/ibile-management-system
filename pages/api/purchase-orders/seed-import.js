@@ -18,7 +18,7 @@ import StockOrder from "@/models/StockOrder";
 import Vendor from "@/models/Vendor";
 import { authMiddleware, isAdmin } from "@/lib/auth-middleware";
 import {
-  derivePaymentStatus,
+  derivePaymentState,
   generateOrderRef,
   normalizeOrderProducts,
   sumTotals,
@@ -180,7 +180,7 @@ export default async function handler(req, res) {
         grandTotal,
         paymentMade,
         paymentDate: order.paymentDate || "",
-        balance: Math.max(0, grandTotal - paymentMade),
+        ...derivePaymentState({ grandTotal, paymentMade, payBeforeSupply, receivedStatus: order.received ? "Received" : "Pending" }),
         payBeforeSupply,
         sourceApp: source,
         sourceId: String(order.sourceId),
@@ -191,7 +191,6 @@ export default async function handler(req, res) {
           ...common,
           orderRef: generateOrderRef(),
           vendorName: order.supplier || "",
-          status: derivePaymentStatus({ paymentMade, grandTotal, payBeforeSupply, receivedStatus: "Received" }),
           // Received in the expense app, so the goods are in: no stock movement is
           // raised here, or the stock would be counted twice.
           receivedStatus: "Received",
@@ -204,7 +203,6 @@ export default async function handler(req, res) {
           orderRef: generateOrderRef("SO"),
           supplier: order.supplier || "",
           mainProduct: order.mainProduct || "",
-          status: derivePaymentStatus({ paymentMade, grandTotal, payBeforeSupply, receivedStatus: "Pending" }),
           stage: "Submitted",
           notes: seededFrom,
         });

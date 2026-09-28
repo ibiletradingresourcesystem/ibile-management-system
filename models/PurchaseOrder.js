@@ -67,7 +67,15 @@ const PurchaseOrderSchema = new Schema(
       type: Number,
       default: 0,
     },
+    // What the store still owes the vendor. Signed: negative means the vendor is
+    // holding more than the order came to.
     balance: {
+      type: Number,
+      default: 0,
+    },
+    // What the vendor owes the store — an overpayment, or money paid up front for
+    // goods that have not arrived. See lib/orderPayments.js.
+    vendorCredit: {
       type: Number,
       default: 0,
     },

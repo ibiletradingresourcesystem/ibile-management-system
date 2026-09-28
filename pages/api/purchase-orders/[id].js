@@ -7,9 +7,22 @@ import { deriveChildQty } from "@/lib/syncPackQty";
 import { childQtyToParentQty, isDerivedChild } from "@/lib/packUnits";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
-import { derivePaymentStatus } from "@/lib/purchaseOrders";
+import Store from "@/models/Store";
+import { derivePaymentState } from "@/lib/purchaseOrders";
 import { postPurchaseOrderPayment } from "@/lib/accounting";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
+
+/**
+ * The business location a payment belongs to when the order never named one. Money
+ * leaves a store, and the credit it can leave behind is the store credit, so an
+ * order with no location is stamped with the first active one.
+ */
+async function defaultBusinessLocation() {
+  const store = await Store.findOne({}, { locations: 1 }).lean();
+  const locations = store?.locations || [];
+  const active = locations.find((location) => location.isActive !== false) || locations[0];
+  return active?.name || "";
+}
 
 function generateTransRef() {
   const d = new Date();
@@ -65,14 +78,13 @@ export default async function handler(req, res) {
       if (action === "update-payment") {
         const { paymentMade, paymentDate } = req.body;
         order.paymentMade = paymentMade !== undefined ? Number(paymentMade) : order.paymentMade;
-        order.balance = Math.max(0, Number(order.grandTotal || 0) - Number(order.paymentMade || 0));
         order.paymentDate = paymentDate || order.paymentDate;
-        order.status = derivePaymentStatus({
-          paymentMade: order.paymentMade,
-          grandTotal: order.grandTotal,
-          payBeforeSupply: order.payBeforeSupply,
-          receivedStatus: order.receivedStatus,
-        });
+        Object.assign(order, derivePaymentState(order));
+        // A payment belongs to the place that made it, so the credit it leaves can
+        // be read per location rather than floating free of the business.
+        if (!order.location) {
+          order.location = await defaultBusinessLocation();
+        }
         await order.save();
 
         // Auto-post accounting journal entry for PO payment
@@ -92,12 +104,7 @@ export default async function handler(req, res) {
       if (action === "toggle-type") {
         const { payBeforeSupply } = req.body;
         order.payBeforeSupply = Boolean(payBeforeSupply);
-        order.status = derivePaymentStatus({
-          paymentMade: order.paymentMade,
-          grandTotal: order.grandTotal,
-          payBeforeSupply: order.payBeforeSupply,
-          receivedStatus: order.receivedStatus,
-        });
+        Object.assign(order, derivePaymentState(order));
         await order.save();
         return res.status(200).json({ success: true, order });
       }
@@ -252,12 +259,7 @@ export default async function handler(req, res) {
             order.stockMovementId = stockMovement._id;
             order.receivedStatus = "Received";
             order.receivedAt = new Date();
-            order.status = derivePaymentStatus({
-              paymentMade: order.paymentMade,
-              grandTotal: order.grandTotal,
-              payBeforeSupply: order.payBeforeSupply,
-              receivedStatus: "Received",
-            });
+            Object.assign(order, derivePaymentState({ ...order.toObject(), receivedStatus: "Received" }));
             await order.save({ session });
           });
         } finally {
@@ -289,12 +291,7 @@ export default async function handler(req, res) {
         }
       }
       if (req.body.payBeforeSupply !== undefined) {
-        order.status = derivePaymentStatus({
-          paymentMade: order.paymentMade,
-          grandTotal: order.grandTotal,
-          payBeforeSupply: order.payBeforeSupply,
-          receivedStatus: order.receivedStatus,
-        });
+        Object.assign(order, derivePaymentState(order));
       }
       await order.save();
       return res.status(200).json({ success: true, order });

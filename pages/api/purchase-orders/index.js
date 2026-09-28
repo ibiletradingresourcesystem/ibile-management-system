@@ -3,7 +3,7 @@ import PurchaseOrder from "@/models/PurchaseOrder";
 import Vendor from "@/models/Vendor";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
-import { derivePaymentStatus, generateOrderRef } from "@/lib/purchaseOrders";
+import { derivePaymentState, generateOrderRef } from "@/lib/purchaseOrders";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
 
 export default async function handler(req, res) {
@@ -90,7 +90,7 @@ export default async function handler(req, res) {
       const paymentMadeValue = Number(paymentMade || 0);
       const receivedState = receivedStatus || "Pending";
       const payBeforeSupplyFlag = Boolean(payBeforeSupply);
-      const status = derivePaymentStatus({
+      const payment = derivePaymentState({
         paymentMade: paymentMadeValue,
         grandTotal: grandTotalValue,
         payBeforeSupply: payBeforeSupplyFlag,
@@ -109,8 +109,9 @@ export default async function handler(req, res) {
         grandTotal: grandTotalValue,
         paymentMade: paymentMadeValue,
         paymentDate: paymentDate || "",
-        balance: Math.max(0, grandTotalValue - paymentMadeValue),
-        status,
+        balance: payment.balance,
+        vendorCredit: payment.vendorCredit,
+        status: payment.status,
         staff: req.user?.id || null,
         staffName: staffName || req.user?.name || "",
         notes: sanitizeMultilineText(notes),

@@ -7,6 +7,7 @@ import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import SeedDataModal from "@/components/SeedDataModal";
+import { amountStoreOwes, deriveVendorCredit } from "@/lib/orderPayments";
 import { Plus, X, Database, Trash2 } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -107,9 +108,14 @@ export default function PurchaseOrdersPage() {
     orders.filter((o) => (o.status || "").toLowerCase() === "credit"),
   [orders]);
 
-  const totalOverdueValue = useMemo(() => overdueOrders.reduce((s, o) => s + toNumber(o.balance ?? o.grandTotal), 0), [overdueOrders]);
-  const totalOutstanding = useMemo(() => outstandingOrders.reduce((s, o) => s + toNumber(o.balance ?? o.grandTotal), 0), [outstandingOrders]);
-  const totalCreditValue = useMemo(() => creditOrders.reduce((s, o) => s + toNumber(Math.abs(o.balance ?? 0)), 0), [creditOrders]);
+  // An order still owed for: what is left to pay, never a credit read as a debt.
+  const totalOverdueValue = useMemo(() => overdueOrders.reduce((s, o) => s + amountStoreOwes(o), 0), [overdueOrders]);
+  const totalOutstanding = useMemo(() => outstandingOrders.reduce((s, o) => s + amountStoreOwes(o), 0), [outstandingOrders]);
+  // A credit is store money the vendor is holding: an overpayment, or an order
+  // settled up front that has not been delivered. The saved figure is used where
+  // there is one, and worked out from the order where an older record has none.
+  const creditOn = (order) => toNumber(order?.vendorCredit) || deriveVendorCredit(order || {});
+  const totalCreditValue = useMemo(() => creditOrders.reduce((s, o) => s + creditOn(o), 0), [creditOrders]);
 
   const totalPaid = useMemo(() => {
     const valid = ["paid", "partly paid", "credit"];
@@ -293,7 +299,8 @@ export default function PurchaseOrdersPage() {
                     })}
                   </ul>
                   <button onClick={() => {
-                    const msg = overdueOrders.map(o => `${o.vendorName} — Balance: ${formatCurrency(o.balance ?? o.grandTotal)}`).join("\n");
+                    // What is still owed, which is never a credit read as a debt.
+                    const msg = overdueOrders.map(o => `${o.vendorName} — Balance: ${formatCurrency(amountStoreOwes(o) || toNumber(o.grandTotal))}`).join("\n");
                     window.open(`https://wa.me/?text=${encodeURIComponent("Payment Reminder:\n\n" + msg)}`, "_blank");
                   }} className="btn-action-primary text-xs px-4 py-2">📨 Send Vendor Reminder</button>
                 </div>
@@ -306,7 +313,10 @@ export default function PurchaseOrdersPage() {
               {/* Credit Section - Always show */}
               <div className="content-card border-l-4 border-blue-500">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="font-semibold text-blue-700">💳 Credit Orders</p>
+                  <div>
+                    <p className="font-semibold text-blue-700">💳 Credit Orders</p>
+                    <p className="text-[11px] text-gray-500">Store money the vendor is holding — owed back in goods or cash</p>
+                  </div>
                   <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">
                     {creditOrders.length > 0 ? formatCurrency(totalCreditValue) : "₦0.00"}
                   </span>
@@ -315,11 +325,20 @@ export default function PurchaseOrdersPage() {
                   <div className="space-y-2">
                     {creditOrders.map((o, i) => (
                       <div key={o._id ?? i} className="flex flex-wrap items-center justify-between text-xs bg-gray-50 px-3 py-2 rounded-lg border">
-                        <div><span className="font-medium">{o.vendorName}</span> <span className="text-gray-400 ml-1">{o.date ? new Date(o.date).toLocaleDateString() : ""}</span></div>
+                        <div className="min-w-0">
+                          <span className="font-medium">{o.vendorName}</span>
+                          <span className="text-gray-400 ml-1">{o.date ? new Date(o.date).toLocaleDateString() : ""}</span>
+                          {o.location && <span className="text-gray-400 ml-1">· {o.location}</span>}
+                          <span className="block text-[10px] text-gray-500">
+                            {o.receivedStatus === "Received" ? "Paid past the order value" : "Paid before supply — goods not in yet"}
+                          </span>
+                        </div>
                         <div className="flex gap-3">
                           <span>Total: {formatCurrency(o.grandTotal)}</span>
                           <span className="text-green-700">Paid: {formatCurrency(o.paymentMade)}</span>
-                          <span className="text-blue-700 font-bold">Credit: {formatCurrency(Math.abs(toNumber(o.balance)))}</span>
+                          <span className="text-blue-700 font-bold" title="The vendor owes the store this much">
+                            Vendor owes: {formatCurrency(creditOn(o))}
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -436,7 +455,20 @@ export default function PurchaseOrdersPage() {
                     <td className="py-3 px-3 text-xs whitespace-nowrap">
                       {editIndex === idx ? <input type="date" value={editedPaymentDate} onChange={(e) => setEditedPaymentDate(e.target.value)} className="form-input text-xs w-28" /> : (order.paymentDate ? new Date(order.paymentDate).toLocaleDateString() : "—")}
                     </td>
-                    <td className="py-3 px-3 text-right whitespace-nowrap">{formatCurrency(toNumber(order.grandTotal) - toNumber(order.paymentMade))}</td>
+                    <td className="py-3 px-3 text-right whitespace-nowrap">
+                      {(() => {
+                        const credit = creditOn(order);
+                        if (credit > 0) {
+                          return (
+                            <span className="text-blue-700 font-semibold" title="The vendor owes the store this much">
+                              Credit {formatCurrency(credit)}
+                            </span>
+                          );
+                        }
+                        const owed = amountStoreOwes(order);
+                        return owed > 0 ? formatCurrency(owed) : <span className="text-gray-400">—</span>;
+                      })()}
+                    </td>
                     <td className="py-3 px-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[order.status] || "bg-gray-100 text-gray-700"}`}>{order.status || "Not Paid"}</span></td>
                     <td className="py-3 px-3 text-center">
                       <button
