@@ -120,7 +120,7 @@ export default function PurchaseOrdersPage() {
   const totalOutstanding = useMemo(() => outstandingOrders.reduce((s, o) => s + amountStoreOwes(o), 0), [outstandingOrders]);
   const totalCreditValue = useMemo(() => creditOrders.reduce((s, o) => s + creditOn(o), 0), [creditOrders]);
 
-  const totalPaid = useMemo(() => {
+  const paidSummary = useMemo(() => {
     const valid = ["paid", "partly paid", "credit"];
     let filtered = orders.filter((o) => valid.includes((o.status || "").toLowerCase()));
 
@@ -138,7 +138,10 @@ export default function PurchaseOrdersPage() {
         return true;
       });
     }
-    return filtered.reduce((s, o) => s + toNumber(o.paymentMade), 0);
+    return {
+      total: filtered.reduce((s, o) => s + toNumber(o.paymentMade), 0),
+      count: filtered.length,
+    };
   }, [orders, paidFilter]);
 
   const vendorNames = useMemo(() => [...new Set(orders.map((o) => o.vendorName).filter(Boolean))].sort(), [orders]);
@@ -316,12 +319,9 @@ export default function PurchaseOrdersPage() {
               {/* Credit Section - Always show */}
               <div className="content-card border-l-4 border-blue-500">
                 <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="font-semibold text-blue-700">💳 Credit Orders</p>
-                    <p className="text-[11px] text-gray-500">Store money the vendor is holding — owed back in goods or cash</p>
-                  </div>
+                  <p className="font-semibold text-blue-700">💳 Credit Orders</p>
                   <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">
-                    {creditOrders.length > 0 ? formatCurrency(totalCreditValue) : "₦0.00"}
+                    {creditOrders.length > 0 ? formatCurrency(totalCreditValue, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "₦0"}
                   </span>
                 </div>
                 {creditOrders.length > 0 ? (
@@ -331,16 +331,12 @@ export default function PurchaseOrdersPage() {
                         <div className="min-w-0">
                           <span className="font-medium">{o.vendorName}</span>
                           <span className="text-gray-400 ml-1">{o.date ? new Date(o.date).toLocaleDateString() : ""}</span>
-                          {o.location && <span className="text-gray-400 ml-1">· {o.location}</span>}
-                          <span className="block text-[10px] text-gray-500">
-                            {o.receivedStatus === "Received" ? "Paid past the order value" : "Paid before supply — goods not in yet"}
-                          </span>
                         </div>
                         <div className="flex gap-3">
                           <span>Total: {formatCurrency(o.grandTotal)}</span>
                           <span className="text-green-700">Paid: {formatCurrency(o.paymentMade)}</span>
                           <span className="text-blue-700 font-bold" title="The vendor owes the store this much">
-                            Vendor owes: {formatCurrency(creditOn(o))}
+                            Credit: {formatCurrency(creditOn(o))}
                           </span>
                         </div>
                       </div>
@@ -357,17 +353,34 @@ export default function PurchaseOrdersPage() {
 
             {/* Right: Stats */}
             <div className="w-full lg:w-1/2 flex flex-col gap-4">
-              <div className="bg-emerald-600 text-white p-5 rounded-2xl shadow-lg text-center relative">
-                <select value={paidFilter} onChange={(e) => { setPaidFilter(e.target.value); setTableFilter("paid"); }}
-                  className="absolute top-3 right-3 text-xs bg-white/20 text-white border border-white/30 rounded-lg px-3 py-1.5 appearance-none cursor-pointer backdrop-blur-sm">
-                  <option value="tillDate" className="text-gray-900">Till Date</option>
-                  <option value="thisWeek" className="text-gray-900">This Week</option>
-                  <option value="lastWeek" className="text-gray-900">Last Week</option>
-                  <option value="thisMonth" className="text-gray-900">This Month</option>
-                  <option value="lastMonth" className="text-gray-900">Last Month</option>
-                </select>
-                <p className="text-xs uppercase tracking-wide font-semibold opacity-90 mb-1">Total Paid</p>
-                <p className="text-3xl font-bold">{formatCurrency(totalPaid)}</p>
+              {/* The period picker sits in the header rather than floating over it,
+                  and the figure is whole naira: tens of millions with kobo on the end
+                  ran past the edge of the card. */}
+              <div className="bg-emerald-600 text-white p-5 rounded-2xl shadow-lg">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-wide font-semibold opacity-90">Total Paid</p>
+                  <select
+                    value={paidFilter}
+                    onChange={(e) => { setPaidFilter(e.target.value); setTableFilter("paid"); }}
+                    aria-label="Period for total paid"
+                    className="text-xs bg-emerald-700/60 text-white border border-white/30 rounded-lg pl-2 pr-1 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/50"
+                  >
+                    <option value="tillDate" className="text-gray-900">Till Date</option>
+                    <option value="thisWeek" className="text-gray-900">This Week</option>
+                    <option value="lastWeek" className="text-gray-900">Last Week</option>
+                    <option value="thisMonth" className="text-gray-900">This Month</option>
+                    <option value="lastMonth" className="text-gray-900">Last Month</option>
+                  </select>
+                </div>
+                <p
+                  className="mt-3 text-center font-bold tabular-nums leading-none text-2xl sm:text-3xl"
+                  title={formatCurrency(paidSummary.total)}
+                >
+                  {formatCurrency(paidSummary.total, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </p>
+                <p className="mt-2 text-center text-[11px] opacity-80">
+                  {paidSummary.count} {paidSummary.count === 1 ? "order" : "orders"}
+                </p>
               </div>
 
               <button onClick={() => { setTableFilter("all"); setVendorFilter(""); setSearch(""); }}
@@ -377,12 +390,12 @@ export default function PurchaseOrdersPage() {
                 <div onClick={() => setTableFilter("overdue")} className="cursor-pointer bg-red-600 text-white p-4 rounded-2xl shadow-lg flex flex-col items-center justify-center min-h-[120px] hover:scale-[1.02] transition">
                   <span className="text-[10px] uppercase tracking-wide opacity-90 border-b border-white/30 pb-1 w-full text-center font-semibold">Overdue</span>
                   <span className="text-xs text-red-200 mt-1">{overdueOrders.length} orders</span>
-                  <span className="text-xl font-bold mt-auto">{formatCurrency(totalOverdueValue)}</span>
+                  <span className="text-lg sm:text-xl font-bold mt-auto tabular-nums" title={formatCurrency(totalOverdueValue)}>{formatCurrency(totalOverdueValue, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
                 </div>
                 <div onClick={() => setTableFilter("outstanding")} className="cursor-pointer bg-amber-400 text-gray-900 p-4 rounded-2xl shadow-lg flex flex-col items-center justify-center min-h-[120px] hover:scale-[1.02] transition">
                   <span className="text-[10px] uppercase tracking-wide opacity-90 border-b border-gray-400/30 pb-1 w-full text-center font-semibold">Outstanding</span>
                   <span className="text-xs text-gray-700 mt-1">{outstandingOrders.length} orders</span>
-                  <span className="text-xl font-bold mt-auto">{formatCurrency(totalOutstanding)}</span>
+                  <span className="text-lg sm:text-xl font-bold mt-auto tabular-nums" title={formatCurrency(totalOutstanding)}>{formatCurrency(totalOutstanding, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
                 </div>
               </div>
             </div>
