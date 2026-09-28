@@ -86,6 +86,12 @@ export default function PurchaseOrdersPage() {
     } catch {}
   }
 
+  // A credit is store money the vendor is holding: an overpayment, or an order
+  // settled up front that has not been delivered. The saved figure is used where
+  // there is one, and worked out from the order where an older record has none —
+  // which is what makes orders written before this rule show up at all.
+  const creditOn = (order) => toNumber(order?.vendorCredit) || deriveVendorCredit(order || {});
+
   // Derived data
   const overdueOrders = useMemo(() => {
     const today = startOfDay(new Date());
@@ -104,17 +110,14 @@ export default function PurchaseOrdersPage() {
     orders.filter((o) => ["not paid", "partly paid"].includes((o.status || "").toLowerCase()) && !o.payBeforeSupply),
   [orders]);
 
-  const creditOrders = useMemo(() =>
-    orders.filter((o) => (o.status || "").toLowerCase() === "credit"),
-  [orders]);
+  const creditOrders = useMemo(
+    () => orders.filter((o) => creditOn(o) > 0),
+    [orders]
+  );
 
   // An order still owed for: what is left to pay, never a credit read as a debt.
   const totalOverdueValue = useMemo(() => overdueOrders.reduce((s, o) => s + amountStoreOwes(o), 0), [overdueOrders]);
   const totalOutstanding = useMemo(() => outstandingOrders.reduce((s, o) => s + amountStoreOwes(o), 0), [outstandingOrders]);
-  // A credit is store money the vendor is holding: an overpayment, or an order
-  // settled up front that has not been delivered. The saved figure is used where
-  // there is one, and worked out from the order where an older record has none.
-  const creditOn = (order) => toNumber(order?.vendorCredit) || deriveVendorCredit(order || {});
   const totalCreditValue = useMemo(() => creditOrders.reduce((s, o) => s + creditOn(o), 0), [creditOrders]);
 
   const totalPaid = useMemo(() => {

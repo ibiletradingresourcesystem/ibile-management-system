@@ -4,6 +4,7 @@ import Vendor from "@/models/Vendor";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import { derivePaymentState, generateOrderRef } from "@/lib/purchaseOrders";
+import { repayPaymentState } from "@/lib/orderPaymentRepair";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
 
 export default async function handler(req, res) {
@@ -34,7 +35,9 @@ export default async function handler(req, res) {
         PurchaseOrder.countDocuments(filter),
       ]);
 
-      return res.status(200).json({ success: true, orders, total, totalPages: Math.ceil(total / Number(limit)) });
+      const corrected = await repayPaymentState(PurchaseOrder, orders);
+
+      return res.status(200).json({ success: true, orders: corrected, total, totalPages: Math.ceil(total / Number(limit)) });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

@@ -10,6 +10,7 @@
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import StockOrder from "@/models/StockOrder";
+import { repayPaymentState } from "@/lib/orderPaymentRepair";
 import Vendor from "@/models/Vendor";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { generateOrderRef, normalizeOrderProducts, sumTotals } from "@/lib/purchaseOrders";
@@ -47,7 +48,9 @@ export default async function handler(req, res) {
         .populate("vendor", "companyName repPhone")
         .lean();
 
-      return res.status(200).json({ success: true, orders, total: orders.length });
+      const corrected = await repayPaymentState(StockOrder, orders);
+
+      return res.status(200).json({ success: true, orders: corrected, total: corrected.length });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
