@@ -278,11 +278,11 @@ export default function PurchaseOrdersPage() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
             <h1 className="page-title">Vendor Payment Tracker</h1>
             <div className="flex items-center gap-3">
-              <button onClick={() => setShowQuickEntry(true)} className="btn-action-primary flex items-center gap-2 text-sm">
+              <button onClick={() => setShowQuickEntry(true)} className="btn-action btn-action-primary flex items-center gap-2">
                 <Plus size={16} /> Quick Entry
               </button>
               {isAdmin && (
-                <button onClick={() => setShowSeed(true)} className="border border-blue-600 text-blue-600 px-4 py-2 rounded text-sm font-medium hover:bg-blue-50 flex items-center gap-2">
+                <button onClick={() => setShowSeed(true)} className="btn-action btn-action-secondary flex items-center gap-2">
                   <Database size={16} /> Seed Data
                 </button>
               )}
@@ -308,7 +308,7 @@ export default function PurchaseOrdersPage() {
                     // What is still owed, which is never a credit read as a debt.
                     const msg = overdueOrders.map(o => `${o.vendorName} — Balance: ${formatCurrency(amountStoreOwes(o) || toNumber(o.grandTotal))}`).join("\n");
                     window.open(`https://wa.me/?text=${encodeURIComponent("Payment Reminder:\n\n" + msg)}`, "_blank");
-                  }} className="btn-action-primary text-xs px-4 py-2">📨 Send Vendor Reminder</button>
+                  }} className="btn-action btn-action-primary btn-sm">📨 Send Vendor Reminder</button>
                 </div>
               ) : (
                 <div className="content-card border-l-4 border-green-500">
@@ -353,38 +353,37 @@ export default function PurchaseOrdersPage() {
 
             {/* Right: Stats */}
             <div className="w-full lg:w-1/2 flex flex-col gap-4">
-              {/* The period picker sits in the header rather than floating over it,
-                  and the figure is whole naira: tens of millions with kobo on the end
+              {/* Period pill on top, the label under it, the figure below — and the
+                  figure in whole naira, because tens of millions with kobo on the end
                   ran past the edge of the card. */}
-              <div className="bg-emerald-600 text-white p-5 rounded-2xl shadow-lg">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs uppercase tracking-wide font-semibold opacity-90">Total Paid</p>
-                  <select
-                    value={paidFilter}
-                    onChange={(e) => { setPaidFilter(e.target.value); setTableFilter("paid"); }}
-                    aria-label="Period for total paid"
-                    className="text-xs bg-emerald-700/60 text-white border border-white/30 rounded-lg pl-2 pr-1 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/50"
-                  >
-                    <option value="tillDate" className="text-gray-900">Till Date</option>
-                    <option value="thisWeek" className="text-gray-900">This Week</option>
-                    <option value="lastWeek" className="text-gray-900">Last Week</option>
-                    <option value="thisMonth" className="text-gray-900">This Month</option>
-                    <option value="lastMonth" className="text-gray-900">Last Month</option>
-                  </select>
-                </div>
+              <div className="bg-gradient-to-br from-emerald-500 to-green-600 text-white p-5 rounded-2xl shadow-lg text-center">
+                <select
+                  value={paidFilter}
+                  onChange={(e) => { setPaidFilter(e.target.value); setTableFilter("paid"); }}
+                  aria-label="Period for total paid"
+                  className="mx-auto block text-xs font-medium text-white bg-white/20 border border-white/40 rounded-full px-3 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/60"
+                >
+                  <option value="tillDate" className="text-gray-900">Till Date</option>
+                  <option value="thisWeek" className="text-gray-900">This Week</option>
+                  <option value="lastWeek" className="text-gray-900">Last Week</option>
+                  <option value="thisMonth" className="text-gray-900">This Month</option>
+                  <option value="lastMonth" className="text-gray-900">Last Month</option>
+                </select>
+
+                <p className="mt-3 text-xs uppercase tracking-widest font-semibold opacity-90">Total Paid</p>
                 <p
-                  className="mt-3 text-center font-bold tabular-nums leading-none text-2xl sm:text-3xl"
+                  className="mt-1 font-bold tabular-nums leading-none text-2xl sm:text-3xl"
                   title={formatCurrency(paidSummary.total)}
                 >
                   {formatCurrency(paidSummary.total, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </p>
-                <p className="mt-2 text-center text-[11px] opacity-80">
+                <p className="mt-2 text-[11px] opacity-80">
                   {paidSummary.count} {paidSummary.count === 1 ? "order" : "orders"}
                 </p>
               </div>
 
               <button onClick={() => { setTableFilter("all"); setVendorFilter(""); setSearch(""); }}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium px-5 py-2.5 rounded-xl shadow transition w-full">Full Table</button>
+                className="btn-action btn-action-secondary w-full">Full Table</button>
 
               <div className="grid grid-cols-2 gap-4">
                 <div onClick={() => setTableFilter("overdue")} className="cursor-pointer bg-red-600 text-white p-4 rounded-2xl shadow-lg flex flex-col items-center justify-center min-h-[120px] hover:scale-[1.02] transition">
@@ -456,15 +455,15 @@ export default function PurchaseOrdersPage() {
                       {editIndex === idx ? (
                         <div className="flex flex-col items-end gap-1">
                           <input type="number" value={editedPayment} onChange={(e) => setEditedPayment(e.target.value)} className="form-input text-sm w-24 text-right" />
-                          <div className="flex gap-1">
-                            <button disabled={isBusy} onClick={() => handleSaveEdit(idx)} className="text-[10px] bg-green-600 text-white px-2 py-0.5 rounded">Save</button>
-                            <button onClick={() => setEditIndex(null)} className="text-[10px] bg-gray-400 text-white px-2 py-0.5 rounded">Cancel</button>
+                          <div className="flex gap-2">
+                            <button disabled={isBusy} onClick={() => handleSaveEdit(idx)} className="btn-action btn-action-success btn-sm disabled:opacity-50">Save</button>
+                            <button onClick={() => setEditIndex(null)} className="btn-action btn-action-secondary btn-sm">Cancel</button>
                           </div>
                         </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1">
+                        <span className="inline-flex items-center gap-2">
                           {formatCurrency(order.paymentMade)}
-                          <button onClick={() => handleEdit(idx)} className="text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded hover:bg-blue-700">Edit</button>
+                          <button onClick={() => handleEdit(idx)} className="btn-action btn-action-secondary btn-sm">Edit</button>
                         </span>
                       )}
                     </td>
@@ -496,18 +495,23 @@ export default function PurchaseOrdersPage() {
                           } catch {} finally { setIsBusy(false); }
                         }}
                         disabled={isBusy}
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold cursor-pointer hover:opacity-80 transition disabled:opacity-50 ${order.payBeforeSupply ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-500"}`}
+                        title="Switch between paying the vendor up front and paying after supply"
+                        className={`btn-action btn-sm whitespace-nowrap disabled:opacity-50 ${
+                          order.payBeforeSupply
+                            ? "bg-purple-100 text-purple-700 hover:bg-purple-200 focus:ring-purple-300"
+                            : "btn-action-secondary"
+                        }`}
                       >
                         {order.payBeforeSupply ? "Pre-Pay" : "Outstanding"}
                       </button>
                     </td>
                     <td className="py-3 px-3 text-center">
-                      <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full hover:bg-blue-200 font-medium">Memo</a>
+                      <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="btn-action btn-action-secondary btn-sm inline-block">Memo</a>
                     </td>
                     <td className="py-3 px-3 text-center">
                       <button onClick={() => handleDelete(order)} disabled={isBusy}
                         aria-label={`Delete order for ${order.vendorName || "vendor"}`}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded p-1.5 transition disabled:opacity-50">
+                        className="btn-action btn-action-danger btn-sm inline-flex items-center justify-center disabled:opacity-50">
                         <Trash2 size={14} />
                       </button>
                     </td>
@@ -520,9 +524,9 @@ export default function PurchaseOrdersPage() {
             {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex justify-center items-center gap-2 mt-4 pt-4 border-t border-gray-100">
-                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-gray-200 rounded text-sm disabled:opacity-50">Prev</button>
+                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="btn-action btn-action-secondary btn-sm disabled:opacity-40">Prev</button>
                 <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
-                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-gray-200 rounded text-sm disabled:opacity-50">Next</button>
+                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="btn-action btn-action-secondary btn-sm disabled:opacity-40">Next</button>
               </div>
             )}
 
@@ -540,10 +544,10 @@ export default function PurchaseOrdersPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={handleDeleteSelected} disabled={isBusy}
-                    className="text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded-full px-3 py-1 border border-red-200 transition inline-flex items-center gap-1 disabled:opacity-50">
+                    className="btn-action btn-action-danger btn-sm inline-flex items-center gap-1.5 disabled:opacity-50">
                     <Trash2 size={12} /> Delete selected
                   </button>
-                  <button onClick={() => setSelectedOrders(new Set())} className="text-xs bg-gray-100 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-full px-3 py-1 border border-gray-200 transition">Clear</button>
+                  <button onClick={() => setSelectedOrders(new Set())} className="btn-action btn-action-secondary btn-sm">Clear</button>
                 </div>
               </div>
             )}
@@ -579,8 +583,8 @@ export default function PurchaseOrdersPage() {
               <div><label className="form-label">Products</label><input type="text" value={quickForm.products} onChange={(e) => setQuickForm({ ...quickForm, products: e.target.value })} className="form-input" placeholder="e.g. Rice, Beans" /></div>
               <div><label className="form-label">Notes</label><textarea value={quickForm.notes} onChange={(e) => setQuickForm({ ...quickForm, notes: e.target.value })} className="form-input" rows={2} /></div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowQuickEntry(false)} className="flex-1 px-4 py-2 border rounded-lg text-sm">Cancel</button>
-                <button type="submit" disabled={savingQuick} className="flex-1 btn-action-primary">{savingQuick ? "Saving..." : "Save Entry"}</button>
+                <button type="button" onClick={() => setShowQuickEntry(false)} className="flex-1 btn-action btn-action-secondary">Cancel</button>
+                <button type="submit" disabled={savingQuick} className="flex-1 btn-action btn-action-primary disabled:opacity-50">{savingQuick ? "Saving..." : "Save Entry"}</button>
               </div>
             </form>
           </div>
