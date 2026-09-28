@@ -120,8 +120,8 @@ export default function SeedDataModal({ onClose, onImported }) {
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <FileSpreadsheet size={18} className="text-emerald-600" />
                 <span>
-                  <span className="font-medium">No export file?</span> Start from the template — one row per product, rows
-                  sharing an Order Ref are one order.
+                  <span className="font-medium">No export file?</span> Start from the template. Rows sharing an Order Ref are
+                  one order; list the products, or just fill in Order Total when only the payment is being tracked.
                 </span>
               </div>
               <button onClick={downloadTemplate} className="btn-action btn-action-secondary flex items-center gap-2 text-xs">
