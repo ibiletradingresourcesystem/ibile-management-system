@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { X, Upload } from "lucide-react";
+import { X, Upload, Download, FileSpreadsheet, Info } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
+import { SEED_COLUMN_HELP, buildSeedTemplateCsv, seedDataFromCsv } from "@/lib/seedOrdersCsv";
 
 /**
- * Seeds the data exported from the expense app.
+ * Seeds vendors and stock orders, from either route.
  *
- * The file is read here, checked by the server without writing anything, and only
- * imported once the counts have been seen. It replaced Sync Stock Orders, which
- * needed both apps on one database and pulled in records that were never orders.
+ * The expense app writes a .json export; anyone without that app fills in the CSV
+ * template instead, which is turned into the same payload here. Either way the
+ * file is checked by the server without writing anything, and only imported once
+ * the counts have been seen. This replaced Sync Stock Orders, which needed both
+ * apps on one database and pulled in records that were never orders.
  */
 export default function SeedDataModal({ onClose, onImported }) {
   const [file, setFile] = useState(null);
@@ -16,6 +19,22 @@ export default function SeedDataModal({ onClose, onImported }) {
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [issues, setIssues] = useState([]);
+  const [showColumns, setShowColumns] = useState(false);
+
+  /** The blank sheet, with the columns and a couple of filled-in orders to copy. */
+  const downloadTemplate = () => {
+    // The byte order mark keeps Excel from mangling the naira amounts and accents.
+    const blob = new Blob(["\uFEFF" + buildSeedTemplateCsv()], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "stock_orders_seed_template.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const pickFile = async (event) => {
     const chosen = event.target.files?.[0];
@@ -23,13 +42,29 @@ export default function SeedDataModal({ onClose, onImported }) {
     if (!chosen) return;
 
     setError("");
+    setIssues([]);
     setSummary(null);
     setResult(null);
     setFile(chosen);
     setBusy(true);
+    const isCsv = /\.(csv|txt)$/i.test(chosen.name);
     try {
       const text = await chosen.text();
-      const parsed = JSON.parse(text);
+      let parsed;
+
+      if (isCsv) {
+        const fromSheet = seedDataFromCsv(text);
+        setIssues(fromSheet.issues);
+        if (!fromSheet.data) {
+          setData(null);
+          setError(fromSheet.issues[0] || "Nothing in that sheet could be read as an order.");
+          return;
+        }
+        parsed = fromSheet.data;
+      } else {
+        parsed = JSON.parse(text);
+      }
+
       setData(parsed);
 
       // Ask the server what this file would do, before anything is written.
@@ -39,7 +74,7 @@ export default function SeedDataModal({ onClose, onImported }) {
       setData(null);
       setError(
         err instanceof SyntaxError
-          ? "That file is not readable JSON. Use the file from the expense app's Download Data button."
+          ? "That file is not readable JSON. Use the expense app Download Data file, or the CSV template."
           : err.response?.data?.error || err.message || "Could not read that file."
       );
     } finally {
@@ -74,20 +109,70 @@ export default function SeedDataModal({ onClose, onImported }) {
 
         <div className="p-5 space-y-4">
           <p className="text-sm text-gray-600">
-            Import vendors and stock orders from the expense app. In that app, open{" "}
-            <span className="font-medium">Expenses → Stock Ordering</span> and press{" "}
-            <span className="font-medium">Download Data</span>, then choose that file here.
+            Import vendors and stock orders. From the expense app, open{" "}
+            <span className="font-medium">Expenses → Stock Ordering</span>, press{" "}
+            <span className="font-medium">Download Data</span> and choose that file here. Without that app, fill in the CSV
+            template instead.
           </p>
+
+          <div className="rounded-lg border theme-border-soft bg-gray-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <FileSpreadsheet size={18} className="text-emerald-600" />
+                <span>
+                  <span className="font-medium">No export file?</span> Start from the template — one row per product, rows
+                  sharing an Order Ref are one order.
+                </span>
+              </div>
+              <button onClick={downloadTemplate} className="btn-action btn-action-secondary flex items-center gap-2 text-xs">
+                <Download size={14} />
+                Download CSV Template
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowColumns((open) => !open)}
+              className="mt-3 flex items-center gap-1.5 text-xs font-medium text-sky-700 hover:text-sky-900"
+            >
+              <Info size={13} />
+              {showColumns ? "Hide the columns" : "What goes in each column"}
+            </button>
+            {showColumns && (
+              <dl className="mt-2 space-y-1.5 text-xs text-gray-600">
+                {SEED_COLUMN_HELP.map(([column, help]) => (
+                  <div key={column}>
+                    <dt className="font-semibold text-gray-800">{column}</dt>
+                    <dd>{help}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
 
           <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed theme-border-soft rounded-lg p-6 cursor-pointer hover:bg-gray-50 transition">
             <Upload size={22} className="text-gray-400" />
-            <span className="text-sm font-medium text-gray-700">{file ? file.name : "Choose the export file (.json)"}</span>
+            <span className="text-sm font-medium text-gray-700">
+              {file ? file.name : "Choose the export file (.json) or a filled-in template (.csv)"}
+            </span>
             <span className="text-xs text-gray-500">Nothing is written until you press Import</span>
-            <input type="file" accept="application/json,.json" onChange={pickFile} className="hidden" />
+            <input type="file" accept="application/json,.json,text/csv,.csv,.txt" onChange={pickFile} className="hidden" />
           </label>
 
           {busy && <p className="text-sm text-gray-500">Working…</p>}
           {error && <div className="alert alert-error text-sm">{error}</div>}
+
+          {issues.length > 0 && (
+            <div className="alert alert-warning text-sm">
+              <p className="font-semibold">Read from the sheet, with these left out:</p>
+              <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                {issues.slice(0, 6).map((issue, index) => (
+                  <li key={index}>{issue}</li>
+                ))}
+              </ul>
+              {issues.length > 6 && <p className="mt-1">…and {issues.length - 6} more.</p>}
+            </div>
+          )}
 
           {summary && !result && (
             <div className="rounded-lg border theme-border-soft p-4 text-sm space-y-2">

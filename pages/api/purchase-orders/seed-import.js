@@ -25,12 +25,17 @@ import {
 } from "@/lib/purchaseOrders";
 
 const SOURCE_APP = "ibile-expense-app";
+/** A sheet filled in from the CSV template seeds through the same path. */
+const CSV_SOURCE = "csv-template";
+const KNOWN_SOURCES = [SOURCE_APP, CSV_SOURCE];
 const nameKey = (value) => String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
 
 /** What the file must look like before anything is read out of it. */
 export function validateExport(data) {
   if (!data || typeof data !== "object") return "That file is not an export file";
-  if (data.source && data.source !== SOURCE_APP) return `That file came from "${data.source}", not the expense app`;
+  if (data.source && !KNOWN_SOURCES.includes(data.source)) {
+    return `That file came from "${data.source}", not the expense app or the CSV template`;
+  }
   if (!Array.isArray(data.vendors) && !Array.isArray(data.stockOrders)) {
     return "That file has no vendors and no stock orders in it";
   }
@@ -54,6 +59,8 @@ export default async function handler(req, res) {
   await mongooseConnect();
 
   try {
+    const source = KNOWN_SOURCES.includes(data.source) ? data.source : SOURCE_APP;
+    const seededFrom = source === CSV_SOURCE ? "Seeded from the CSV template" : "Seeded from the expense app";
     const fileVendors = Array.isArray(data.vendors) ? data.vendors : [];
     const fileOrders = Array.isArray(data.stockOrders) ? data.stockOrders : [];
 
@@ -175,7 +182,7 @@ export default async function handler(req, res) {
         paymentDate: order.paymentDate || "",
         balance: Math.max(0, grandTotal - paymentMade),
         payBeforeSupply,
-        sourceApp: SOURCE_APP,
+        sourceApp: source,
         sourceId: String(order.sourceId),
       };
 
@@ -189,7 +196,7 @@ export default async function handler(req, res) {
           // raised here, or the stock would be counted twice.
           receivedStatus: "Received",
           receivedAt: order.date || order.createdAt || new Date(),
-          notes: "Seeded from the expense app",
+          notes: seededFrom,
         });
       } else {
         stockOrderDocs.push({
@@ -199,7 +206,7 @@ export default async function handler(req, res) {
           mainProduct: order.mainProduct || "",
           status: derivePaymentStatus({ paymentMade, grandTotal, payBeforeSupply, receivedStatus: "Pending" }),
           stage: "Submitted",
-          notes: "Seeded from the expense app",
+          notes: seededFrom,
         });
       }
     }
