@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, Line } from "react-chartjs-2";
+import { Bar, Line, Pie } from "react-chartjs-2";
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/router";
 import { apiClient } from "@/lib/api-client";
@@ -41,6 +41,16 @@ import {
   Legend,
   Filler,
 } from "chart.js";
+
+/**
+ * Slice colours for the expenses pie, in fixed order — the same six the Tender
+ * Split pie on the sales report uses, so a colour means the same thing across the
+ * system. Checked for colour-blind separation; two of them sit under 3:1 against
+ * white, which is why every slice is named and priced in the list beside it.
+ */
+const EXPENSE_SLICE_COLORS = ["#0891B2", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+/** The gathered tail is a leftover, so it stays grey rather than taking a hue. */
+const EXPENSE_TAIL_COLOR = "#cbd5e1";
 
 ChartJS.register(
   CategoryScale,
@@ -594,16 +604,18 @@ export default function Home() {
   /* =======================
      CHART DATA
   ======================= */
-  // The breakdown now sits in a small card, where a bar per expense is unreadable:
-  // the five biggest are shown across, with the rest gathered into one bar.
+  // The breakdown sits in a small card, where a slice per expense is unreadable:
+  // the five biggest get a slice each and the rest are gathered into one.
   const topExpenses = useMemo(() => {
     const sorted = [...filteredExpenses].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
     const top = sorted.slice(0, 5);
     const rest = sorted.slice(5);
     const restTotal = rest.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-    return restTotal > 0
-      ? [...top, { title: `Other (${rest.length})`, amount: restTotal }]
-      : top;
+    if (restTotal <= 0) return top;
+    // A tail of one is just that expense: "Other (1)" hides a name for nothing,
+    // and the pie has room for a sixth slice either way.
+    if (rest.length === 1) return [...top, rest[0]];
+    return [...top, { title: `Other (${rest.length})`, amount: restTotal }];
   }, [filteredExpenses]);
 
   const expenseTotal = useMemo(
@@ -611,33 +623,52 @@ export default function Home() {
     [filteredExpenses]
   );
 
+  // The tail keeps a neutral grey: it is a leftover, not one more category worth
+  // telling apart from the rest.
+  const expenseSlices = useMemo(
+    () =>
+      topExpenses.map((expense, index) => ({
+        label: expense.title || "Untitled",
+        amount: Number(expense.amount || 0),
+        color: String(expense.title || "").startsWith("Other (")
+          ? EXPENSE_TAIL_COLOR
+          : EXPENSE_SLICE_COLORS[index % EXPENSE_SLICE_COLORS.length],
+        share: expenseTotal > 0 ? (Number(expense.amount || 0) / expenseTotal) * 100 : 0,
+      })),
+    [topExpenses, expenseTotal]
+  );
+
   const expenseChartOptions = {
-    indexAxis: "y",
     responsive: true,
     maintainAspectRatio: false,
+    // The slices are named and priced in the list beside the chart, so the
+    // built-in legend would only repeat it at a size nobody can read.
     plugins: {
       legend: { display: false },
-      tooltip: { callbacks: { label: (ctx) => formatCurrency(ctx.parsed.x) } },
-    },
-    scales: {
-      x: { display: false, grid: { display: false } },
-      y: {
-        grid: { display: false },
-        border: { display: false },
-        ticks: { font: { size: 10 }, color: "#6b7280", crossAlign: "far" },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const slice = expenseSlices[ctx.dataIndex];
+            const share = slice?.share ? ` · ${slice.share.toFixed(0)}%` : "";
+            return `${slice?.label || ""}: ${formatCurrency(ctx.parsed)}${share}`;
+          },
+        },
       },
     },
+    layout: { padding: 2 },
   };
 
   const expenseChart = {
-    labels: topExpenses.map((e) => (e.title || "").length > 18 ? `${e.title.slice(0, 17)}…` : e.title || "Untitled"),
+    labels: expenseSlices.map((slice) => slice.label),
     datasets: [
       {
         label: "Expenses",
-        data: topExpenses.map((e) => Number(e.amount || 0)),
-        backgroundColor: "#ef4444",
-        borderRadius: 3,
-        barThickness: 12,
+        data: expenseSlices.map((slice) => slice.amount),
+        backgroundColor: expenseSlices.map((slice) => slice.color),
+        // A hairline of the card behind each slice, so neighbours never merge.
+        borderColor: "#ffffff",
+        borderWidth: 2,
+        hoverOffset: 4,
       },
     ],
   };
@@ -1102,7 +1133,35 @@ export default function Home() {
                 compact
                 onViewMore={() => router.push("/expenses/analysis")}
               >
-                <Bar data={expenseChart} options={expenseChartOptions} />
+                {expenseSlices.length === 0 ? (
+                  <p className="h-full flex items-center justify-center text-xs text-gray-400">No expenses in this period</p>
+                ) : (
+                  <div className="h-full flex items-center gap-3">
+                    <div className="w-2/5 max-w-[150px] aspect-square flex-shrink-0">
+                      <Pie data={expenseChart} options={expenseChartOptions} />
+                    </div>
+                    <ul className="flex-1 min-w-0 space-y-1.5 overflow-y-auto max-h-full pr-1">
+                      {expenseSlices.map((slice, index) => (
+                        <li key={`${slice.label}-${index}`} className="flex items-center gap-2 text-[11px] leading-tight">
+                          <span
+                            className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                            style={{ backgroundColor: slice.color }}
+                            aria-hidden="true"
+                          />
+                          <span className="flex-1 min-w-0 truncate text-gray-600" title={slice.label}>
+                            {slice.label}
+                          </span>
+                          <span className="flex-shrink-0 font-medium text-gray-900 tabular-nums">
+                            {formatCurrency(slice.amount, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          </span>
+                          <span className="flex-shrink-0 w-8 text-right text-gray-400 tabular-nums">
+                            {slice.share.toFixed(0)}%
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </ChartCard>
             </section>
 
