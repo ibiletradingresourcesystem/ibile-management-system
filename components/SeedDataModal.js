@@ -29,7 +29,7 @@ export default function SeedDataModal({ onClose, onImported }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "stock_orders_seed_template.csv";
+    link.download = "vendor_orders_seed_template.csv";
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -120,8 +120,8 @@ export default function SeedDataModal({ onClose, onImported }) {
               <div className="flex items-center gap-2 text-sm text-gray-700">
                 <FileSpreadsheet size={18} className="text-emerald-600" />
                 <span>
-                  <span className="font-medium">No export file?</span> Start from the template. Rows sharing an Order Ref are
-                  one order; list the products, or just fill in Order Total when only the payment is being tracked.
+                  <span className="font-medium">No export file?</span> Start from the template: one row per order, with what it
+                  came to and what has been paid on it.
                 </span>
               </div>
               <button onClick={downloadTemplate} className="btn-action btn-action-secondary flex items-center gap-2 text-xs">
