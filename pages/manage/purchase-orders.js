@@ -209,6 +209,19 @@ export default function PurchaseOrdersPage() {
   const totalOutstanding = useMemo(() => outstandingOrders.reduce((s, o) => s + amountStoreOwes(o), 0), [outstandingOrders]);
   const totalCreditValue = useMemo(() => creditOrders.reduce((s, o) => s + creditOn(o), 0), [creditOrders]);
 
+  /**
+   * Every line of money the tracker knows about: the vendor orders, and the
+   * entries that never had a vendor. One list, so a period filter or a search
+   * finds all of it at once.
+   */
+  const trackerRows = useMemo(
+    () => [
+      ...orders.map((order) => ({ ...order, kind: "order" })),
+      ...cashEntries.map(cashEntryAsRow),
+    ],
+    [orders, cashEntries]
+  );
+
   const paidSummary = useMemo(() => {
     // Anything with money against it, whatever it is labelled — a refund given
     // last month belongs in last month as much as a vendor payment does.
@@ -244,19 +257,6 @@ export default function PurchaseOrdersPage() {
       orders: filtered,
     };
   }, [trackerRows, paidFilter]);
-
-  /**
-   * Every line of money the tracker knows about: the vendor orders, and the
-   * entries that never had a vendor. One list, so a period filter or a search
-   * finds all of it at once.
-   */
-  const trackerRows = useMemo(
-    () => [
-      ...orders.map((order) => ({ ...order, kind: "order" })),
-      ...cashEntries.map(cashEntryAsRow),
-    ],
-    [orders, cashEntries]
-  );
 
   const vendorNames = useMemo(() => [...new Set(orders.map((o) => o.vendorName).filter(Boolean))].sort(), [orders]);
 
