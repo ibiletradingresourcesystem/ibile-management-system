@@ -129,7 +129,7 @@ function buildHtml({ rows, total, monthLabel, incomplete, logoCid }) {
       ${warning}
 
       <p style="font-size:12px;color:#999;text-align:center;margin-top:40px;">
-        Powered by Hetch Tech (Ayoola).<br/>
+        Powered by BizSuits (Ayoola).<br/>
         &copy; ${new Date().getFullYear()} Ibile Trading Resources Limited. All rights reserved.
       </p>
     </div>
