@@ -334,6 +334,11 @@ select:disabled {
   @apply px-3 py-1.5 text-xs;
 }
 
+/* For controls inside a dense table row, where btn-sm still crowds the line. */
+.btn-xs {
+  @apply px-2 py-1 text-[11px];
+}
+
 .btn-lg {
   @apply px-6 py-3 text-base;
 }

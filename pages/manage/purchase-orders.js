@@ -25,7 +25,9 @@ export default function PurchaseOrdersPage() {
 
   // Filters
   const [tableFilter, setTableFilter] = useState("all");
-  const [paidFilter, setPaidFilter] = useState("tillDate");
+  // This month is what anyone opening the tracker is asking about; the whole
+  // history is one pick away.
+  const [paidFilter, setPaidFilter] = useState("thisMonth");
   const [vendorFilter, setVendorFilter] = useState("");
   const [search, setSearch] = useState("");
   const [selectedOrders, setSelectedOrders] = useState(new Set());
@@ -66,6 +68,9 @@ export default function PurchaseOrdersPage() {
   };
 
   const getOrderDate = (o) => o?.date || o?.createdAt || o?.paymentDate || null;
+  // What was paid in a period is dated by the payment, not by when the order was
+  // raised: a January order settled in March is March money.
+  const getPaymentDate = (o) => o?.paymentDate || o?.date || o?.createdAt || null;
   const startOfDay = (d) => { const dt = new Date(d); if (isNaN(dt)) return null; dt.setHours(0, 0, 0, 0); return dt; };
 
   useEffect(() => { fetchOrders(); fetchVendors(); }, []);
@@ -121,15 +126,15 @@ export default function PurchaseOrdersPage() {
   const totalCreditValue = useMemo(() => creditOrders.reduce((s, o) => s + creditOn(o), 0), [creditOrders]);
 
   const paidSummary = useMemo(() => {
-    const valid = ["paid", "partly paid", "credit"];
-    let filtered = orders.filter((o) => valid.includes((o.status || "").toLowerCase()));
+    // Anything with money against it, whatever the order is labelled.
+    let filtered = orders.filter((o) => toNumber(o.paymentMade) > 0);
 
     // Apply paid filter period
     const now = new Date();
     const todayStart = startOfDay(now);
     if (paidFilter !== "tillDate") {
       filtered = filtered.filter((o) => {
-        const d = startOfDay(new Date(getOrderDate(o)));
+        const d = startOfDay(new Date(getPaymentDate(o)));
         if (!d) return false;
         if (paidFilter === "thisWeek") { const ws = new Date(todayStart); ws.setDate(ws.getDate() - ws.getDay()); return d >= ws; }
         if (paidFilter === "lastWeek") { const ws = new Date(todayStart); ws.setDate(ws.getDate() - ws.getDay() - 7); const we = new Date(ws); we.setDate(we.getDate() + 7); return d >= ws && d < we; }
@@ -141,6 +146,8 @@ export default function PurchaseOrdersPage() {
     return {
       total: filtered.reduce((s, o) => s + toNumber(o.paymentMade), 0),
       count: filtered.length,
+      // The very rows that were counted, so the table can show them.
+      orders: filtered,
     };
   }, [orders, paidFilter]);
 
@@ -150,11 +157,11 @@ export default function PurchaseOrdersPage() {
     let list = orders;
     if (tableFilter === "overdue") list = overdueOrders;
     else if (tableFilter === "outstanding") list = outstandingOrders;
-    else if (tableFilter === "paid") list = orders.filter((o) => ["paid", "partly paid", "credit"].includes((o.status || "").toLowerCase()));
+    else if (tableFilter === "paid") list = paidSummary.orders;
     if (vendorFilter) list = list.filter((o) => o.vendorName === vendorFilter);
     if (search) { const s = search.toLowerCase(); list = list.filter((o) => o.vendorName?.toLowerCase().includes(s) || o.orderRef?.toLowerCase().includes(s) || (o.products || []).some(p => (p.name || "").toLowerCase().includes(s))); }
     return [...list].sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-  }, [orders, tableFilter, overdueOrders, outstandingOrders, vendorFilter, search]);
+  }, [orders, tableFilter, overdueOrders, outstandingOrders, paidSummary, vendorFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrdersForTable.length / entriesPerPage));
   const paginatedOrders = filteredOrdersForTable.slice((currentPage - 1) * entriesPerPage, currentPage * entriesPerPage);
@@ -357,17 +364,20 @@ export default function PurchaseOrdersPage() {
                   figure in whole naira, because tens of millions with kobo on the end
                   ran past the edge of the card. */}
               <div className="bg-gradient-to-br from-emerald-500 to-green-600 text-white p-5 rounded-2xl shadow-lg text-center">
+                {/* Solid green rather than a wash of white: the translucent version
+                    went white-on-white the moment the list opened. Each option
+                    carries its own colours for the same reason. */}
                 <select
                   value={paidFilter}
                   onChange={(e) => { setPaidFilter(e.target.value); setTableFilter("paid"); }}
                   aria-label="Period for total paid"
-                  className="mx-auto block text-xs font-medium text-white bg-white/20 border border-white/40 rounded-full px-3 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/60"
+                  className="mx-auto block text-center text-xs font-medium text-white bg-emerald-700 border border-white/40 rounded-full px-3 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/70"
                 >
-                  <option value="tillDate" className="text-gray-900">Till Date</option>
-                  <option value="thisWeek" className="text-gray-900">This Week</option>
-                  <option value="lastWeek" className="text-gray-900">Last Week</option>
-                  <option value="thisMonth" className="text-gray-900">This Month</option>
-                  <option value="lastMonth" className="text-gray-900">Last Month</option>
+                  <option value="tillDate" className="bg-white text-gray-900">Till Date</option>
+                  <option value="thisWeek" className="bg-white text-gray-900">This Week</option>
+                  <option value="lastWeek" className="bg-white text-gray-900">Last Week</option>
+                  <option value="thisMonth" className="bg-white text-gray-900">This Month</option>
+                  <option value="lastMonth" className="bg-white text-gray-900">Last Month</option>
                 </select>
 
                 <p className="mt-3 text-xs uppercase tracking-widest font-semibold opacity-90">Total Paid</p>
@@ -456,14 +466,14 @@ export default function PurchaseOrdersPage() {
                         <div className="flex flex-col items-end gap-1">
                           <input type="number" value={editedPayment} onChange={(e) => setEditedPayment(e.target.value)} className="form-input text-sm w-24 text-right" />
                           <div className="flex gap-2">
-                            <button disabled={isBusy} onClick={() => handleSaveEdit(idx)} className="btn-action btn-action-success btn-sm disabled:opacity-50">Save</button>
-                            <button onClick={() => setEditIndex(null)} className="btn-action btn-action-secondary btn-sm">Cancel</button>
+                            <button disabled={isBusy} onClick={() => handleSaveEdit(idx)} className="btn-action btn-action-success btn-xs disabled:opacity-50">Save</button>
+                            <button onClick={() => setEditIndex(null)} className="btn-action btn-action-secondary btn-xs">Cancel</button>
                           </div>
                         </div>
                       ) : (
                         <span className="inline-flex items-center gap-2">
                           {formatCurrency(order.paymentMade)}
-                          <button onClick={() => handleEdit(idx)} className="btn-action btn-action-secondary btn-sm">Edit</button>
+                          <button onClick={() => handleEdit(idx)} className="btn-action btn-action-secondary btn-xs">Edit</button>
                         </span>
                       )}
                     </td>
@@ -496,7 +506,7 @@ export default function PurchaseOrdersPage() {
                         }}
                         disabled={isBusy}
                         title="Switch between paying the vendor up front and paying after supply"
-                        className={`btn-action btn-sm whitespace-nowrap disabled:opacity-50 ${
+                        className={`btn-action btn-xs whitespace-nowrap disabled:opacity-50 ${
                           order.payBeforeSupply
                             ? "bg-purple-100 text-purple-700 hover:bg-purple-200 focus:ring-purple-300"
                             : "btn-action-secondary"
@@ -506,12 +516,12 @@ export default function PurchaseOrdersPage() {
                       </button>
                     </td>
                     <td className="py-3 px-3 text-center">
-                      <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="btn-action btn-action-secondary btn-sm inline-block">Memo</a>
+                      <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="btn-action btn-action-secondary btn-xs inline-block">Memo</a>
                     </td>
                     <td className="py-3 px-3 text-center">
                       <button onClick={() => handleDelete(order)} disabled={isBusy}
                         aria-label={`Delete order for ${order.vendorName || "vendor"}`}
-                        className="btn-action btn-action-danger btn-sm inline-flex items-center justify-center disabled:opacity-50">
+                        className="btn-action btn-action-danger btn-xs inline-flex items-center justify-center disabled:opacity-50">
                         <Trash2 size={14} />
                       </button>
                     </td>
@@ -524,9 +534,9 @@ export default function PurchaseOrdersPage() {
             {/* Pagination */}
             {totalPages > 1 && (
               <div className="flex justify-center items-center gap-2 mt-4 pt-4 border-t border-gray-100">
-                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="btn-action btn-action-secondary btn-sm disabled:opacity-40">Prev</button>
+                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="btn-action btn-action-secondary btn-xs disabled:opacity-40">Prev</button>
                 <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
-                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="btn-action btn-action-secondary btn-sm disabled:opacity-40">Next</button>
+                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="btn-action btn-action-secondary btn-xs disabled:opacity-40">Next</button>
               </div>
             )}
 
@@ -544,10 +554,10 @@ export default function PurchaseOrdersPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={handleDeleteSelected} disabled={isBusy}
-                    className="btn-action btn-action-danger btn-sm inline-flex items-center gap-1.5 disabled:opacity-50">
+                    className="btn-action btn-action-danger btn-xs inline-flex items-center gap-1.5 disabled:opacity-50">
                     <Trash2 size={12} /> Delete selected
                   </button>
-                  <button onClick={() => setSelectedOrders(new Set())} className="btn-action btn-action-secondary btn-sm">Clear</button>
+                  <button onClick={() => setSelectedOrders(new Set())} className="btn-action btn-action-secondary btn-xs">Clear</button>
                 </div>
               </div>
             )}
