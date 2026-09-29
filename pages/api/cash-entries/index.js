@@ -44,7 +44,7 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     try {
-      const { purpose, party, amount, date, reference, notes, location } = req.body || {};
+      const { purpose, party, amount, date, reference, notes, location, accountName, accountNumber, bankName } = req.body || {};
 
       const rule = findPurpose(purpose);
       if (!rule || rule.needsVendor) {
@@ -60,6 +60,9 @@ export default async function handler(req, res) {
         direction: purposeDirection(purpose),
         purpose,
         party: sanitizePlainText(party || rule.defaultParty || ""),
+        accountName: sanitizePlainText(accountName || ""),
+        accountNumber: sanitizePlainText(accountNumber || ""),
+        bankName: sanitizePlainText(bankName || ""),
         amount: Math.round(value * 100) / 100,
         date: date ? new Date(date) : new Date(),
         reference: sanitizePlainText(reference || ""),

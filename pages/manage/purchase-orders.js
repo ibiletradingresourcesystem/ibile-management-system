@@ -8,7 +8,7 @@ import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import SeedDataModal from "@/components/SeedDataModal";
 import { amountStoreOwes, deriveVendorCredit } from "@/lib/orderPayments";
-import { CASH_PURPOSES, describeCashEntry, findPurpose } from "@/lib/cashEntries";
+import { CASH_PURPOSES, cashEntryAsRow, countsAsBusinessSpend, describeCashEntry, findPurpose } from "@/lib/cashEntries";
 import { Plus, X, Database, Trash2, ChevronDown, AlertTriangle, CheckCircle2, CreditCard, Mail, MessageCircle, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 
 const STATUS_COLORS = {
@@ -124,7 +124,8 @@ export default function PurchaseOrdersPage() {
   // Quick Entry
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [quickForm, setQuickForm] = useState({
-    vendor: "", party: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "vendor-payment",
+    vendor: "", party: "", accountName: "", accountNumber: "", bankName: "",
+    amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "vendor-payment",
   });
   // What the money was for decides which way it runs and where it lands.
   const quickPurpose = findPurpose(quickForm.purpose) || CASH_PURPOSES[0];
@@ -209,8 +210,9 @@ export default function PurchaseOrdersPage() {
   const totalCreditValue = useMemo(() => creditOrders.reduce((s, o) => s + creditOn(o), 0), [creditOrders]);
 
   const paidSummary = useMemo(() => {
-    // Anything with money against it, whatever the order is labelled.
-    let filtered = orders.filter((o) => toNumber(o.paymentMade) > 0);
+    // Anything with money against it, whatever it is labelled — a refund given
+    // last month belongs in last month as much as a vendor payment does.
+    let filtered = trackerRows.filter((o) => toNumber(o.paymentMade) > 0);
 
     // Apply paid filter period
     const now = new Date();
@@ -226,32 +228,55 @@ export default function PurchaseOrdersPage() {
         return true;
       });
     }
+    // Money that bought the business nothing is listed but never totalled: a
+    // refund of a customer's own money is not what the business spent.
+    const spend = filtered.filter(countsAsBusinessSpend);
+    const other = filtered.filter((row) => !countsAsBusinessSpend(row));
+
     return {
-      total: filtered.reduce((s, o) => s + toNumber(o.paymentMade), 0),
-      count: filtered.length,
-      // The very rows that were counted, so the table can show them.
+      total: spend.reduce((s, o) => s + toNumber(o.paymentMade), 0),
+      count: spend.length,
+      // Shown under the figure, so what is left out is never a surprise.
+      excluded: other.reduce((s, o) => s + Math.abs(toNumber(o.signedAmount)), 0),
+      excludedCount: other.length,
+      // The very rows that were counted, plus the ones held apart, so the table
+      // under the card shows the period as a whole.
       orders: filtered,
     };
-  }, [orders, paidFilter]);
+  }, [trackerRows, paidFilter]);
+
+  /**
+   * Every line of money the tracker knows about: the vendor orders, and the
+   * entries that never had a vendor. One list, so a period filter or a search
+   * finds all of it at once.
+   */
+  const trackerRows = useMemo(
+    () => [
+      ...orders.map((order) => ({ ...order, kind: "order" })),
+      ...cashEntries.map(cashEntryAsRow),
+    ],
+    [orders, cashEntries]
+  );
 
   const vendorNames = useMemo(() => [...new Set(orders.map((o) => o.vendorName).filter(Boolean))].sort(), [orders]);
 
   const filteredOrdersForTable = useMemo(() => {
-    let list = orders;
+    let list = trackerRows;
     if (tableFilter === "overdue") list = overdueOrders;
     else if (tableFilter === "outstanding") list = outstandingOrders;
     else if (tableFilter === "paid") list = paidSummary.orders;
     if (vendorFilter) list = list.filter((o) => o.vendorName === vendorFilter);
     if (search) { const s = search.toLowerCase(); list = list.filter((o) => o.vendorName?.toLowerCase().includes(s) || o.orderRef?.toLowerCase().includes(s) || (o.products || []).some(p => (p.name || "").toLowerCase().includes(s))); }
     return [...list].sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-  }, [orders, tableFilter, overdueOrders, outstandingOrders, paidSummary, vendorFilter, search]);
+  }, [trackerRows, tableFilter, overdueOrders, outstandingOrders, paidSummary, vendorFilter, search]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrdersForTable.length / entriesPerPage));
   const paginatedOrders = filteredOrdersForTable.slice((currentPage - 1) * entriesPerPage, currentPage * entriesPerPage);
   useEffect(() => { setCurrentPage(1); setEditIndex(null); }, [tableFilter, search, vendorFilter]);
 
-  const allFilteredSelected = filteredOrdersForTable.length > 0 && filteredOrdersForTable.every((o) => selectedOrders.has(o._id));
-  const someFilteredSelected = filteredOrdersForTable.some((o) => selectedOrders.has(o._id));
+  const selectableRows = filteredOrdersForTable.filter(countsAsBusinessSpend);
+  const allFilteredSelected = selectableRows.length > 0 && selectableRows.every((o) => selectedOrders.has(o._id));
+  const someFilteredSelected = selectableRows.some((o) => selectedOrders.has(o._id));
 
   // Quick check total for selected
   const selectedTotal = useMemo(() => {
@@ -307,7 +332,8 @@ export default function PurchaseOrdersPage() {
 
   function resetQuickForm() {
     setQuickForm({
-      vendor: "", party: "", amount: "", paymentDate: new Date().toISOString().split("T")[0],
+      vendor: "", party: "", accountName: "", accountNumber: "", bankName: "",
+      amount: "", paymentDate: new Date().toISOString().split("T")[0],
       notes: "", products: "", purpose: "vendor-payment",
     });
   }
@@ -338,6 +364,9 @@ export default function PurchaseOrdersPage() {
         const { data } = await apiClient.post("/api/cash-entries", {
           purpose: quickForm.purpose,
           party: quickForm.party,
+          accountName: quickForm.accountName,
+          accountNumber: quickForm.accountNumber,
+          bankName: quickForm.bankName,
           amount: Number(quickForm.amount),
           date: quickForm.paymentDate,
           notes: quickForm.notes,
@@ -432,7 +461,7 @@ export default function PurchaseOrdersPage() {
             <h1 className="page-title">Vendor Payment Tracker</h1>
             <div className="flex items-center gap-3">
               <button onClick={() => setShowQuickEntry(true)} className="btn-action btn-action-primary flex items-center gap-2">
-                <Plus size={16} /> Money Entry
+                <Plus size={16} /> Quick Entry
               </button>
               {isAdmin && (
                 <button onClick={() => setShowSeed(true)} className="btn-action btn-action-secondary flex items-center gap-2">
@@ -546,6 +575,14 @@ export default function PurchaseOrdersPage() {
                 </p>
                 <p className="mt-2 text-[11px] opacity-80">
                   {paidSummary.count} {paidSummary.count === 1 ? "order" : "orders"}
+                  {paidSummary.excludedCount > 0 && (
+                    <>
+                      {" · "}
+                      <span title="Refunds and owner draws are listed below but not counted: the business bought nothing with them">
+                        {formatCurrency(paidSummary.excluded, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} in refunds and draws not counted
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -566,48 +603,6 @@ export default function PurchaseOrdersPage() {
               </div>
             </div>
           </div>
-
-          {/* Money that was never a vendor order: a customer refunded, cash the
-              owner took, funds held for somebody. Kept out of the vendor totals
-              above, because none of it is owed to or by a vendor. */}
-          {cashEntries.length > 0 && (
-            <div className="content-card mb-4">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-gray-800">Other Money In &amp; Out</p>
-                  <p className="text-[11px] text-gray-500">Entries that are not vendor orders — they do not count towards the totals above.</p>
-                </div>
-                <span className="text-xs text-gray-500 flex-shrink-0">{cashEntries.length} recent</span>
-              </div>
-              <ul className="space-y-2">
-                {cashEntries.map((entry) => (
-                  <li key={entry._id} className="flex flex-wrap items-center justify-between gap-2 text-xs bg-gray-50 px-3 py-2 rounded-lg border">
-                    <span className="flex items-center gap-2 min-w-0">
-                      {entry.direction === "in"
-                        ? <ArrowDownLeft size={14} className="text-green-600 flex-shrink-0" />
-                        : <ArrowUpRight size={14} className="text-red-500 flex-shrink-0" />}
-                      <span className="truncate">{describeCashEntry(entry)}</span>
-                      <span className="text-gray-400 flex-shrink-0">{entry.date ? new Date(entry.date).toLocaleDateString() : ""}</span>
-                    </span>
-                    <span className="flex items-center gap-3 flex-shrink-0">
-                      <span className={`font-semibold tabular-nums ${entry.direction === "in" ? "text-green-700" : "text-red-600"}`}>
-                        {entry.direction === "in" ? "+" : "−"}{formatCurrency(entry.amount, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      </span>
-                      {isAdmin && (
-                        <button
-                          onClick={() => handleDeleteCashEntry(entry)}
-                          aria-label={`Delete ${describeCashEntry(entry)}`}
-                          className="btn-action btn-action-danger btn-xs inline-flex items-center justify-center"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
 
           {/* Vendor Filter + Search */}
           <div className="content-card mb-4">
@@ -632,7 +627,7 @@ export default function PurchaseOrdersPage() {
                     <input type="checkbox" aria-label="Select all matching orders"
                       ref={(el) => { if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected; }}
                       checked={allFilteredSelected}
-                      onChange={(e) => { setSelectedOrders((prev) => { const next = new Set(prev); filteredOrdersForTable.forEach(o => { if (e.target.checked) next.add(o._id); else next.delete(o._id); }); return next; }); }} />
+                      onChange={(e) => { setSelectedOrders((prev) => { const next = new Set(prev); selectableRows.forEach(o => { if (e.target.checked) next.add(o._id); else next.delete(o._id); }); return next; }); }} />
                   </th>
                   <th>Date</th>
                   <th>Vendor</th>
@@ -650,18 +645,36 @@ export default function PurchaseOrdersPage() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {paginatedOrders.map((order, idx) => (
-                  <tr key={order._id ?? idx} className="align-middle hover:bg-gray-50 transition">
+                  <tr key={order._id ?? idx} className={`align-middle transition ${order.kind === "cash" ? "bg-gray-50/60 hover:bg-gray-100" : "hover:bg-gray-50"}`}>
                     <td className="text-center">
-                      <input type="checkbox" checked={selectedOrders.has(order._id)}
-                        onChange={() => toggleCheck(order._id)} />
+                      {order.kind === "cash" ? (
+                        <span className="text-gray-300" title="Not a vendor order">—</span>
+                      ) : (
+                        <input type="checkbox" checked={selectedOrders.has(order._id)}
+                          onChange={() => toggleCheck(order._id)} />
+                      )}
                     </td>
                     <td className="text-gray-700 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"}</td>
                     <td className="font-medium text-gray-800">{order.vendorName || "—"}</td>
                     <td className="text-xs text-gray-500">{order.contact || "—"}</td>
-                    <td className="text-xs text-gray-600 max-w-[16rem] truncate" title={order.products?.[0]?.name || ""}>{order.products?.[0]?.name || "—"}</td>
-                    <td className="text-right whitespace-nowrap tabular-nums">{formatCurrency(order.grandTotal)}</td>
+                    <td className="text-xs text-gray-600 max-w-[16rem] truncate" title={order.productLabel || order.products?.[0]?.name || ""}>
+                      {order.kind === "cash" ? order.productLabel : order.products?.[0]?.name || "—"}
+                    </td>
                     <td className="text-right whitespace-nowrap tabular-nums">
-                      {editIndex === idx ? (
+                      {order.kind === "cash" ? (
+                        <span className={order.direction === "in" ? "text-green-700" : "text-red-600"} title={order.direction === "in" ? "Money in" : "Money out — buys the business nothing"}>
+                          {order.direction === "in" ? "+" : "−"}{formatCurrency(order.grandTotal)}
+                        </span>
+                      ) : (
+                        formatCurrency(order.grandTotal)
+                      )}
+                    </td>
+                    <td className="text-right whitespace-nowrap tabular-nums">
+                      {order.kind === "cash" ? (
+                        <span className={order.direction === "in" ? "text-green-700" : "text-red-600"}>
+                          {order.direction === "in" ? "+" : "−"}{formatCurrency(order.paymentMade)}
+                        </span>
+                      ) : editIndex === idx ? (
                         <div className="flex flex-col items-end gap-1">
                           <input type="number" value={editedPayment} onChange={(e) => setEditedPayment(e.target.value)} className="form-input text-sm w-24 text-right" />
                           <div className="flex gap-2">
@@ -681,6 +694,7 @@ export default function PurchaseOrdersPage() {
                     </td>
                     <td className="text-right whitespace-nowrap tabular-nums">
                       {(() => {
+                        if (order.kind === "cash") return <span className="text-gray-400">—</span>;
                         const credit = creditOn(order);
                         if (credit > 0) {
                           return (
@@ -693,8 +707,21 @@ export default function PurchaseOrdersPage() {
                         return owed > 0 ? formatCurrency(owed) : <span className="text-gray-400">—</span>;
                       })()}
                     </td>
-                    <td className="text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${STATUS_COLORS[order.status] || "bg-gray-100 text-gray-700"}`}>{order.status || "Not Paid"}</span></td>
                     <td className="text-center">
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${
+                        order.kind === "cash"
+                          ? order.direction === "in" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
+                          : STATUS_COLORS[order.status] || "bg-gray-100 text-gray-700"
+                      }`}>
+                        {order.status || "Not Paid"}
+                      </span>
+                    </td>
+                    <td className="text-center">
+                      {order.kind === "cash" ? (
+                        <span className="text-[10px] font-semibold text-gray-500 whitespace-nowrap">
+                          {order.direction === "in" ? "Money in" : "Money out"}
+                        </span>
+                      ) : (
                       <button
                         onClick={async () => {
                           setIsBusy(true);
@@ -713,12 +740,21 @@ export default function PurchaseOrdersPage() {
                       >
                         {order.payBeforeSupply ? "Pre-Pay" : "Outstanding"}
                       </button>
+                      )}
                     </td>
                     <td className="text-center">
-                      <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="btn-action btn-action-secondary btn-xs inline-block">Memo</a>
+                      <a
+                        href={`/memo/${order._id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-action btn-action-secondary btn-xs inline-block"
+                        title={order.kind === "cash" ? "Raise a transfer memo for this payment" : "Raise a transfer memo for this order"}
+                      >
+                        Memo
+                      </a>
                     </td>
                     <td className="text-center">
-                      <button onClick={() => handleDelete(order)} disabled={isBusy}
+                      <button onClick={() => (order.kind === "cash" ? handleDeleteCashEntry(order.entry) : handleDelete(order))} disabled={isBusy}
                         aria-label={`Delete order for ${order.vendorName || "vendor"}`}
                         className="btn-action btn-action-danger btn-xs inline-flex items-center justify-center disabled:opacity-50">
                         <Trash2 size={14} />
@@ -765,7 +801,7 @@ export default function PurchaseOrdersPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowQuickEntry(false)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h2 className="text-lg font-bold">Quick Money Entry</h2>
+              <h2 className="text-lg font-bold">Quick Entry</h2>
               <button onClick={() => { setShowQuickEntry(false); resetQuickForm(); }} aria-label="Close" className="text-gray-400 hover:text-gray-700 transition"><X size={18} /></button>
             </div>
             <form onSubmit={handleQuickEntrySubmit} className="p-5 space-y-4">
@@ -838,6 +874,27 @@ export default function PurchaseOrdersPage() {
                   <input type="text" value={quickForm.products} onChange={(e) => setQuickForm({ ...quickForm, products: e.target.value })} className="form-input" placeholder="e.g. Rice, Beans" />
                 </div>
               )}
+              {!quickPurpose.needsVendor && quickPurpose.direction === "out" && (
+                <div className="rounded-lg border theme-border-soft bg-gray-50 p-3 space-y-3">
+                  <p className="text-xs font-semibold text-gray-700">Where it is paid</p>
+                  <p className="text-[11px] text-gray-500 -mt-2">Filled into the transfer memo, the same as a vendor payment.</p>
+                  <div>
+                    <label className="form-label">Account Name</label>
+                    <input type="text" value={quickForm.accountName} onChange={(e) => setQuickForm({ ...quickForm, accountName: e.target.value })} className="form-input" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="form-label">Account Number</label>
+                      <input type="text" inputMode="numeric" value={quickForm.accountNumber} onChange={(e) => setQuickForm({ ...quickForm, accountNumber: e.target.value })} className="form-input" />
+                    </div>
+                    <div>
+                      <label className="form-label">Bank</label>
+                      <input type="text" value={quickForm.bankName} onChange={(e) => setQuickForm({ ...quickForm, bankName: e.target.value })} className="form-input" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="form-label">Notes</label>
                 <textarea value={quickForm.notes} onChange={(e) => setQuickForm({ ...quickForm, notes: e.target.value })} className="form-input" rows={2} />

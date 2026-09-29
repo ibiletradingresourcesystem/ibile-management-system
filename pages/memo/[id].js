@@ -27,13 +27,44 @@ export default function PaymentMemoPage() {
   useEffect(() => {
     if (!id) return;
 
+    /**
+     * A memo is raised for a vendor order or for a payment that never had a
+     * vendor — a refund to a customer, cash taken by the owner. They are separate
+     * records, so the order is looked for first and the cash entry after.
+     */
+    async function loadPayable() {
+      try {
+        const order = await axios.get(`/api/purchase-orders/${id}`);
+        return order.data?.order || order.data;
+      } catch {
+        const cash = await axios.get(`/api/cash-entries/${id}`);
+        const entry = cash.data?.entry;
+        if (!entry) return null;
+        return {
+          _id: entry._id,
+          vendorName: entry.party || "Cash payment",
+          date: entry.date,
+          grandTotal: entry.amount,
+          balance: entry.amount,
+          paymentMade: 0,
+          notes: entry.notes || "",
+          products: [],
+          isCashEntry: true,
+          cashPurpose: entry.purpose,
+          accountName: entry.accountName || "",
+          accountNumber: entry.accountNumber || "",
+          bankName: entry.bankName || "",
+        };
+      }
+    }
+
     async function fetchOrder() {
       try {
-        const [orderRes, setupRes] = await Promise.all([
-          axios.get(`/api/purchase-orders/${id}`),
+        const [o, setupRes] = await Promise.all([
+          loadPayable(),
           fetch("/api/setup/get").then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
-        const o = orderRes.data?.order || orderRes.data;
+        if (!o) { setOrder(null); return; }
         setOrder(o);
 
         // Load store settings for directors and accounts
@@ -51,6 +82,18 @@ export default function PaymentMemoPage() {
         setMemoAccounts(accounts);
         if (directors.length > 0) setSelectedDirector(directors[0]);
         if (accounts.length > 0) setSelectedAccount(accounts[0].accountNumber || accounts[0].accountName);
+
+        // A cash entry carries its own bank details; there is no vendor record
+        // behind it to read them from.
+        if (o.isCashEntry) {
+          setForm({
+            accountName: o.accountName || o.vendorName || "",
+            accountNumber: o.accountNumber || "",
+            bankName: o.bankName || "",
+            amount: o.grandTotal || 0,
+          });
+          return;
+        }
 
         // Pre-fill from vendor bank details
         // Note: some vendors have accountName/accountNumber swapped in DB

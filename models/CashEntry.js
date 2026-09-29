@@ -19,6 +19,11 @@ const CashEntrySchema = new Schema(
     /** Who the money went to, or came from. */
     party: { type: String, trim: true, default: "" },
 
+    /** Where it is paid, so a transfer memo can be raised for it like any other. */
+    accountName: { type: String, trim: true, default: "" },
+    accountNumber: { type: String, trim: true, default: "" },
+    bankName: { type: String, trim: true, default: "" },
+
     amount: { type: Number, required: true },
     date: { type: Date, default: Date.now, index: true },
 

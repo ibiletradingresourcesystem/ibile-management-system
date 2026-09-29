@@ -20,6 +20,16 @@ export default async function handler(req, res) {
 
   await mongooseConnect();
 
+  if (req.method === "GET") {
+    try {
+      const entry = await CashEntry.findById(id).lean();
+      if (!entry) return res.status(404).json({ error: "Entry not found" });
+      return res.status(200).json({ success: true, entry });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   if (req.method === "DELETE") {
     // Deleting money out of the books is an administrator's call.
     if (!isAdmin(req)) return res.status(403).json({ error: "Admin access required" });
