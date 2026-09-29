@@ -13,6 +13,12 @@ const PrintMemo = forwardRef(
     const today = new Date().toISOString().split("T")[0];
     const activeDirector = selectedDirector || "Director";
     const accountLabel = selectedAccount || "Main Account";
+    // Enough to tell the paying account apart, and no more: a file name gets
+    // mailed around, and the whole number does not belong in one.
+    const payingAccountLabel = (() => {
+      const digits = String(accountLabel).replace(/[^0-9]/g, "");
+      return digits.length >= 4 ? digits.slice(-4) : accountLabel;
+    })();
 
     useImperativeHandle(ref, () => ({
       generatePDF: async () => {
@@ -33,7 +39,7 @@ const PrintMemo = forwardRef(
 
         pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
         pdf.save(
-          `Transfer Instruction ${today} (From ${accountLabel} to ${companyName}).pdf`
+          `Transfer Instruction ${today} (From ${payingAccountLabel} to ${companyName}).pdf`
         );
         onDownloading(false);
       },
@@ -193,13 +199,11 @@ const PrintMemo = forwardRef(
                     </p>
                   </>
                 ) : (
-                  order.vendor && (
-                    <div>
-                      <p>Account Name: {form.accountName}</p>
-                      <p>Account Number: {form.accountNumber}</p>
-                      <p>Bank Name: {form.bankName}</p>
-                    </div>
-                  )
+                  <div>
+                    <p>Account Name: {form.accountName || "—"}</p>
+                    <p>Account Number: {form.accountNumber || "—"}</p>
+                    <p>Bank Name: {form.bankName || "—"}</p>
+                  </div>
                 )}
               </div>
 
