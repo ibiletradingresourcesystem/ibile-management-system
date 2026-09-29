@@ -3,7 +3,7 @@ import EndOfDayReport from "@/models/EndOfDayReport";
 import Transaction from "@/models/Transactions";
 import Store from "@/models/Store";
 import Till from "@/models/Till";
-import DailyCash from "@/models/DailyCash";
+import { updateDailyCashChain } from "@/lib/dailyCashChain";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 
 function startOfToday() {
@@ -180,9 +180,11 @@ export default async function handler(req, res) {
       const expectedClosingBalance =
         safeNumber(openReport.openingBalance, 0) + safeNumber(totalSales, 0);
       const safePhysicalCount = safeNumber(physicalCount, 0);
-      const variance = safePhysicalCount - expectedClosingBalance;
+      // The count is of takings, not of the drawer, so the float is not part of it: comparing it
+      // with the float-inclusive closing balance reported a shortage the size of the float.
+      const variance = safePhysicalCount - safeNumber(totalSales, 0);
       const variancePercentage =
-        expectedClosingBalance > 0 ? (variance / expectedClosingBalance) * 100 : 0;
+        totalSales > 0 ? (variance / safeNumber(totalSales, 1)) * 100 : 0;
       const status = Math.abs(variance) < 1 ? "RECONCILED" : "VARIANCE_NOTED";
 
       const closedReport = await EndOfDayReport.findByIdAndUpdate(
@@ -216,29 +218,15 @@ export default async function handler(req, res) {
         });
       }
 
-      // Auto-create daily cash entry from EOD cash tender
-      const cashTenderAmount = tenderBreakdown.get("CASH") || 0;
-      if (locationName && cashTenderAmount > 0) {
-        const businessDay = openReport.date || startOfToday();
-        const dayStart = new Date(businessDay);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
-
-        await DailyCash.findOneAndUpdate(
-          { date: { $gte: dayStart, $lt: dayEnd }, location: locationName },
-          {
-            $set: {
-              date: dayStart,
-              amount: cashTenderAmount,
-              location: locationName,
-              staffName: staffName || "",
-              source: "pos",
-              posSessionId: String(openReport.tillId || ""),
-            },
-          },
-          { upsert: true, new: true }
-        );
+      // The day's cash entry: rebuilt from every till that closed that day, counting what was
+      // actually in the drawer. Overwriting it with this till's cash sales lost the other tills and
+      // reported the expected figure rather than the counted one.
+      if (locationName) {
+        await updateDailyCashChain({
+          location: locationName,
+          locationId,
+          date: openReport.date || startOfToday(),
+        }).catch((error) => console.warn("Daily cash update failed:", error.message));
       }
 
       return res.status(200).json({

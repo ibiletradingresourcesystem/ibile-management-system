@@ -484,8 +484,16 @@ export default function EndOfDayReporting() {
                                 <h4 className="font-semibold text-gray-800 mb-2">Closing Info</h4>
                                 <div className="space-y-1 text-sm">
                                   <p><span className="text-gray-500">Closed At:</span> {report.closedAt ? new Date(report.closedAt).toLocaleString("en-NG") : "N/A"}</p>
-                                  <p><span className="text-gray-500">Physical Count:</span> {(report.physicalCount || 0).toLocaleString()}</p>
-                                  <p><span className="text-gray-500">Expected Balance:</span> {(report.expectedClosingBalance || 0).toLocaleString()}</p>
+                                  <p><span className="text-gray-500">Counted (takings):</span> {(report.physicalCount || 0).toLocaleString()}</p>
+                                  <p><span className="text-gray-500">Expected takings:</span> {Number(report.expectedTakings ?? ((report.expectedClosingBalance || 0) - (report.openingBalance || 0))).toLocaleString()}</p>
+                                  <p><span className="text-gray-500">Drawer at close:</span> {(report.expectedClosingBalance || 0).toLocaleString()} <span className="text-gray-400">(incl. float)</span></p>
+                                  <p>
+                                    <span className="text-gray-500">Cash counted:</span>{" "}
+                                    {report.countedCash === null || report.countedCash === undefined
+                                      ? "not counted separately"
+                                      : Number(report.countedCash).toLocaleString()}
+                                    <span className="text-gray-400"> of {Number(report.expectedCash || 0).toLocaleString()} expected</span>
+                                  </p>
                                 </div>
                               </div>
                               

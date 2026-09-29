@@ -28,12 +28,28 @@ const EndOfDayReportSchema = new mongoose.Schema({
   totalSales: Number,
   transactionCount: Number,
   
-  // Tender Breakdown
+  // Tender Breakdown: what was processed on each tender…
   tenderBreakdown: {
     type: Map,
     of: Number,
     default: {},
   },
+  // …what staff counted on each at close, and the difference. The till sends these; without them
+  // the cash figure here would be the expected one rather than the money actually in the drawer.
+  tenderActual: {
+    type: Map,
+    of: Number,
+    default: {},
+  },
+  tenderVariances: {
+    type: Map,
+    of: new mongoose.Schema(
+      { processed: Number, counted: Number, variance: Number },
+      { _id: false }
+    ),
+    default: {},
+  },
+  locationName: String,
   
   // Additional Info
   closingNotes: String,

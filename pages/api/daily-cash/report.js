@@ -1,9 +1,19 @@
+/**
+ * API: GET /api/daily-cash/report?location=&date=
+ *
+ * One day's cash for a location: brought forward, taken, paid out, at hand — and the days behind it,
+ * which are rebuilt on the way (see lib/dailyCashChain.js), so a day nobody opened does not leave the
+ * ones after it carrying a stale figure.
+ *
+ * The cash taken is what the tills *counted* at close, not what the sales say should be there. Those
+ * differ whenever a drawer is over or short, and the point of the entry is the money that is
+ * actually in hand.
+ */
 import { mongooseConnect } from "@/lib/mongodb";
-import DailyCash from "@/models/DailyCash";
 import Expense from "@/models/Expense";
-import EndOfDayReport from "@/models/EndOfDayReport";
 import Store from "@/models/Store";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { updateDailyCashChain, startOfDay } from "@/lib/dailyCashChain";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -15,79 +25,34 @@ export default async function handler(req, res) {
   const { location, date } = req.query;
   if (!location) return res.status(400).json({ error: "Location is required" });
 
-  const targetDate = date ? new Date(date) : new Date();
-  targetDate.setHours(0, 0, 0, 0);
+  const targetDate = startOfDay(date ? new Date(date) : new Date());
   const nextDay = new Date(targetDate);
   nextDay.setDate(nextDay.getDate() + 1);
 
-  // Get cash entry for the day
-  const cashEntry = await DailyCash.findOne({
-    location,
-    date: { $gte: targetDate, $lt: nextDay },
-  }).lean();
+  // Till reports are keyed by location id; the entry itself is keyed by name
+  const store = await Store.findOne({}).select("locations").lean();
+  const locationId = store?.locations?.find((entry) => entry.name === location)?._id || null;
 
-  // Fallback: derive cash received from closed EOD report when no DailyCash amount
-  let cashReceived = cashEntry?.amount || 0;
-  if (cashReceived === 0) {
-    const store = await Store.findOne({}).select("locations").lean();
-    const storeLocation = store?.locations?.find((l) => l.name === location);
-    if (storeLocation) {
-      const eodReport = await EndOfDayReport.findOne({
-        locationId: storeLocation._id,
-        closedAt: { $ne: null },
-        date: { $gte: targetDate, $lt: nextDay },
-      }).select("tenderBreakdown").lean();
-      cashReceived = eodReport?.tenderBreakdown?.CASH || 0;
-    }
-  }
+  const day = await updateDailyCashChain({ location, locationId, date: targetDate });
 
-  // Get previous day's cash at hand
-  const prevCash = await DailyCash.findOne({
-    location,
-    date: { $lt: targetDate },
-  }).sort({ date: -1 }).lean();
-
-  const cashBroughtForward = prevCash?.cashAtHand || 0;
-  const totalCashAvailable = cashBroughtForward + cashReceived;
-
-  // Get expenses for the day
   const expenses = await Expense.find({
     locationName: location,
     createdAt: { $gte: targetDate, $lt: nextDay },
   }).lean();
 
-  const totalPayments = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-  const cashAtHand = totalCashAvailable - totalPayments;
-
-  // Update existing entry or create one from EOD data so the carried-forward chain builds up
-  if (cashEntry) {
-    await DailyCash.findByIdAndUpdate(cashEntry._id, {
-      cashBroughtForward,
-      totalPayments,
-      totalCashAvailable,
-      cashAtHand,
-    });
-  } else if (cashReceived > 0) {
-    await DailyCash.create({
-      date: targetDate,
-      amount: cashReceived,
-      location,
-      source: "pos",
-      cashBroughtForward,
-      totalPayments,
-      totalCashAvailable,
-      cashAtHand,
-    });
-  }
-
   return res.status(200).json({
     date: targetDate,
     location,
-    cashBroughtForward,
-    cashReceived,
-    totalCashAvailable,
-    totalPayments,
-    cashAtHand,
+    cashBroughtForward: day?.cashBroughtForward || 0,
+    cashReceived: day?.cashReceived || 0,
+    totalCashAvailable: day?.totalCashAvailable || 0,
+    totalPayments: day?.totalPayments || 0,
+    cashAtHand: day?.cashAtHand || 0,
+    // Where the figure came from, so a difference between the drawer and the sales is visible
+    expectedCash: day?.expectedCash || 0,
+    countedCash: Boolean(day?.countedCash),
+    tillsClosed: day?.tillsClosed || 0,
+    source: day?.source || "manual",
     expenses,
   });
 }
