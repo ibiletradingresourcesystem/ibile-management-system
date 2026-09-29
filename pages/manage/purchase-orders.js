@@ -432,7 +432,7 @@ export default function PurchaseOrdersPage() {
             <h1 className="page-title">Vendor Payment Tracker</h1>
             <div className="flex items-center gap-3">
               <button onClick={() => setShowQuickEntry(true)} className="btn-action btn-action-primary flex items-center gap-2">
-                <Plus size={16} /> Quick Entry
+                <Plus size={16} /> Money Entry
               </button>
               {isAdmin && (
                 <button onClick={() => setShowSeed(true)} className="btn-action btn-action-secondary flex items-center gap-2">
@@ -567,7 +567,49 @@ export default function PurchaseOrdersPage() {
             </div>
           </div>
 
-            {/* Vendor Filter + Search */}
+          {/* Money that was never a vendor order: a customer refunded, cash the
+              owner took, funds held for somebody. Kept out of the vendor totals
+              above, because none of it is owed to or by a vendor. */}
+          {cashEntries.length > 0 && (
+            <div className="content-card mb-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-800">Other Money In &amp; Out</p>
+                  <p className="text-[11px] text-gray-500">Entries that are not vendor orders — they do not count towards the totals above.</p>
+                </div>
+                <span className="text-xs text-gray-500 flex-shrink-0">{cashEntries.length} recent</span>
+              </div>
+              <ul className="space-y-2">
+                {cashEntries.map((entry) => (
+                  <li key={entry._id} className="flex flex-wrap items-center justify-between gap-2 text-xs bg-gray-50 px-3 py-2 rounded-lg border">
+                    <span className="flex items-center gap-2 min-w-0">
+                      {entry.direction === "in"
+                        ? <ArrowDownLeft size={14} className="text-green-600 flex-shrink-0" />
+                        : <ArrowUpRight size={14} className="text-red-500 flex-shrink-0" />}
+                      <span className="truncate">{describeCashEntry(entry)}</span>
+                      <span className="text-gray-400 flex-shrink-0">{entry.date ? new Date(entry.date).toLocaleDateString() : ""}</span>
+                    </span>
+                    <span className="flex items-center gap-3 flex-shrink-0">
+                      <span className={`font-semibold tabular-nums ${entry.direction === "in" ? "text-green-700" : "text-red-600"}`}>
+                        {entry.direction === "in" ? "+" : "−"}{formatCurrency(entry.amount, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleDeleteCashEntry(entry)}
+                          aria-label={`Delete ${describeCashEntry(entry)}`}
+                          className="btn-action btn-action-danger btn-xs inline-flex items-center justify-center"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Vendor Filter + Search */}
           <div className="content-card mb-4">
             <div className="flex flex-wrap gap-3 items-center">
               <label className="text-sm font-medium text-gray-700">Vendor:</label>
@@ -724,7 +766,7 @@ export default function PurchaseOrdersPage() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="text-lg font-bold">Quick Money Entry</h2>
-              <button onClick={() => setShowQuickEntry(false)} aria-label="Close"><X size={20} /></button>
+              <button onClick={() => { setShowQuickEntry(false); resetQuickForm(); }} aria-label="Close" className="text-gray-400 hover:text-gray-700 transition"><X size={18} /></button>
             </div>
             <form onSubmit={handleQuickEntrySubmit} className="p-5 space-y-4">
               {/* What it was for comes first: it decides which way the money runs,
@@ -750,8 +792,8 @@ export default function PurchaseOrdersPage() {
                 </select>
                 <p className="mt-1.5 flex items-start gap-1.5 text-xs text-gray-500">
                   {quickPurpose.direction === "in"
-                    ? <ArrowDownLeft size={13} className="mt-0.5 flex-shrink-0 text-green-600" />
-                    : <ArrowUpRight size={13} className="mt-0.5 flex-shrink-0 text-red-500" />}
+                    ? <ArrowDownLeft size={14} className="mt-0.5 flex-shrink-0 text-green-600" />
+                    : <ArrowUpRight size={14} className="mt-0.5 flex-shrink-0 text-red-500" />}
                   <span>{quickPurpose.hint}</span>
                 </p>
               </div>
