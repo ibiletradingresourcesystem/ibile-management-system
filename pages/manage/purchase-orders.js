@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Layout from "@/components/Layout";
 import { Loader } from "@/components/ui";
 import { apiClient } from "@/lib/api-client";
@@ -8,7 +8,7 @@ import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import SeedDataModal from "@/components/SeedDataModal";
 import { amountStoreOwes, deriveVendorCredit } from "@/lib/orderPayments";
-import { Plus, X, Database, Trash2 } from "lucide-react";
+import { Plus, X, Database, Trash2, ChevronDown } from "lucide-react";
 
 const STATUS_COLORS = {
   "Not Paid": "bg-red-100 text-red-700",
@@ -16,6 +16,84 @@ const STATUS_COLORS = {
   Paid: "bg-green-100 text-green-700",
   Credit: "bg-purple-100 text-purple-700",
 };
+
+/** The periods the Total Paid card can be read over. */
+const PAID_PERIODS = [
+  ["thisMonth", "This Month"],
+  ["lastMonth", "Last Month"],
+  ["thisWeek", "This Week"],
+  ["lastWeek", "Last Week"],
+  ["tillDate", "Till Date"],
+];
+
+/**
+ * The period pill on the Total Paid card.
+ *
+ * A native select cannot be styled through its open state: the browser paints the
+ * control with the system background while the list is down, which turned the
+ * white label invisible on the green card. The menu is ours, so both states are
+ * readable — and it still closes on Escape, on a click outside, and on a choice.
+ */
+function PeriodPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  const label = PAID_PERIODS.find(([key]) => key === value)?.[1] || "This Month";
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutside = (event) => {
+      if (boxRef.current && !boxRef.current.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={boxRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((isOpen) => !isOpen)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Period for total paid"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-white/20 hover:bg-white/30 border border-white/40 rounded-full px-3 py-1 transition focus:outline-none focus:ring-2 focus:ring-white/70"
+      >
+        {label}
+        <ChevronDown size={12} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
+      </button>
+
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute left-1/2 -translate-x-1/2 mt-1 z-20 w-36 bg-white text-gray-800 rounded-xl shadow-xl border border-gray-200 overflow-hidden py-1"
+        >
+          {PAID_PERIODS.map(([key, text]) => (
+            <li key={key}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={key === value}
+                onClick={() => { onChange(key); setOpen(false); }}
+                className={`w-full text-left text-xs px-3 py-2 transition hover:bg-gray-100 ${
+                  key === value ? "bg-emerald-50 text-emerald-700 font-semibold" : ""
+                }`}
+              >
+                {text}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export default function PurchaseOrdersPage() {
   const [orders, setOrders] = useState([]);
@@ -364,21 +442,10 @@ export default function PurchaseOrdersPage() {
                   figure in whole naira, because tens of millions with kobo on the end
                   ran past the edge of the card. */}
               <div className="bg-gradient-to-br from-emerald-500 to-green-600 text-white p-5 rounded-2xl shadow-lg text-center">
-                {/* Solid green rather than a wash of white: the translucent version
-                    went white-on-white the moment the list opened. Each option
-                    carries its own colours for the same reason. */}
-                <select
+                <PeriodPicker
                   value={paidFilter}
-                  onChange={(e) => { setPaidFilter(e.target.value); setTableFilter("paid"); }}
-                  aria-label="Period for total paid"
-                  className="mx-auto block text-center text-xs font-medium text-white bg-emerald-700 border border-white/40 rounded-full px-3 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/70"
-                >
-                  <option value="tillDate" className="bg-white text-gray-900">Till Date</option>
-                  <option value="thisWeek" className="bg-white text-gray-900">This Week</option>
-                  <option value="lastWeek" className="bg-white text-gray-900">Last Week</option>
-                  <option value="thisMonth" className="bg-white text-gray-900">This Month</option>
-                  <option value="lastMonth" className="bg-white text-gray-900">Last Month</option>
-                </select>
+                  onChange={(next) => { setPaidFilter(next); setTableFilter("paid"); }}
+                />
 
                 <p className="mt-3 text-xs uppercase tracking-widest font-semibold opacity-90">Total Paid</p>
                 <p
@@ -423,11 +490,11 @@ export default function PurchaseOrdersPage() {
           </div>
 
           {/* Table */}
-          <div className="content-card overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="data-table-container">
+            <table className="data-table text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-gray-600 text-xs uppercase">
-                  <th className="py-3 px-2 w-8">
+                <tr>
+                  <th className="w-8 text-center">
                     {/* Ticks every order the filters leave, not just the page on screen —
                         the totals below are only useful over the whole set. */}
                     <input type="checkbox" aria-label="Select all matching orders"
@@ -435,33 +502,33 @@ export default function PurchaseOrdersPage() {
                       checked={allFilteredSelected}
                       onChange={(e) => { setSelectedOrders((prev) => { const next = new Set(prev); filteredOrdersForTable.forEach(o => { if (e.target.checked) next.add(o._id); else next.delete(o._id); }); return next; }); }} />
                   </th>
-                  <th className="py-3 px-3 text-left">Date</th>
-                  <th className="py-3 px-3 text-left">Vendor</th>
-                  <th className="py-3 px-3 text-left">Contact</th>
-                  <th className="py-3 px-3 text-left">Products</th>
-                  <th className="py-3 px-3 text-right">Total</th>
-                  <th className="py-3 px-3 text-right">Paid</th>
-                  <th className="py-3 px-3 text-left">Pay Date</th>
-                  <th className="py-3 px-3 text-right">Balance</th>
-                  <th className="py-3 px-3 text-left">Status</th>
-                  <th className="py-3 px-3 text-center">Type</th>
-                  <th className="py-3 px-3 text-center">Memo</th>
-                  <th className="py-3 px-3 text-center">Delete</th>
+                  <th>Date</th>
+                  <th>Vendor</th>
+                  <th>Contact</th>
+                  <th>Products</th>
+                  <th className="text-right">Total</th>
+                  <th className="text-right">Paid</th>
+                  <th>Pay Date</th>
+                  <th className="text-right">Balance</th>
+                  <th className="text-center">Status</th>
+                  <th className="text-center">Type</th>
+                  <th className="text-center">Memo</th>
+                  <th className="text-center">Delete</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {paginatedOrders.map((order, idx) => (
-                  <tr key={order._id ?? idx} className="hover:bg-gray-50 transition">
-                    <td className="py-3 px-2">
+                  <tr key={order._id ?? idx} className="align-middle hover:bg-gray-50 transition">
+                    <td className="text-center">
                       <input type="checkbox" checked={selectedOrders.has(order._id)}
                         onChange={() => toggleCheck(order._id)} />
                     </td>
-                    <td className="py-3 px-3 text-gray-700 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"}</td>
-                    <td className="py-3 px-3 font-medium text-gray-800">{order.vendorName || "—"}</td>
-                    <td className="py-3 px-3 text-xs text-gray-500">{order.contact || "—"}</td>
-                    <td className="py-3 px-3 text-xs text-gray-600">{order.products?.[0]?.name || "—"}</td>
-                    <td className="py-3 px-3 text-right whitespace-nowrap">{formatCurrency(order.grandTotal)}</td>
-                    <td className="py-3 px-3 text-right">
+                    <td className="text-gray-700 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"}</td>
+                    <td className="font-medium text-gray-800">{order.vendorName || "—"}</td>
+                    <td className="text-xs text-gray-500">{order.contact || "—"}</td>
+                    <td className="text-xs text-gray-600 max-w-[16rem] truncate" title={order.products?.[0]?.name || ""}>{order.products?.[0]?.name || "—"}</td>
+                    <td className="text-right whitespace-nowrap tabular-nums">{formatCurrency(order.grandTotal)}</td>
+                    <td className="text-right whitespace-nowrap tabular-nums">
                       {editIndex === idx ? (
                         <div className="flex flex-col items-end gap-1">
                           <input type="number" value={editedPayment} onChange={(e) => setEditedPayment(e.target.value)} className="form-input text-sm w-24 text-right" />
@@ -471,16 +538,16 @@ export default function PurchaseOrdersPage() {
                           </div>
                         </div>
                       ) : (
-                        <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center justify-end gap-2">
                           {formatCurrency(order.paymentMade)}
                           <button onClick={() => handleEdit(idx)} className="btn-action btn-action-secondary btn-xs">Edit</button>
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-3 text-xs whitespace-nowrap">
+                    <td className="text-xs whitespace-nowrap">
                       {editIndex === idx ? <input type="date" value={editedPaymentDate} onChange={(e) => setEditedPaymentDate(e.target.value)} className="form-input text-xs w-28" /> : (order.paymentDate ? new Date(order.paymentDate).toLocaleDateString() : "—")}
                     </td>
-                    <td className="py-3 px-3 text-right whitespace-nowrap">
+                    <td className="text-right whitespace-nowrap tabular-nums">
                       {(() => {
                         const credit = creditOn(order);
                         if (credit > 0) {
@@ -494,8 +561,8 @@ export default function PurchaseOrdersPage() {
                         return owed > 0 ? formatCurrency(owed) : <span className="text-gray-400">—</span>;
                       })()}
                     </td>
-                    <td className="py-3 px-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[order.status] || "bg-gray-100 text-gray-700"}`}>{order.status || "Not Paid"}</span></td>
-                    <td className="py-3 px-3 text-center">
+                    <td className="text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${STATUS_COLORS[order.status] || "bg-gray-100 text-gray-700"}`}>{order.status || "Not Paid"}</span></td>
+                    <td className="text-center">
                       <button
                         onClick={async () => {
                           setIsBusy(true);
@@ -515,10 +582,10 @@ export default function PurchaseOrdersPage() {
                         {order.payBeforeSupply ? "Pre-Pay" : "Outstanding"}
                       </button>
                     </td>
-                    <td className="py-3 px-3 text-center">
+                    <td className="text-center">
                       <a href={`/memo/${order._id}`} target="_blank" rel="noopener noreferrer" className="btn-action btn-action-secondary btn-xs inline-block">Memo</a>
                     </td>
-                    <td className="py-3 px-3 text-center">
+                    <td className="text-center">
                       <button onClick={() => handleDelete(order)} disabled={isBusy}
                         aria-label={`Delete order for ${order.vendorName || "vendor"}`}
                         className="btn-action btn-action-danger btn-xs inline-flex items-center justify-center disabled:opacity-50">
@@ -527,7 +594,7 @@ export default function PurchaseOrdersPage() {
                     </td>
                   </tr>
                 ))}
-                {paginatedOrders.length === 0 && <tr><td colSpan="13" className="text-center py-8 text-gray-400">No orders found</td></tr>}
+                {paginatedOrders.length === 0 && <tr><td colSpan="13" className="text-center text-gray-400 py-8">No orders found</td></tr>}
               </tbody>
             </table>
 

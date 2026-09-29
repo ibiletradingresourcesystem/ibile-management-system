@@ -336,7 +336,7 @@ select:disabled {
 
 /* For controls inside a dense table row, where btn-sm still crowds the line. */
 .btn-xs {
-  @apply px-2 py-1 text-[11px];
+  @apply px-2 py-0.5 text-[10px];
 }
 
 .btn-lg {
@@ -739,6 +739,21 @@ a:active,
 
 .btn-action-success {
   @apply btn-action bg-emerald-500 text-white hover:bg-emerald-600 focus:ring-emerald-400;
+}
+
+/* ===== Action Button Sizes =====
+   .btn-sm and friends are declared above .btn-action, so on their own they lose the
+   cascade to it and an action button never actually got smaller. Paired, they win. */
+.btn-action.btn-xs {
+  @apply px-2 py-0.5 text-[10px];
+}
+
+.btn-action.btn-sm {
+  @apply px-3 py-1.5 text-xs;
+}
+
+.btn-action.btn-lg {
+  @apply px-6 py-3 text-base;
 }
 
 /* ===== Consistent Table Styles ===== */
