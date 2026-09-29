@@ -225,7 +225,8 @@ export default function ExpensesPage() {
         </div>
 
         {/* Main Grid: Form + Recent Expenses + Daily Cash */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* items-start: each card is as tall as what is in it, rather than stretching to the form */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Left: Expense Form */}
           <div>
             <ExpenseForm onSaved={fetchAll} />

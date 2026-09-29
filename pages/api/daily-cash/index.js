@@ -4,6 +4,7 @@ import Expense from "@/models/Expense";
 import EndOfDayReport from "@/models/EndOfDayReport";
 import Store from "@/models/Store";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { cashForReport, countedCash } from "@/lib/endOfDayCash";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -30,7 +31,8 @@ export default async function handler(req, res) {
     const [records, eodReports, store] = await Promise.all([
       DailyCash.find(cashFilter).sort({ date: -1 }).limit(60).lean(),
       EndOfDayReport.find(eodFilter)
-        .select("date locationId staffName tenderBreakdown closedAt")
+        // openingBalance, physicalCount and tenderActual are what "counted" is read from
+        .select("date locationId staffName closedAt openingBalance physicalCount expectedClosingBalance totalSales tenderBreakdown tenderActual")
         .sort({ date: -1 })
         .limit(60)
         .lean(),
@@ -43,28 +45,45 @@ export default async function handler(req, res) {
       for (const loc of store.locations) locMap[String(loc._id)] = loc.name;
     }
 
+    // Days are kept in local time: a date stored at local midnight is the previous day in UTC,
+    // so an ISO key would put an entry on the wrong day
+    const dayKey = (value) => {
+      const d = new Date(value);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+
     const seen = new Set(records.map((r) => {
       const d = new Date(r.date); d.setHours(0, 0, 0, 0);
-      return `${r.location}|${d.toISOString().split("T")[0]}`;
+      return `${r.location}|${dayKey(d)}`;
     }));
 
+    // A day can have more than one till closing on it, so they are added up rather than the first
+    // one standing for the day. The amount is what was counted in the drawer, not what the sales
+    // say should have been there.
+    const derived = new Map();
     for (const rpt of eodReports) {
-      const locName = locMap[String(rpt.locationId)];
+      const locName = locMap[String(rpt.locationId)] || rpt.locationName;
       if (!locName || (location && locName !== location)) continue;
-      const d = new Date(rpt.date); d.setHours(0, 0, 0, 0);
-      const key = `${locName}|${d.toISOString().split("T")[0]}`;
+      const d = new Date(rpt.date || rpt.closedAt); d.setHours(0, 0, 0, 0);
+      const key = `${locName}|${dayKey(d)}`;
       if (seen.has(key)) continue;
-      const cashAmount = rpt.tenderBreakdown?.CASH || 0;
-      if (cashAmount <= 0) continue;
-      seen.add(key);
-      records.push({
+
+      const entry = derived.get(key) || {
         _id: `eod-${rpt._id}`,
         date: d,
-        amount: cashAmount,
+        amount: 0,
         location: locName,
         staffName: rpt.staffName || "",
         source: "pos",
-      });
+        counted: false,
+      };
+      entry.amount += cashForReport(rpt);
+      entry.counted = entry.counted || countedCash(rpt) !== null;
+      derived.set(key, entry);
+    }
+    for (const entry of derived.values()) {
+      if (entry.amount <= 0) continue;
+      records.push(entry);
     }
 
     records.sort((a, b) => new Date(b.date) - new Date(a.date));

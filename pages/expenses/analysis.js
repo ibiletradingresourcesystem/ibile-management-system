@@ -72,6 +72,7 @@ export default function ExpenseAnalysisPage() {
 
   // Expense list
   const [showAllExpenses, setShowAllExpenses] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -131,6 +132,29 @@ export default function ExpenseAnalysisPage() {
       }
     }
     setDailyCashEntries(entries);
+  }
+
+  /**
+   * Entries written before the cash figures were corrected hold the expected cash rather than what
+   * was counted, and only the last till of each day. This walks the days again from the till
+   * reports; anything typed in by hand is left as it is.
+   */
+  async function rebuildCashEntries() {
+    setRebuilding(true);
+    try {
+      const headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+      };
+      const res = await fetch("/api/daily-cash/rebuild", { method: "POST", headers, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Rebuild failed");
+      await Promise.all([fetchReports(), fetchDailyCashEntries()]);
+    } catch (err) {
+      console.error("Cash rebuild failed:", err);
+    } finally {
+      setRebuilding(false);
+    }
   }
 
   // === Filtering ===
@@ -434,7 +458,17 @@ export default function ExpenseAnalysisPage() {
           {/* Daily Cash Report */}
           <div className="lg:col-span-1">
             <div className="content-card">
-              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">💰 Daily Cash Report</h2>
+              <div className="flex items-start justify-between gap-2 mb-4">
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">💰 Daily Cash Report</h2>
+                <button
+                  onClick={rebuildCashEntries}
+                  disabled={rebuilding}
+                  title="Work the entries out again from the till closings, using the cash that was counted"
+                  className="text-xs border border-blue-300 text-blue-700 px-2 py-1 rounded hover:bg-blue-50 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {rebuilding ? "Recalculating…" : "Recalculate"}
+                </button>
+              </div>
               {locations.map(loc => (
                 <div key={loc} className="mb-4">
                   <h3 className="font-semibold text-sm text-blue-700 mb-2 flex items-center gap-1">🏪 {loc}</h3>
@@ -442,7 +476,8 @@ export default function ExpenseAnalysisPage() {
                     <div className="max-h-[300px] overflow-y-auto space-y-1">
                       {dailyCashEntries[loc].map(entry => (
                         <div key={entry._id} className="flex justify-between items-center bg-blue-50 rounded px-3 py-2 text-sm">
-                          <span className="text-gray-700 flex items-center gap-1">🏪 {new Date(entry.date).toISOString().split("T")[0]}</span>
+                          {/* Local date: these are stored at local midnight, which toISOString() would report as the day before */}
+                          <span className="text-gray-700 flex items-center gap-1">🏪 {formatDate(entry.date)}</span>
                           <span className="font-bold text-blue-800">{formatCurrency(entry.amount)}</span>
                         </div>
                       ))}
