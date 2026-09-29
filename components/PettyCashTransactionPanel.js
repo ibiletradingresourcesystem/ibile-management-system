@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { PERIOD_OPTIONS, filterByPeriod, periodLabel } from "@/lib/periodFilter";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 
@@ -89,6 +90,8 @@ export default function PettyCashTransactionPanel({
   const [tab, setTab] = useState("active"); // active | paid
   const [filterVendor, setFilterVendor] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  // Paid orders are read a period at a time; this month is what is usually asked for.
+  const [paidPeriod, setPaidPeriod] = useState("thisMonth");
 
   // Order form state
   const [showForm, setShowForm] = useState(false);
@@ -315,7 +318,8 @@ export default function PettyCashTransactionPanel({
   };
 
   const handleExportPaid = () => {
-    const paidTxs = transactions.filter((t) => t.status === "Paid");
+    // What is on screen is what comes down: the period the reader chose.
+    const paidTxs = paidTransactions;
     if (!paidTxs.length) return alert("No paid transactions to export.");
 
     const headers = ["Date", "Vendor", "Purpose", "Qty", "Unit Price", "Amount", "Location", "Paid By", "Method"];
@@ -341,8 +345,18 @@ export default function PettyCashTransactionPanel({
     URL.revokeObjectURL(url);
   };
 
+  // Anything still open stays in front of the reader, whatever period is chosen.
   const activeTransactions = transactions.filter((t) => t.status !== "Paid" && t.status !== "Cancelled");
-  const paidTransactions = transactions.filter((t) => t.status === "Paid");
+  const allPaidTransactions = useMemo(
+    () => transactions.filter((t) => t.status === "Paid"),
+    [transactions]
+  );
+
+  // A paid order belongs to the day the money went out, not the day it was raised.
+  const paidTransactions = useMemo(
+    () => filterByPeriod(allPaidTransactions, paidPeriod, (t) => t.paidAt || t.requestDate || t.createdAt),
+    [allPaidTransactions, paidPeriod]
+  );
 
   const totalOrdered = activeTransactions.reduce((s, t) => s + t.amount, 0);
   const totalPaid = paidTransactions.reduce((s, t) => s + t.amount, 0);
@@ -364,10 +378,12 @@ export default function PettyCashTransactionPanel({
         <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200">
           <p className="text-xs text-emerald-600 font-medium">Paid Orders</p>
           <p className="text-lg font-bold text-emerald-800">{paidTransactions.length}</p>
+          <p className="text-[10px] text-emerald-600/80">{periodLabel(paidPeriod)}</p>
         </div>
         <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200">
           <p className="text-xs text-emerald-600 font-medium">Total Paid</p>
           <p className="text-lg font-bold text-emerald-800">{formatCurrency(totalPaid)}</p>
+          <p className="text-[10px] text-emerald-600/80">{periodLabel(paidPeriod)}</p>
         </div>
       </div>
 
@@ -396,6 +412,20 @@ export default function PettyCashTransactionPanel({
           <option value="Paid">Paid</option>
           <option value="Cancelled">Cancelled</option>
         </select>
+        {/* Only the paid side is read a period at a time, so the picker is only
+            offered there — an open order is not something to hide by date. */}
+        {tab === "paid" && (
+          <select
+            value={paidPeriod}
+            onChange={(e) => setPaidPeriod(e.target.value)}
+            aria-label="Period for paid orders"
+            className="border rounded px-2 py-1.5 text-sm"
+          >
+            {PERIOD_OPTIONS.map(([key, label]) => (
+              <option key={key} value={key}>{label}</option>
+            ))}
+          </select>
+        )}
         <button
           onClick={() => {
             setFormData(prev => ({
@@ -440,7 +470,7 @@ export default function PettyCashTransactionPanel({
               : "border-transparent text-gray-500 hover:text-gray-700"
           }`}
         >
-          Paid ({paidTransactions.length})
+          Paid ({paidTransactions.length}{paidPeriod !== "tillDate" && allPaidTransactions.length !== paidTransactions.length ? ` of ${allPaidTransactions.length}` : ""})
         </button>
       </div>
 
