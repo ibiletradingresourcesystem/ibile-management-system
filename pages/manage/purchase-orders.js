@@ -8,7 +8,8 @@ import { formatCurrency } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import SeedDataModal from "@/components/SeedDataModal";
 import { amountStoreOwes, deriveVendorCredit } from "@/lib/orderPayments";
-import { Plus, X, Database, Trash2, ChevronDown } from "lucide-react";
+import { CASH_PURPOSES, describeCashEntry, findPurpose } from "@/lib/cashEntries";
+import { Plus, X, Database, Trash2, ChevronDown, AlertTriangle, CheckCircle2, CreditCard, Mail, MessageCircle, ArrowDownLeft, ArrowUpRight } from "lucide-react";
 
 const STATUS_COLORS = {
   "Not Paid": "bg-red-100 text-red-700",
@@ -123,9 +124,13 @@ export default function PurchaseOrdersPage() {
   // Quick Entry
   const [showQuickEntry, setShowQuickEntry] = useState(false);
   const [quickForm, setQuickForm] = useState({
-    vendor: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "stock-purchase",
+    vendor: "", party: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "vendor-payment",
   });
+  // What the money was for decides which way it runs and where it lands.
+  const quickPurpose = findPurpose(quickForm.purpose) || CASH_PURPOSES[0];
   const [savingQuick, setSavingQuick] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [cashEntries, setCashEntries] = useState([]);
 
   // Inline edit
   const [editIndex, setEditIndex] = useState(null);
@@ -151,7 +156,7 @@ export default function PurchaseOrdersPage() {
   const getPaymentDate = (o) => o?.paymentDate || o?.date || o?.createdAt || null;
   const startOfDay = (d) => { const dt = new Date(d); if (isNaN(dt)) return null; dt.setHours(0, 0, 0, 0); return dt; };
 
-  useEffect(() => { fetchOrders(); fetchVendors(); }, []);
+  useEffect(() => { fetchOrders(); fetchVendors(); fetchCashEntries(); }, []);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -259,26 +264,119 @@ export default function PurchaseOrdersPage() {
   }, [orders, selectedOrders]);
   const selectedBalance = selectedTotal - selectedPaidTotal;
 
+  /** The money in and out that never belonged to a vendor order. */
+  const fetchCashEntries = useCallback(async () => {
+    try {
+      const res = await apiClient.get("/api/cash-entries?limit=12");
+      setCashEntries(res.data.entries || []);
+    } catch {
+      // The tracker is still usable without this list.
+    }
+  }, []);
+
   // Handlers
+  /** Mail the overdue list to whoever watches the money. */
+  async function handleSendReminder() {
+    setSendingReminder(true);
+    try {
+      const { data } = await apiClient.post("/api/purchase-orders/reminder");
+      await showAlertDialog({
+        title: data.sent ? "Reminder sent" : "Nothing to send",
+        message: data.message || "",
+        tone: data.sent ? "success" : "info",
+      });
+    } catch (err) {
+      await showAlertDialog({
+        title: "Reminder not sent",
+        message: err.response?.data?.error || err.message || "The reminder could not be sent.",
+        tone: "danger",
+      });
+    } finally {
+      setSendingReminder(false);
+    }
+  }
+
+  /** The same list, handed to WhatsApp for whoever prefers to send it there. */
+  function handleShareReminder() {
+    const lines = overdueOrders.map(
+      (o) => `• ${o.vendorName} — ${formatCurrency(amountStoreOwes(o) || toNumber(o.grandTotal), { minimumFractionDigits: 0, maximumFractionDigits: 0 })} outstanding`
+    );
+    const text = ["Vendor payments due", "", ...lines].join("\n");
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  }
+
+  function resetQuickForm() {
+    setQuickForm({
+      vendor: "", party: "", amount: "", paymentDate: new Date().toISOString().split("T")[0],
+      notes: "", products: "", purpose: "vendor-payment",
+    });
+  }
+
   async function handleQuickEntrySubmit(e) {
     e.preventDefault();
-    if (!quickForm.vendor || !quickForm.amount) return;
+    if (!quickForm.amount) return;
+    if (quickPurpose.needsVendor && !quickForm.vendor) return;
+
     setSavingQuick(true);
     try {
-      const vendor = vendors.find((v) => v._id === quickForm.vendor);
-      await apiClient.post("/api/purchase-orders", {
-        vendor: quickForm.vendor, vendorName: vendor?.companyName || "", contact: vendor?.repPhone || "",
-        reason: quickForm.purpose || "Quick Entry", notes: quickForm.notes, payBeforeSupply: true, date: quickForm.paymentDate,
-        purpose: quickForm.purpose,
-        products: quickForm.products ? quickForm.products.split(",").map((p) => ({ name: p.trim(), quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) })) : [{ name: quickForm.purpose === "stock-purchase" ? "Stock Purchase" : "Payment Entry", quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) }],
-        grandTotal: Number(quickForm.amount), paymentMade: Number(quickForm.amount), paymentDate: quickForm.paymentDate,
-      });
+      if (quickPurpose.needsVendor) {
+        // A vendor payment is still an order, paid up front and in full.
+        const vendor = vendors.find((v) => v._id === quickForm.vendor);
+        const lines = quickForm.products
+          ? quickForm.products.split(",").map((name) => ({ name: name.trim(), quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) }))
+          : [{ name: "Payment Entry", quantity: 1, price: Number(quickForm.amount), total: Number(quickForm.amount) }];
+
+        await apiClient.post("/api/purchase-orders", {
+          vendor: quickForm.vendor, vendorName: vendor?.companyName || "", contact: vendor?.repPhone || "",
+          reason: "Quick Entry", notes: quickForm.notes, payBeforeSupply: true, date: quickForm.paymentDate,
+          products: lines,
+          grandTotal: Number(quickForm.amount), paymentMade: Number(quickForm.amount), paymentDate: quickForm.paymentDate,
+        });
+        fetchOrders();
+      } else {
+        // Everything else is money moving on its own account.
+        const { data } = await apiClient.post("/api/cash-entries", {
+          purpose: quickForm.purpose,
+          party: quickForm.party,
+          amount: Number(quickForm.amount),
+          date: quickForm.paymentDate,
+          notes: quickForm.notes,
+        });
+        fetchCashEntries();
+        if (data && data.posted === false) {
+          await showAlertDialog({
+            title: "Recorded, but not posted",
+            message: "The entry was saved. It could not be written to the books — run Sync Accounting once the chart of accounts is set up.",
+            tone: "warning",
+          });
+        }
+      }
+
       setShowQuickEntry(false);
-      setQuickForm({ vendor: "", amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "stock-purchase" });
-      fetchOrders();
+      resetQuickForm();
     } catch (err) {
       await showAlertDialog({ title: "Quick entry failed", message: err.response?.data?.error || "Failed", tone: "danger" });
     } finally { setSavingQuick(false); }
+  }
+
+  async function handleDeleteCashEntry(entry) {
+    const confirmed = await showConfirmDialog({
+      title: "Delete this entry?",
+      message: `${describeCashEntry(entry)} — ${formatCurrency(entry.amount)}. The books are corrected with it.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    try {
+      await apiClient.delete(`/api/cash-entries/${entry._id}`);
+      fetchCashEntries();
+    } catch (err) {
+      await showAlertDialog({
+        title: "Could not delete",
+        message: err.response?.data?.error || "The entry could not be deleted.",
+        tone: "danger",
+      });
+    }
   }
 
   function handleEdit(idx) {
@@ -322,36 +420,6 @@ export default function PurchaseOrdersPage() {
     } finally { setIsBusy(false); }
   }
 
-  async function handleDeleteSelected() {
-    const list = orders.filter((o) => selectedOrders.has(o._id));
-    if (list.length === 0) return;
-    const confirmed = await showConfirmDialog({
-      title: `Delete ${list.length} orders?`,
-      message: `${formatCurrency(list.reduce((sum, o) => sum + toNumber(o.grandTotal), 0))} across ${list.length} orders will be deleted. This cannot be undone.`,
-      confirmLabel: `Delete ${list.length}`,
-      tone: "danger",
-    });
-    if (!confirmed) return;
-    setIsBusy(true);
-    const failed = [];
-    for (const order of list) {
-      try {
-        await apiClient.delete(`/api/purchase-orders/${order._id}`);
-      } catch {
-        failed.push(order.vendorName || order.orderRef || order._id);
-      }
-    }
-    setSelectedOrders(new Set());
-    fetchOrders();
-    setIsBusy(false);
-    if (failed.length > 0) {
-      await showAlertDialog({
-        title: "Some were not deleted",
-        message: `${failed.length} could not be deleted: ${failed.slice(0, 5).join(", ")}${failed.length > 5 ? "…" : ""}`,
-        tone: "warning",
-      });
-    }
-  }
 
   if (loading) return <Layout><Loader /></Layout>;
 
@@ -380,7 +448,10 @@ export default function PurchaseOrdersPage() {
             <div className="w-full lg:w-1/2 flex flex-col gap-4">
               {overdueOrders.length > 0 ? (
                 <div className="content-card border-l-4 border-red-500">
-                  <p className="font-semibold text-red-700 mb-2">⚠️ {overdueOrders.length} Overdue Order{overdueOrders.length > 1 ? "s" : ""}</p>
+                  <p className="font-semibold text-red-700 mb-2 flex items-center gap-2">
+                    <AlertTriangle size={16} />
+                    {overdueOrders.length} Overdue Order{overdueOrders.length > 1 ? "s" : ""}
+                  </p>
                   <ul className="list-disc pl-5 space-y-1 mb-3">
                     {overdueOrders.slice(0, 8).map((o, i) => {
                       const d = new Date(getOrderDate(o));
@@ -389,22 +460,41 @@ export default function PurchaseOrdersPage() {
                       return <li key={o._id ?? i} className="text-xs text-gray-700">{o.vendorName} — {d.toLocaleDateString()} <span className="text-red-600 font-medium">({days} days overdue)</span></li>;
                     })}
                   </ul>
-                  <button onClick={() => {
-                    // What is still owed, which is never a credit read as a debt.
-                    const msg = overdueOrders.map(o => `${o.vendorName} — Balance: ${formatCurrency(amountStoreOwes(o) || toNumber(o.grandTotal))}`).join("\n");
-                    window.open(`https://wa.me/?text=${encodeURIComponent("Payment Reminder:\n\n" + msg)}`, "_blank");
-                  }} className="btn-action btn-action-primary btn-sm">📨 Send Vendor Reminder</button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleSendReminder}
+                      disabled={sendingReminder}
+                      className="btn-action btn-action-primary btn-sm inline-flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <Mail size={14} />
+                      {sendingReminder ? "Sending…" : "Email Vendor Reminder"}
+                    </button>
+                    <button
+                      onClick={handleShareReminder}
+                      className="btn-action btn-action-secondary btn-sm inline-flex items-center gap-2"
+                      title="Open the same list in WhatsApp"
+                    >
+                      <MessageCircle size={14} />
+                      WhatsApp
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="content-card border-l-4 border-green-500">
-                  <p className="text-green-700 text-sm font-medium">✅ No overdue outstanding vendor payments.</p>
+                  <p className="text-green-700 text-sm font-medium flex items-center gap-2">
+                    <CheckCircle2 size={16} />
+                    No overdue outstanding vendor payments.
+                  </p>
                 </div>
               )}
 
               {/* Credit Section - Always show */}
               <div className="content-card border-l-4 border-blue-500">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="font-semibold text-blue-700">💳 Credit Orders</p>
+                  <p className="font-semibold text-blue-700 flex items-center gap-2">
+                    <CreditCard size={16} />
+                    Credit Orders
+                  </p>
                   <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">
                     {creditOrders.length > 0 ? formatCurrency(totalCreditValue, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "₦0"}
                   </span>
@@ -477,7 +567,7 @@ export default function PurchaseOrdersPage() {
             </div>
           </div>
 
-          {/* Vendor Filter + Search */}
+            {/* Vendor Filter + Search */}
           <div className="content-card mb-4">
             <div className="flex flex-wrap gap-3 items-center">
               <label className="text-sm font-medium text-gray-700">Vendor:</label>
@@ -612,20 +702,14 @@ export default function PurchaseOrdersPage() {
               <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-50 bg-white border border-blue-200 rounded-2xl shadow-2xl px-4 sm:px-5 py-3 flex flex-wrap items-center gap-3 sm:gap-5 w-[calc(100vw-1rem)] sm:w-auto max-w-[95vw]" style={{ animation: 'slideUp 0.3s ease-out' }}>
                 <div className="text-sm font-medium text-gray-600">
                   <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-semibold">{selectedOrders.size}</span>{" "}
-                  selected of {filteredOrdersForTable.length}
+                  selected
                 </div>
                 <div className="flex flex-wrap gap-4 text-sm">
                   <div className="text-center"><div className="text-xs text-gray-400 uppercase">Total</div><div className="font-bold text-blue-700">{formatCurrency(selectedTotal)}</div></div>
                   <div className="text-center"><div className="text-xs text-gray-400 uppercase">Paid</div><div className="font-bold text-green-600">{formatCurrency(selectedPaidTotal)}</div></div>
                   <div className="text-center"><div className="text-xs text-gray-400 uppercase">Balance</div><div className="font-bold text-red-600">{formatCurrency(selectedBalance)}</div></div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={handleDeleteSelected} disabled={isBusy}
-                    className="btn-action btn-action-danger btn-xs inline-flex items-center gap-1.5 disabled:opacity-50">
-                    <Trash2 size={12} /> Delete selected
-                  </button>
-                  <button onClick={() => setSelectedOrders(new Set())} className="btn-action btn-action-secondary btn-xs">Clear</button>
-                </div>
+                <button onClick={() => setSelectedOrders(new Set())} className="btn-action btn-action-secondary btn-xs">Clear</button>
               </div>
             )}
           </div>
@@ -638,29 +722,86 @@ export default function PurchaseOrdersPage() {
       {showQuickEntry && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowQuickEntry(false)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b"><h2 className="text-lg font-bold">Quick Payment Entry</h2><button onClick={() => setShowQuickEntry(false)}><X size={20} /></button></div>
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h2 className="text-lg font-bold">Quick Money Entry</h2>
+              <button onClick={() => setShowQuickEntry(false)} aria-label="Close"><X size={20} /></button>
+            </div>
             <form onSubmit={handleQuickEntrySubmit} className="p-5 space-y-4">
-              <div><label className="form-label">Vendor *</label>
-                <select value={quickForm.vendor} onChange={(e) => { const v = vendors.find(v => v._id === e.target.value); setQuickForm({ ...quickForm, vendor: e.target.value, products: v?.mainProduct || "" }); }} className="form-select" required>
-                  <option value="">Select vendor</option>{vendors.map(v => <option key={v._id} value={v._id}>{v.companyName}</option>)}
-                </select></div>
-              <div><label className="form-label">Purpose *</label>
-                <select value={quickForm.purpose} onChange={(e) => setQuickForm({ ...quickForm, purpose: e.target.value })} className="form-select" required>
-                  <option value="stock-purchase">Stock Purchase</option>
-                  <option value="maintenance">Maintenance</option>
-                  <option value="services">Services</option>
-                  <option value="season-greetings">Season Greetings / Packages</option>
-                  <option value="dues">Dues / Levies</option>
-                  <option value="utilities">Utilities</option>
-                  <option value="logistics">Logistics / Delivery</option>
-                  <option value="other-expense">Other Expense</option>
-                </select></div>
-              <div><label className="form-label">Amount *</label><input type="number" value={quickForm.amount} onChange={(e) => setQuickForm({ ...quickForm, amount: e.target.value })} className="form-input" required /></div>
-              <div><label className="form-label">Payment Date</label><input type="date" value={quickForm.paymentDate} onChange={(e) => setQuickForm({ ...quickForm, paymentDate: e.target.value })} className="form-input" /></div>
-              <div><label className="form-label">Products</label><input type="text" value={quickForm.products} onChange={(e) => setQuickForm({ ...quickForm, products: e.target.value })} className="form-input" placeholder="e.g. Rice, Beans" /></div>
-              <div><label className="form-label">Notes</label><textarea value={quickForm.notes} onChange={(e) => setQuickForm({ ...quickForm, notes: e.target.value })} className="form-input" rows={2} /></div>
+              {/* What it was for comes first: it decides which way the money runs,
+                  who the entry names, and where it lands in the books. */}
+              <div>
+                <label className="form-label">What was this for? *</label>
+                <select
+                  value={quickForm.purpose}
+                  onChange={(e) => setQuickForm({ ...quickForm, purpose: e.target.value })}
+                  className="form-select"
+                  required
+                >
+                  <optgroup label="Money out">
+                    {CASH_PURPOSES.filter((p) => p.direction === "out").map((p) => (
+                      <option key={p.key} value={p.key}>{p.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Money in">
+                    {CASH_PURPOSES.filter((p) => p.direction === "in").map((p) => (
+                      <option key={p.key} value={p.key}>{p.label}</option>
+                    ))}
+                  </optgroup>
+                </select>
+                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-gray-500">
+                  {quickPurpose.direction === "in"
+                    ? <ArrowDownLeft size={13} className="mt-0.5 flex-shrink-0 text-green-600" />
+                    : <ArrowUpRight size={13} className="mt-0.5 flex-shrink-0 text-red-500" />}
+                  <span>{quickPurpose.hint}</span>
+                </p>
+              </div>
+
+              {quickPurpose.needsVendor ? (
+                <div>
+                  <label className="form-label">Vendor *</label>
+                  <select
+                    value={quickForm.vendor}
+                    onChange={(e) => { const v = vendors.find((vendor) => vendor._id === e.target.value); setQuickForm({ ...quickForm, vendor: e.target.value, products: v?.mainProduct || "" }); }}
+                    className="form-select"
+                    required
+                  >
+                    <option value="">Select vendor</option>
+                    {vendors.map((v) => <option key={v._id} value={v._id}>{v.companyName}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="form-label">{quickPurpose.direction === "in" ? "Received from" : "Paid to"}</label>
+                  <input
+                    type="text"
+                    value={quickForm.party}
+                    onChange={(e) => setQuickForm({ ...quickForm, party: e.target.value })}
+                    className="form-input"
+                    placeholder={quickPurpose.defaultParty || "Name of the person or business"}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="form-label">Amount *</label>
+                <input type="number" min="0" step="0.01" value={quickForm.amount} onChange={(e) => setQuickForm({ ...quickForm, amount: e.target.value })} className="form-input" required />
+              </div>
+              <div>
+                <label className="form-label">Date</label>
+                <input type="date" value={quickForm.paymentDate} onChange={(e) => setQuickForm({ ...quickForm, paymentDate: e.target.value })} className="form-input" />
+              </div>
+              {quickPurpose.needsVendor && (
+                <div>
+                  <label className="form-label">Products</label>
+                  <input type="text" value={quickForm.products} onChange={(e) => setQuickForm({ ...quickForm, products: e.target.value })} className="form-input" placeholder="e.g. Rice, Beans" />
+                </div>
+              )}
+              <div>
+                <label className="form-label">Notes</label>
+                <textarea value={quickForm.notes} onChange={(e) => setQuickForm({ ...quickForm, notes: e.target.value })} className="form-input" rows={2} />
+              </div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowQuickEntry(false)} className="flex-1 btn-action btn-action-secondary">Cancel</button>
+                <button type="button" onClick={() => { setShowQuickEntry(false); resetQuickForm(); }} className="flex-1 btn-action btn-action-secondary">Cancel</button>
                 <button type="submit" disabled={savingQuick} className="flex-1 btn-action btn-action-primary disabled:opacity-50">{savingQuick ? "Saving..." : "Save Entry"}</button>
               </div>
             </form>
