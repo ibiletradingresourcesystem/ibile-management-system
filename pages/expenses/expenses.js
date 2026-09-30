@@ -225,8 +225,9 @@ export default function ExpensesPage() {
         </div>
 
         {/* Main Grid: Form + Recent Expenses + Daily Cash.
-            The columns are the same height (the grid stretches them), and inside each card the
-            scrolling list takes whatever room is left, so no card ends in a block of blank space. */}
+            All three cards are the same height, and it is the form that sets it: the lists are laid
+            out inside their own box (absolute, so however many rows they hold never makes a card
+            taller) and scroll within whatever room is left. */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
           {/* Left: Expense Form */}
           <div className="h-full">
@@ -254,8 +255,8 @@ export default function ExpensesPage() {
             ) : visibleExpenses.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No expenses found.</p>
             ) : (
-              <div className="relative flex-1 min-h-0 flex flex-col">
-                <div className="space-y-3 flex-1 min-h-[12rem] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
+              <div className="relative flex-1 min-h-[12rem]">
+                <div className="absolute inset-0 space-y-3 overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
                 {visibleExpenses.map(exp => (
                   <div key={exp._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingExpense === exp._id ? (
@@ -290,7 +291,9 @@ export default function ExpensesPage() {
                 ))}
               </div>
               {/* gradient fade at bottom to show there's more */}
-              {visibleExpenses.length > 4 && <div className="h-4 bg-gradient-to-t from-white to-transparent -mt-4 relative z-10 pointer-events-none" />}
+              {visibleExpenses.length > 4 && (
+                <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white to-transparent z-10 pointer-events-none" />
+              )}
               </div>
             )}
             {filteredExpenses.length > expenseLimit && (
@@ -311,8 +314,8 @@ export default function ExpensesPage() {
             ) : visibleCash.length === 0 ? (
               <p className="text-sm text-gray-400 italic flex-1">No cash entries found.</p>
             ) : (
-              <div className="relative flex-1 min-h-0 flex flex-col">
-                <div className="space-y-3 flex-1 min-h-[12rem] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
+              <div className="relative flex-1 min-h-[12rem]">
+                <div className="absolute inset-0 space-y-3 overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
                 {visibleCash.map(entry => (
                   <div key={entry._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingCash === entry._id ? (
@@ -351,7 +354,9 @@ export default function ExpensesPage() {
                   </div>
                 ))}
               </div>
-              {visibleCash.length > 4 && <div className="h-4 bg-gradient-to-t from-white to-transparent -mt-4 relative z-10 pointer-events-none" />}
+              {visibleCash.length > 4 && (
+                <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white to-transparent z-10 pointer-events-none" />
+              )}
               </div>
             )}
             {filteredCash.length > cashLimit && (
