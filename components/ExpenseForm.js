@@ -3,7 +3,7 @@ import { PlusCircle } from "lucide-react";
 import { showAlertDialog } from "@/lib/dialogs";
 import { Loader } from "@/components/ui";
 
-export default function ExpenseForm({ onSaved }) {
+export default function ExpenseForm({ onSaved, className = "" }) {
   const [formData, setFormData] = useState({
     title: "",
     amount: "",
@@ -194,7 +194,7 @@ export default function ExpenseForm({ onSaved }) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="content-card space-y-4"
+      className={`content-card space-y-4 ${className}`}
     >
       {/* Header */}
       <h2 className="text-lg md:text-xl font-semibold text-gray-900 flex items-center gap-2 mb-2">

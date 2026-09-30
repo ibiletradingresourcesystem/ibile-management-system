@@ -224,16 +224,17 @@ export default function ExpensesPage() {
           </p>
         </div>
 
-        {/* Main Grid: Form + Recent Expenses + Daily Cash */}
-        {/* items-start: each card is as tall as what is in it, rather than stretching to the form */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Main Grid: Form + Recent Expenses + Daily Cash.
+            The columns are the same height (the grid stretches them), and inside each card the
+            scrolling list takes whatever room is left, so no card ends in a block of blank space. */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
           {/* Left: Expense Form */}
-          <div>
-            <ExpenseForm onSaved={fetchAll} />
+          <div className="h-full">
+            <ExpenseForm onSaved={fetchAll} className="h-full" />
           </div>
 
           {/* Center: Recent Expenses */}
-          <div className="content-card">
+          <div className="content-card h-full flex flex-col">
             <h2 className="text-lg font-semibold text-green-700 mb-3 flex items-center gap-2">
               <RefreshCw className="w-4 h-4" /> Recent Expenses
             </h2>
@@ -253,8 +254,8 @@ export default function ExpensesPage() {
             ) : visibleExpenses.length === 0 ? (
               <p className="text-sm text-gray-400 italic">No expenses found.</p>
             ) : (
-              <div className="relative">
-                <div className="space-y-3 max-h-[480px] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
+              <div className="relative flex-1 min-h-0 flex flex-col">
+                <div className="space-y-3 flex-1 min-h-[12rem] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
                 {visibleExpenses.map(exp => (
                   <div key={exp._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingExpense === exp._id ? (
@@ -293,25 +294,25 @@ export default function ExpensesPage() {
               </div>
             )}
             {filteredExpenses.length > expenseLimit && (
-              <button onClick={() => setExpenseLimit(l => l + 10)} className="mt-3 text-sm text-blue-600 hover:underline w-full text-center">
+              <button onClick={() => setExpenseLimit(l => l + 10)} className="mt-3 shrink-0 text-sm text-blue-600 hover:underline w-full text-center">
                 Load more...
               </button>
             )}
           </div>
 
           {/* Right: Daily Cash Entries */}
-          <div className="content-card">
+          <div className="content-card h-full flex flex-col">
             <h2 className="text-lg font-semibold text-orange-700 mb-3 flex items-center gap-2">
               <RefreshCw className="w-4 h-4" /> Daily Cash Entries
             </h2>
 
             {loading ? (
-              <p className="text-sm text-gray-500">Loading...</p>
+              <p className="text-sm text-gray-500 flex-1">Loading...</p>
             ) : visibleCash.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">No cash entries found.</p>
+              <p className="text-sm text-gray-400 italic flex-1">No cash entries found.</p>
             ) : (
-              <div className="relative">
-                <div className="space-y-3 max-h-[480px] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
+              <div className="relative flex-1 min-h-0 flex flex-col">
+                <div className="space-y-3 flex-1 min-h-[12rem] overflow-y-auto" style={{ scrollbarGutter: "stable" }}>
                 {visibleCash.map(entry => (
                   <div key={entry._id} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition">
                     {editingCash === entry._id ? (
@@ -354,7 +355,7 @@ export default function ExpensesPage() {
               </div>
             )}
             {filteredCash.length > cashLimit && (
-              <button onClick={() => setCashLimit(l => l + 10)} className="mt-3 text-sm text-blue-600 hover:underline w-full text-center">
+              <button onClick={() => setCashLimit(l => l + 10)} className="mt-3 shrink-0 text-sm text-blue-600 hover:underline w-full text-center">
                 Load more...
               </button>
             )}
