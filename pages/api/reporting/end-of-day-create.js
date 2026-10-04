@@ -4,6 +4,7 @@ import Transaction from "@/models/Transactions";
 import Store from "@/models/Store";
 import Till from "@/models/Till";
 import { updateDailyCashChain } from "@/lib/dailyCashChain";
+import { tradingDayKey } from "@/lib/tradingDay";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 
 function startOfToday() {
@@ -220,12 +221,13 @@ export default async function handler(req, res) {
 
       // The day's cash entry: rebuilt from every till that closed that day, counting what was
       // actually in the drawer. Overwriting it with this till's cash sales lost the other tills and
-      // reported the expected figure rather than the counted one.
+      // reported the expected figure rather than the counted one. The day is the trading day the
+      // till closed in, so a close at 1:30am goes on the day before.
       if (locationName) {
         await updateDailyCashChain({
           location: locationName,
           locationId,
-          date: openReport.date || startOfToday(),
+          day: tradingDayKey(now),
         }).catch((error) => console.warn("Daily cash update failed:", error.message));
       }
 

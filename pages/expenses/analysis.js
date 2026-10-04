@@ -3,6 +3,7 @@ import Layout from "@/components/Layout";
 import { formatCurrency } from "@/lib/format";
 import { RefreshCw, Filter, Download, ChevronDown, ChevronUp } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
+import { currentTradingDay, formatDayKey, TRADING_DAY_START_HOUR } from "@/lib/tradingDay";
 
 const COLORS = ["#2563eb", "#059669", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#be185d", "#4f46e5", "#65a30d", "#ea580c"];
 
@@ -67,7 +68,8 @@ export default function ExpenseAnalysisPage() {
 
   // Daily cash report
   const [reports, setReports] = useState({});
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  // The trading day it is now: before 6am the till's day is still yesterday
+  const [selectedDate, setSelectedDate] = useState(currentTradingDay());
   const [dailyCashEntries, setDailyCashEntries] = useState({});
 
   // Expense list
@@ -364,6 +366,9 @@ export default function ExpenseAnalysisPage() {
               <div>
                 <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">📊 End of Day Report</h2>
                 <p className="text-sm text-gray-500">Date: {selectedDate} | Location: {loc}</p>
+                <p className="text-xs text-gray-400">
+                  {TRADING_DAY_START_HOUR}am to {TRADING_DAY_START_HOUR}am: a till closed before {TRADING_DAY_START_HOUR}am counts for this day.
+                </p>
               </div>
               <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="form-input w-auto text-sm" />
             </div>
@@ -476,8 +481,8 @@ export default function ExpenseAnalysisPage() {
                     <div className="max-h-[300px] overflow-y-auto space-y-1">
                       {dailyCashEntries[loc].map(entry => (
                         <div key={entry._id} className="flex justify-between items-center bg-blue-50 rounded px-3 py-2 text-sm">
-                          {/* Local date: these are stored at local midnight, which toISOString() would report as the day before */}
-                          <span className="text-gray-700 flex items-center gap-1">🏪 {formatDate(entry.date)}</span>
+                          {/* The server says which day an entry is; reading it out of the date depends on the computer's time zone */}
+                          <span className="text-gray-700 flex items-center gap-1">🏪 {formatDayKey(entry.day) || formatDate(entry.date)}</span>
                           <span className="font-bold text-blue-800">{formatCurrency(entry.amount)}</span>
                         </div>
                       ))}

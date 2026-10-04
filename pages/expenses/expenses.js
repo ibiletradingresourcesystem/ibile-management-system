@@ -4,6 +4,7 @@ import ExpenseForm from "@/components/ExpenseForm";
 import { formatCurrency } from "@/lib/format";
 import { showAlertDialog } from "@/lib/dialogs";
 import { RefreshCw, Search, Save, X, DollarSign } from "lucide-react";
+import { currentTradingDay, formatDayKey } from "@/lib/tradingDay";
 
 function formatDate(dateStr) {
   if (!dateStr) return "";
@@ -25,7 +26,8 @@ export default function ExpensesPage() {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Cash form
-  const [cashDate, setCashDate] = useState(new Date().toISOString().split("T")[0]);
+  // The trading day it is now: before 6am the till's day is still yesterday
+  const [cashDate, setCashDate] = useState(currentTradingDay());
   const [cashAmount, setCashAmount] = useState("");
   const [cashMode, setCashMode] = useState("replace");
   const [cashSaving, setCashSaving] = useState(false);
@@ -335,7 +337,7 @@ export default function ExpensesPage() {
                           <div>
                             <p className="font-semibold text-sm text-gray-900">Daily Cash</p>
                             <p className="text-xs text-gray-500">
-                              <span className="text-green-600">●</span> {entry.location} &nbsp;📅 {formatDate(entry.date)}
+                              <span className="text-green-600">●</span> {entry.location} &nbsp;📅 {formatDayKey(entry.day) || formatDate(entry.date)}
                             </p>
                           </div>
                           <span className="font-bold text-sm text-green-700">{formatCurrency(entry.amount)}</span>

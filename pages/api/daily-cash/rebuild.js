@@ -5,18 +5,21 @@
  *
  * Entries written before this took the *expected* cash — what the sales said should be in the
  * drawer — and only the last till to close each day, so older days read wrong and the carried
- * forward chain drifted. This walks the days again and writes what was actually counted. A figure
- * someone typed in by hand is left alone.
+ * forward chain drifted. They also put a till closed after midnight on the calendar day it closed,
+ * not the trading day its sales were made in. This walks the days again and writes what was
+ * actually counted, on the right day. A figure someone typed in by hand is left alone.
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import Store from "@/models/Store";
+import DailyCash from "@/models/DailyCash";
 import EndOfDayReport from "@/models/EndOfDayReport";
+import Expense from "@/models/Expense";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { canManageProducts } from "@/lib/permission-utils";
-import { updateDailyCashChain, startOfDay } from "@/lib/dailyCashChain";
+import { paidAt, updateDailyCashChain } from "@/lib/dailyCashChain";
+import { addDays, currentTradingDay, dayKeyOf, daysBetween, laterDay, tradingDayKey } from "@/lib/tradingDay";
 
 const MAX_DAYS = 120;
-const DAY = 24 * 60 * 60 * 1000;
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -41,27 +44,39 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: wanted ? `Location "${wanted}" was not found` : "No locations to rebuild" });
   }
 
-  const today = startOfDay(new Date());
-  const to = req.body?.to ? startOfDay(new Date(req.body.to)) : today;
-  const earliestAllowed = new Date(to.getTime() - MAX_DAYS * DAY);
+  const to = (req.body?.to && dayKeyOf(req.body.to)) || currentTradingDay();
+  const earliestAllowed = addDays(to, -MAX_DAYS);
+  const requestedFrom = req.body?.from ? dayKeyOf(req.body.from) : null;
 
   const rebuilt = [];
   for (const location of locations) {
-    // Start at the first till report for this location, or as far back as allowed
-    const firstReport = await EndOfDayReport.findOne({ locationId: location._id, closedAt: { $ne: null } })
-      .sort({ date: 1 })
-      .select("date closedAt")
-      .lean();
+    // Start at the first thing on this location's ledger — a till report, a payment or an entry —
+    // so every day is worked out the same way, or as far back as allowed
+    const [firstReport, firstPayment, firstEntry] = await Promise.all([
+      EndOfDayReport.findOne({
+        closedAt: { $ne: null },
+        $or: [{ locationId: location._id }, { locationName: location.name }],
+      })
+        .sort({ closedAt: 1 })
+        .select("closedAt")
+        .lean(),
+      Expense.findOne({ locationName: location.name }).sort({ createdAt: 1 }).select("expenseDate createdAt").lean(),
+      DailyCash.findOne({ location: location.name }).sort({ date: 1 }).select("date").lean(),
+    ]);
+    const firstDay = [
+      firstReport && tradingDayKey(firstReport.closedAt),
+      firstPayment && tradingDayKey(paidAt(firstPayment)),
+      firstEntry && dayKeyOf(firstEntry.date),
+    ]
+      .filter(Boolean)
+      .sort()[0];
 
-    const requestedFrom = req.body?.from ? startOfDay(new Date(req.body.from)) : null;
-    const reportStart = firstReport ? startOfDay(firstReport.date || firstReport.closedAt) : to;
-    const from = new Date(Math.max((requestedFrom || reportStart).getTime(), earliestAllowed.getTime()));
+    const from = laterDay(requestedFrom || firstDay || to, earliestAllowed);
 
     // One walk from the first day to the last writes every day in order
-    await updateDailyCashChain({ location: location.name, locationId: location._id, date: to, from });
-    const days = Math.round((to.getTime() - from.getTime()) / DAY) + 1;
+    await updateDailyCashChain({ location: location.name, locationId: location._id, day: to, fromDay: from });
 
-    rebuilt.push({ location: location.name, from, to, days });
+    rebuilt.push({ location: location.name, from, to, days: Math.max(0, daysBetween(from, to) + 1) });
   }
 
   return res.status(200).json({ success: true, rebuilt });

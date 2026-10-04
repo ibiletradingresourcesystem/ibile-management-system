@@ -2,6 +2,7 @@
 
 import Layout from "@/components/Layout";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { dayKeyOf, formatDayKey, TRADING_DAY_START_HOUR } from "@/lib/tradingDay";
 import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
 import { Fragment, useState, useEffect } from "react";
@@ -208,6 +209,9 @@ export default function EndOfDayReporting() {
                 <option value="year">Last Year</option>
                 <option value="thisYear">This Year</option>
               </select>
+              <p className="text-xs text-gray-500 mt-1">
+                Days run {TRADING_DAY_START_HOUR}am to {TRADING_DAY_START_HOUR}am: a till closed before {TRADING_DAY_START_HOUR}am counts for the day before.
+              </p>
             </div>
 
             <div className="form-group">
@@ -398,7 +402,7 @@ export default function EndOfDayReporting() {
               <table className="data-table min-w-[900px]">
                 <thead>
                   <tr>
-                    <th className="whitespace-nowrap">Date</th>
+                    <th className="whitespace-nowrap">Trading day</th>
                     <th className="whitespace-nowrap">Location</th>
                     <th className="whitespace-nowrap">Staff</th>
                     <th className="text-right">Sales</th>
@@ -429,7 +433,22 @@ export default function EndOfDayReporting() {
                         }`}
                       >
                         <td className="whitespace-nowrap">
-                          {new Date(report.closedAt).toLocaleDateString()}
+                          {report.tradingDay
+                            ? formatDayKey(report.tradingDay, { weekday: true })
+                            : new Date(report.closedAt).toLocaleDateString()}
+                          {/* Closed after midnight: say when, so the day it is listed under makes sense */}
+                          {report.tradingDay && dayKeyOf(report.closedAt) !== report.tradingDay && (
+                            <span className="block text-xs text-gray-500">
+                              closed{" "}
+                              {new Date(report.closedAt).toLocaleString("en-GB", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                timeZone: "Africa/Lagos",
+                              })}
+                            </span>
+                          )}
                         </td>
                         <td className="whitespace-nowrap">
                           {report.locationName || "Unknown"}
