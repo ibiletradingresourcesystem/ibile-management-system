@@ -1,6 +1,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import DailyCash from "@/models/DailyCash";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { updateDailyCashChain } from "@/lib/dailyCashChain";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -14,10 +15,22 @@ export default async function handler(req, res) {
     const { amount, staffName } = req.body;
     const record = await DailyCash.findById(id);
     if (!record) return res.status(404).json({ error: "Record not found" });
-    if (amount != null) record.amount = Number(amount);
+    if (amount != null) {
+      record.amount = Number(amount);
+      // A corrected figure is a person's count. Left as "pos", the next rebuild of the day would
+      // put the tills' figure back over it without a word.
+      record.source = "manual";
+    }
     if (staffName != null) record.staffName = staffName;
     await record.save();
-    return res.status(200).json(record);
+
+    // Everything carried forward from this day changes with it
+    if (amount != null) {
+      await updateDailyCashChain({ location: record.location, date: record.date }).catch((error) =>
+        console.warn("Daily cash chain update failed:", error.message)
+      );
+    }
+    return res.status(200).json(await DailyCash.findById(id).lean());
   }
 
   if (req.method === "DELETE") {

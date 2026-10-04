@@ -5,6 +5,7 @@ import EndOfDayReport from "@/models/EndOfDayReport";
 import Store from "@/models/Store";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { cashForReport, countedCash } from "@/lib/endOfDayCash";
+import { updateDailyCashChain } from "@/lib/dailyCashChain";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
       DailyCash.find(cashFilter).sort({ date: -1 }).limit(60).lean(),
       EndOfDayReport.find(eodFilter)
         // openingBalance, physicalCount and tenderActual are what "counted" is read from
-        .select("date locationId staffName closedAt openingBalance physicalCount expectedClosingBalance totalSales tenderBreakdown tenderActual")
+        .select("date locationId locationName staffName closedAt openingBalance physicalCount expectedClosingBalance totalSales tenderBreakdown tenderActual")
         .sort({ date: -1 })
         .limit(60)
         .lean(),
@@ -106,9 +107,13 @@ export default async function handler(req, res) {
     if (existing) {
       existing.amount = Number(amount);
       existing.staffName = staffName || existing.staffName;
-      if (source) existing.source = source;
+      // Typed in here unless the caller says it came from a till
+      existing.source = source === "pos" ? "pos" : "manual";
       if (posSessionId) existing.posSessionId = posSessionId;
       await existing.save();
+      await updateDailyCashChain({ location, date: dayStart }).catch((error) =>
+        console.warn("Daily cash chain update failed:", error.message)
+      );
       return res.status(200).json(existing);
     }
 
@@ -120,6 +125,9 @@ export default async function handler(req, res) {
       source: source || "manual",
       posSessionId: posSessionId || "",
     });
+    await updateDailyCashChain({ location, date: dayStart }).catch((error) =>
+      console.warn("Daily cash chain update failed:", error.message)
+    );
     return res.status(201).json(record);
   }
 

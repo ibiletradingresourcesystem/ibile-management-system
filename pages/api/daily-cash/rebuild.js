@@ -57,12 +57,9 @@ export default async function handler(req, res) {
     const reportStart = firstReport ? startOfDay(firstReport.date || firstReport.closedAt) : to;
     const from = new Date(Math.max((requestedFrom || reportStart).getTime(), earliestAllowed.getTime()));
 
-    let days = 0;
-    for (let day = new Date(from); day <= to; day = new Date(day.getTime() + DAY)) {
-      // Each call rebuilds the chain up to that day, so walking forward fills them in order
-      await updateDailyCashChain({ location: location.name, locationId: location._id, date: day });
-      days += 1;
-    }
+    // One walk from the first day to the last writes every day in order
+    await updateDailyCashChain({ location: location.name, locationId: location._id, date: to, from });
+    const days = Math.round((to.getTime() - from.getTime()) / DAY) + 1;
 
     rebuilt.push({ location: location.name, from, to, days });
   }
