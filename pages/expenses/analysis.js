@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Layout from "@/components/Layout";
 import { formatCurrency } from "@/lib/format";
 import { RefreshCw, Filter, Download, ChevronDown, ChevronUp } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
-import { currentTradingDay, formatDayKey, TRADING_DAY_START_HOUR } from "@/lib/tradingDay";
+import { addDays, currentTradingDay, formatDayKey, TRADING_DAY_START_HOUR, tradingDayKey } from "@/lib/tradingDay";
 
 const COLORS = ["#2563eb", "#059669", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#be185d", "#4f46e5", "#65a30d", "#ea580c"];
 
@@ -13,47 +13,42 @@ function formatDate(dateStr) {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function getDateRange(period) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let start, end;
+/**
+ * The days a period covers, first and last, as "YYYY-MM-DD" trading days — 6am to 6am, the days the
+ * till cash is kept in, so the cash and the expenses on this page cover the same hours. At 1am,
+ * "Today" is still the day that began at 6am yesterday. null is all time.
+ */
+function getPeriodDays(period) {
+  const today = currentTradingDay();
+  const sinceMonday = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7;
+  const firstOfMonth = `${today.slice(0, 7)}-01`;
 
   switch (period) {
     case "today":
-      start = today;
-      end = new Date(today); end.setDate(end.getDate() + 1);
-      break;
-    case "yesterday":
-      start = new Date(today); start.setDate(start.getDate() - 1);
-      end = today;
-      break;
-    case "this-week": {
-      const day = today.getDay();
-      const diff = (day + 6) % 7;
-      start = new Date(today); start.setDate(start.getDate() - diff);
-      end = new Date(today); end.setDate(end.getDate() + 1);
-      break;
+      return { from: today, to: today };
+    case "yesterday": {
+      const day = addDays(today, -1);
+      return { from: day, to: day };
     }
+    case "this-week":
+      return { from: addDays(today, -sinceMonday), to: today };
     case "last-week": {
-      const day = today.getDay();
-      const diff = (day + 6) % 7;
-      start = new Date(today); start.setDate(start.getDate() - diff - 7);
-      end = new Date(start); end.setDate(end.getDate() + 7);
-      break;
+      const from = addDays(today, -sinceMonday - 7);
+      return { from, to: addDays(from, 6) };
     }
     case "this-month":
-      start = new Date(today.getFullYear(), today.getMonth(), 1);
-      end = new Date(today); end.setDate(end.getDate() + 1);
-      break;
-    case "last-month":
-      start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      end = new Date(today.getFullYear(), today.getMonth(), 1);
-      break;
+      return { from: firstOfMonth, to: today };
+    case "last-month": {
+      const to = addDays(firstOfMonth, -1);
+      return { from: `${to.slice(0, 7)}-01`, to };
+    }
     default:
       return null;
   }
-  return { start, end };
 }
+
+/** When a payment went out, as the cash entries count it: when it was paid, else when it was entered. */
+const paidAt = (expense) => expense.expenseDate || expense.createdAt;
 
 export default function ExpenseAnalysisPage() {
   const [expenses, setExpenses] = useState([]);
@@ -76,27 +71,36 @@ export default function ExpenseAnalysisPage() {
   const [showAllExpenses, setShowAllExpenses] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
 
+  // The cards: the cash for the period and location picked in the filters
+  const [cashSummary, setCashSummary] = useState(null);
+  // Only the latest answer counts when the filters change faster than the server replies
+  const expensesRequest = useRef(0);
+  const summaryRequest = useRef(0);
+
   useEffect(() => {
     fetchData();
   }, []);
 
   useEffect(() => {
+    fetchExpenses();
+  }, [activePeriod]);
+
+  useEffect(() => {
     if (locations.length > 0) {
-      fetchReports();
+      // The day's report brings the cash entries up to date, so the period totals are read after it
+      fetchReports().then(fetchCashSummary);
       fetchDailyCashEntries();
     }
   }, [selectedDate, locations]);
 
+  useEffect(() => {
+    if (locations.length > 0) fetchCashSummary();
+  }, [activePeriod, filters.location]);
+
   async function fetchData() {
     setLoading(true);
     try {
-      const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
-      const [expRes, locRes] = await Promise.all([
-        fetch("/api/expenses", { headers }),
-        fetch("/api/setup/get"),
-      ]);
-      const expData = await expRes.json();
-      setExpenses(expData.expenses || expData || []);
+      const locRes = await fetch("/api/setup/get");
       const locData = await locRes.json();
       if (locData.store?.locations) {
         const locs = locData.store.locations.map(l => typeof l === "string" ? l : l.name);
@@ -106,6 +110,48 @@ export default function ExpenseAnalysisPage() {
       console.error(err);
     }
     setLoading(false);
+  }
+
+  /**
+   * The period's expenses. Asked for without a range, the list sends only the newest 50, which
+   * left the longer periods short.
+   */
+  async function fetchExpenses() {
+    const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
+    const days = getPeriodDays(activePeriod);
+    const params = new URLSearchParams({ all: "true" });
+    if (days) {
+      params.set("from", days.from);
+      params.set("to", days.to);
+    }
+    const request = ++expensesRequest.current;
+    try {
+      const res = await fetch(`/api/expenses?${params}`, { headers });
+      const data = await res.json();
+      const list = Array.isArray(data?.expenses) ? data.expenses : Array.isArray(data) ? data : [];
+      if (request === expensesRequest.current) setExpenses(list);
+    } catch (err) {
+      console.error("Expenses fetch failed:", err);
+    }
+  }
+
+  async function fetchCashSummary() {
+    const headers = { Authorization: `Bearer ${localStorage.getItem("auth_token")}` };
+    const days = getPeriodDays(activePeriod);
+    const params = new URLSearchParams();
+    if (days) {
+      params.set("from", days.from);
+      params.set("to", days.to);
+    }
+    if (filters.location) params.set("location", filters.location);
+    const request = ++summaryRequest.current;
+    try {
+      const res = await fetch(`/api/daily-cash/summary?${params}`, { headers });
+      const data = await res.json();
+      if (request === summaryRequest.current && res.ok) setCashSummary(data.totals || null);
+    } catch (err) {
+      console.error("Cash summary fetch failed:", err);
+    }
   }
 
   async function fetchReports() {
@@ -152,6 +198,7 @@ export default function ExpenseAnalysisPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Rebuild failed");
       await Promise.all([fetchReports(), fetchDailyCashEntries()]);
+      await fetchCashSummary();
     } catch (err) {
       console.error("Cash rebuild failed:", err);
     } finally {
@@ -162,11 +209,11 @@ export default function ExpenseAnalysisPage() {
   // === Filtering ===
   const filteredExpenses = useMemo(() => {
     let list = [...expenses];
-    const range = getDateRange(activePeriod);
-    if (range) {
+    const days = getPeriodDays(activePeriod);
+    if (days) {
       list = list.filter(e => {
-        const d = new Date(e.createdAt || e.expenseDate);
-        return d >= range.start && d < range.end;
+        const day = tradingDayKey(paidAt(e));
+        return Boolean(day) && day >= days.from && day <= days.to;
       });
     }
     if (filters.category) list = list.filter(e => e.categoryName === filters.category);
@@ -196,10 +243,20 @@ export default function ExpenseAnalysisPage() {
     return sorted;
   }, [filteredExpenses]);
 
-  // Cash summary from reports
-  const totalCashReceived = Object.values(reports).reduce((s, r) => s + (r?.cashReceived || 0), 0);
-  const totalPayments = Object.values(reports).reduce((s, r) => s + (r?.totalPayments || 0), 0);
-  const totalCashAtHand = Object.values(reports).reduce((s, r) => s + (r?.cashAtHand || 0), 0);
+  // What the cards cover, said under each of them
+  const periodDays = getPeriodDays(activePeriod);
+  const periodLabel = [
+    filters.location || "All locations",
+    !periodDays
+      ? "all time"
+      : periodDays.from === periodDays.to
+        ? formatDayKey(periodDays.from, { weekday: true })
+        : `${formatDayKey(periodDays.from)} – ${formatDayKey(periodDays.to)}`,
+  ].join(" · ");
+  const atHandLabel = [
+    filters.location || "All locations",
+    !periodDays || periodDays.to >= currentTradingDay() ? "now" : `end of ${formatDayKey(periodDays.to)}`,
+  ].join(" · ");
 
   const handlePeriodSelect = (p) => setActivePeriod(prev => prev === p ? "" : p);
   const resetFilters = () => {
@@ -226,7 +283,7 @@ export default function ExpenseAnalysisPage() {
             <h1 className="page-title">Dashboard</h1>
             <p className="page-subtitle">Visualize and monitor your business expenditures in one place.</p>
           </div>
-          <button onClick={() => { fetchData(); fetchReports(); }} className="btn-action-primary flex items-center gap-2 text-sm">
+          <button onClick={() => { fetchData(); fetchExpenses(); fetchReports().then(fetchCashSummary); }} className="btn-action-primary flex items-center gap-2 text-sm">
             <RefreshCw className="w-4 h-4" /> Refresh Data
           </button>
         </div>
@@ -269,19 +326,22 @@ export default function ExpenseAnalysisPage() {
           </div>
         </div>
 
-        {/* Summary Cards */}
+        {/* Summary Cards: the period and location picked above */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div className="content-card text-center">
             <p className="text-sm text-gray-500">Cash Received</p>
-            <p className="text-2xl font-bold text-blue-700">{formatCurrency(totalCashReceived)}</p>
+            <p className="text-2xl font-bold text-blue-700">{formatCurrency(cashSummary?.cashReceived || 0)}</p>
+            <p className="text-xs text-gray-400 mt-1">{periodLabel}</p>
           </div>
           <div className="content-card text-center">
             <p className="text-sm text-gray-500">Expenses</p>
             <p className="text-2xl font-bold text-red-600">{formatCurrency(totalSpent)}</p>
+            <p className="text-xs text-gray-400 mt-1">{periodLabel}</p>
           </div>
           <div className="content-card text-center">
             <p className="text-sm text-gray-500">Cash at Hand</p>
-            <p className="text-2xl font-bold text-green-700">{formatCurrency(totalCashAtHand)}</p>
+            <p className="text-2xl font-bold text-green-700">{formatCurrency(cashSummary?.cashAtHand || 0)}</p>
+            <p className="text-xs text-gray-400 mt-1">{atHandLabel}</p>
           </div>
         </div>
 
@@ -343,7 +403,7 @@ export default function ExpenseAnalysisPage() {
                     <p className="text-xs text-gray-500">
                       {formatCurrency(exp.amount)} - {exp.categoryName === "Petty Cash" ? "Petty Cash Vendor" : exp.categoryName} - {exp.locationName || "—"}
                     </p>
-                    <p className="text-xs text-gray-400">{formatDate(exp.createdAt)}</p>
+                    <p className="text-xs text-gray-400">{formatDate(paidAt(exp))}</p>
                   </div>
                 ))}
               </div>
