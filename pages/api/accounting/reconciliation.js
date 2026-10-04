@@ -15,14 +15,17 @@ import Transaction from "@/models/Transactions";
 import { roundCurrency, summarizePeriod } from "@/lib/financial-basis";
 import { loadFinancialPeriod, voidedQuery } from "@/lib/financial-period-data";
 import { buildPeriodRange } from "@/lib/tax-analysis";
+import { dayKeyOf, shopDaysBounds } from "@/lib/tradingDay";
 
 const CODES = {
   INVENTORY: "1200",
   TAX: "2100",
   REVENUE: "4000",
+  RETURNS: "4900",
   COGS: "5000",
-  REFUND: "6200",
 };
+
+const lagosDate = (date) => date.toLocaleDateString("en-NG", { timeZone: "Africa/Lagos" });
 
 /** A naira of rounding either way is not a disagreement worth reporting. */
 const TOLERANCE = 1;
@@ -44,9 +47,12 @@ export default async function handler(req, res) {
     const { from, to, period = "last-month" } = req.query;
     const now = new Date();
     const range = buildPeriodRange(period, now);
-    const start = from ? new Date(from) : range.start;
-    const end = to ? new Date(to) : range.end;
-    const periodLabel = from || to ? `${start.toLocaleDateString("en-NG")} to ${end.toLocaleDateString("en-NG")}` : range.label;
+    // Whole days in Lagos, the last one included (the queries below read up to and including `end`)
+    const fromKey = from ? dayKeyOf(from) : null;
+    const toKey = to ? dayKeyOf(to) : null;
+    const start = fromKey ? shopDaysBounds(fromKey).start : range.start;
+    const end = toKey ? new Date(shopDaysBounds(toKey).end.getTime() - 1) : range.end;
+    const periodLabel = fromKey || toKey ? `${lagosDate(start)} to ${lagosDate(end)}` : range.label;
 
     const { sales, refunds, expenses, voidedCount, productMap, categoryTreatments } = await loadFinancialPeriod({ start, end });
     const summary = summarizePeriod({ sales, refunds, expenses, productMap, categoryTreatments, voidedCount });
@@ -75,12 +81,23 @@ export default async function handler(req, res) {
       return bal.debit - bal.credit;
     };
 
-    // Running costs are every expense account except cost of sales and refunds,
-    // which the statement reports on their own lines.
+    // Running costs are every expense account but cost of sales. Refunds no longer post among
+    // them: they come off revenue.
     let postedExpenses = 0;
     for (const [code, bal] of Object.entries(postedByCode)) {
-      if (!code.startsWith("6") || code === CODES.REFUND) continue;
+      if (!code.startsWith("6")) continue;
       postedExpenses += bal.debit - bal.credit;
+    }
+
+    // Refunds taken off revenue: through the returns account, or straight off sales on a chart
+    // that has no returns account of its own
+    let postedRefunds = 0;
+    for (const entry of entries) {
+      if (entry.referenceType !== "REFUND") continue;
+      for (const line of entry.lines || []) {
+        if (![CODES.REVENUE, CODES.RETURNS].includes(String(line.accountCode))) continue;
+        postedRefunds += (Number(line.debit) || 0) - (Number(line.credit) || 0);
+      }
     }
 
     // Stock bought through an expense record should have gone to inventory, not
@@ -115,10 +132,10 @@ export default async function handler(req, res) {
       : 0;
 
     const lines = {
-      revenue: difference(summary.netSales, creditBalance(CODES.REVENUE)),
+      revenue: difference(summary.netRevenue, creditBalance(CODES.REVENUE) - debitBalance(CODES.RETURNS)),
       vat: difference(summary.vatPayable, creditBalance(CODES.TAX)),
       costOfSales: difference(summary.cogs - summary.refundCogs, debitBalance(CODES.COGS)),
-      refunds: difference(summary.refundNet, debitBalance(CODES.REFUND)),
+      refunds: difference(summary.refundNet, postedRefunds),
       expenses: difference(summary.expenses, postedExpenses),
       stockPurchases: difference(summary.stockPurchases, inventoryFromExpenses),
     };

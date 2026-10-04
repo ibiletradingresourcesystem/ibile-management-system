@@ -17,6 +17,7 @@ function formatDate(value) {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "Africa/Lagos",
   });
 }
 
@@ -61,7 +62,7 @@ export default async function handler(req, res) {
 
     const period = String(req.query.period || "last-month");
     const now = new Date();
-    const { start, end, label } = buildPeriodRange(period, now);
+    const { start, end, label, days } = buildPeriodRange(period, now);
     const [{ sales, refunds, expenses, voidedCount, productMap, categoryTreatments }, store] = await Promise.all([
       loadFinancialPeriod({ start, end }),
       Store.findOne({}).lean(),
@@ -77,6 +78,7 @@ export default async function handler(req, res) {
       period,
       generatedAt: now,
       periodLabel: label,
+      periodDays: days,
     });
 
     const filename = `Tax_Compliance_Report_${period}_${now.toISOString().split("T")[0]}.pdf`;
@@ -88,6 +90,7 @@ export default async function handler(req, res) {
 
     const businessName = store?.storeName || store?.companyName || "N/A";
     const reportPeriodLabel = tax.periodLabel || label;
+    // In Lagos, where the period's days are counted
     const periodRange = `${formatDate(start)} to ${formatDate(end)}`;
 
     doc
@@ -185,7 +188,7 @@ export default async function handler(req, res) {
     doc.text(`Gross Profit: ${money(tax.grossProfit)}`);
     doc.text(`Total Allowable Expenses: ${money(tax.totalExpenses)}`);
     doc.text(`Net Profit (assessable): ${money(tax.netProfit)}`);
-    doc.text(`Tax Band Classification: ${tax.band}`);
+    doc.text(`Tax Band Classification: ${tax.band} (on turnover of ${money(tax.annualTurnover)} a year)`);
     doc.text(`Company Income Tax (CIT @ ${tax.citRate}%): ${money(tax.companyIncomeTax)}`);
     doc.text(`Value Added Tax (VAT @ ${tax.vatRate}%): ${money(tax.vatOnSales)}`);
     doc.text(`National Health Insurance Levy (NHL @ ${tax.nhlRate}%): ${money(tax.nhlAmount)}`);

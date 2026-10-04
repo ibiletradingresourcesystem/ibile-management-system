@@ -11,12 +11,22 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === "GET") {
-      return res.status(200).json({ success: true, status: getAccountingSyncStatus() });
+      return res.status(200).json({ success: true, status: await getAccountingSyncStatus() });
     }
 
     if (req.method === "POST") {
-      const result = await ensureAccountingEntriesSynced({ force: true });
-      return res.status(200).json({ success: true, result, status: getAccountingSyncStatus() });
+      // { auto: true } is a page bringing the books up to date as it opens: skipped if they were
+      // synced in the last few minutes. Without it, it is the Sync button, and it runs now.
+      const auto = Boolean(req.body?.auto);
+      const result = await ensureAccountingEntriesSynced({ force: !auto });
+      if (result?.running && !auto) {
+        return res.status(409).json({
+          success: false,
+          message: "The books are already being brought up to date. Give it a minute and look again.",
+          status: await getAccountingSyncStatus(),
+        });
+      }
+      return res.status(200).json({ success: true, result, status: await getAccountingSyncStatus() });
     }
 
     res.setHeader("Allow", ["GET", "POST"]);

@@ -49,6 +49,9 @@ const JournalEntrySchema = new Schema(
     postedAt: { type: Date },
     voidedAt: { type: Date },
     voidReason: { type: String },
+    // For entries the system posts from a sale, expense or order: a fingerprint of what was
+    // posted, so a sync can tell the entry is already right without rewriting it
+    syncHash: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     createdByName: { type: String },
   },
@@ -146,6 +149,26 @@ export async function getNextJournalEntryNumber() {
   }
 
   throw new Error("Failed to reserve a journal entry number");
+}
+
+/**
+ * Numbers for `count` new entries at once, in order — one trip to the counter instead of one per
+ * entry, for a sync that posts many.
+ */
+export async function reserveJournalEntryNumbers(count) {
+  if (!count || count <= 0) return [];
+  // The first number makes sure the counter exists and has caught up with the entries
+  const first = await getNextJournalEntryNumber();
+  if (count === 1) return [first];
+
+  const updatedCounter = await Counter.findOneAndUpdate(
+    { _id: ENTRY_SEQUENCE_KEY },
+    { $inc: { seq: count - 1 } },
+    { new: true }
+  ).lean();
+  const last = updatedCounter.seq;
+  const rest = Array.from({ length: count - 1 }, (_, index) => formatJournalEntryNumber(last - (count - 2) + index));
+  return [first, ...rest];
 }
 
 export async function createJournalEntry(entryPayload) {

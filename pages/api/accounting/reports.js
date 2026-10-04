@@ -2,6 +2,13 @@ import { mongooseConnect } from "@/lib/mongodb";
 import JournalEntry from "@/models/JournalEntry";
 import Account from "@/models/Account";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { dayKeyOf, shopDaysBounds } from "@/lib/tradingDay";
+
+/**
+ * Accounts are read whether active or not: an account switched off still holds what was posted to
+ * it, and leaving it out dropped one side of those entries, so the statements stopped balancing.
+ */
+const ALL_ACCOUNTS = {};
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -17,15 +24,21 @@ export default async function handler(req, res) {
   try {
     const { report, from, to, accountId } = req.query;
 
+    // "From" and "To" are whole days in Lagos. Read as dates on the server they meant midnight UTC,
+    // so everything on the "To" day after 1am was left out, and the first hour of "From" with it.
+    const fromKey = from ? dayKeyOf(from) : null;
+    const toKey = to ? dayKeyOf(to) : null;
+    const periodStart = fromKey ? shopDaysBounds(fromKey).start : null;
+    const periodEnd = toKey ? shopDaysBounds(toKey).end : null;
     const dateFilter = {};
-    if (from) dateFilter.$gte = new Date(from);
-    if (to) dateFilter.$lte = new Date(to);
+    if (periodStart) dateFilter.$gte = periodStart;
+    if (periodEnd) dateFilter.$lt = periodEnd;
 
     // ───── TRIAL BALANCE ─────
     if (report === "trial-balance") {
-      const accounts = await Account.find({ isActive: true }).sort({ code: 1 }).lean();
+      const accounts = await Account.find(ALL_ACCOUNTS).sort({ code: 1 }).lean();
       const postedFilter = { status: "POSTED" };
-      if (from || to) postedFilter.date = dateFilter;
+      if (periodStart || periodEnd) postedFilter.date = dateFilter;
 
       const entries = await JournalEntry.find(postedFilter, { lines: 1 }).lean();
 
@@ -70,10 +83,10 @@ export default async function handler(req, res) {
     // ───── PROFIT & LOSS ─────
     if (report === "profit-loss") {
       const postedFilter = { status: "POSTED" };
-      if (from || to) postedFilter.date = dateFilter;
+      if (periodStart || periodEnd) postedFilter.date = dateFilter;
 
       const entries = await JournalEntry.find(postedFilter, { lines: 1 }).lean();
-      const accounts = await Account.find({ isActive: true, type: { $in: ["REVENUE", "EXPENSE"] } }).sort({ code: 1 }).lean();
+      const accounts = await Account.find({ ...ALL_ACCOUNTS, type: { $in: ["REVENUE", "EXPENSE"] } }).sort({ code: 1 }).lean();
 
       const balances = {};
       for (const entry of entries) {
@@ -160,10 +173,10 @@ export default async function handler(req, res) {
     // ───── BALANCE SHEET ─────
     if (report === "balance-sheet") {
       const postedFilter = { status: "POSTED" };
-      if (to) postedFilter.date = { $lte: new Date(to) };
+      if (periodEnd) postedFilter.date = { $lt: periodEnd };
 
       const entries = await JournalEntry.find(postedFilter, { lines: 1 }).lean();
-      const accounts = await Account.find({ isActive: true, type: { $in: ["ASSET", "LIABILITY", "EQUITY"] } }).sort({ code: 1 }).lean();
+      const accounts = await Account.find({ ...ALL_ACCOUNTS, type: { $in: ["ASSET", "LIABILITY", "EQUITY"] } }).sort({ code: 1 }).lean();
 
       const balances = {};
       for (const entry of entries) {
@@ -191,7 +204,10 @@ export default async function handler(req, res) {
         const amount = Math.round((bal.debit - bal.credit) * 100) / 100;
         if (amount === 0) continue;
 
-        const row = { code: acc.code, name: acc.name, subType: acc.subType, amount };
+        // `display` is the figure as the statement shows it, sign kept: an asset in credit (cash
+        // paid out beyond what was recorded coming in), or a contra account, reads negative rather
+        // than being shown as a positive the totals then disagreed with.
+        const row = { code: acc.code, name: acc.name, subType: acc.subType, amount, display: acc.type === "ASSET" ? amount : -amount };
 
         if (acc.type === "ASSET") {
           assets.push(row);
@@ -210,8 +226,8 @@ export default async function handler(req, res) {
       }
 
       // Add net income to retained earnings
-      const revenueAccounts = await Account.find({ isActive: true, type: "REVENUE" }).lean();
-      const expenseAccounts = await Account.find({ isActive: true, type: "EXPENSE" }).lean();
+      const revenueAccounts = await Account.find({ ...ALL_ACCOUNTS, type: "REVENUE" }).lean();
+      const expenseAccounts = await Account.find({ ...ALL_ACCOUNTS, type: "EXPENSE" }).lean();
       let netIncome = 0;
       for (const acc of [...revenueAccounts, ...expenseAccounts]) {
         const bal = balances[acc._id.toString()] || { debit: 0, credit: 0 };
@@ -221,7 +237,9 @@ export default async function handler(req, res) {
       netIncome = Math.round(netIncome * 100) / 100;
 
       if (netIncome !== 0) {
-        equity.push({ code: "", name: "Net Income (Current Period)", subType: "Retained Earnings", amount: -netIncome });
+        // Every profit and loss posted up to the balance sheet date: nothing closes it off into
+        // retained earnings, so it is the profit to date, not this period's
+        equity.push({ code: "", name: "Profit to date", subType: "Retained Earnings", amount: -netIncome, display: netIncome });
         // A loss has to reduce equity. Math.abs() used to be added here, so a
         // loss-making period inflated equity instead and the balance sheet
         // could not balance.
@@ -259,14 +277,14 @@ export default async function handler(req, res) {
       if (!account) return res.status(404).json({ success: false, message: "Account not found" });
 
       const postedFilter = { status: "POSTED", "lines.account": accountId };
-      if (from || to) postedFilter.date = dateFilter;
+      if (periodStart || periodEnd) postedFilter.date = dateFilter;
 
       let openingBalance = account.openingBalance || 0;
-      if (from) {
+      if (periodStart) {
         const openingEntries = await JournalEntry.find({
           status: "POSTED",
           "lines.account": accountId,
-          date: { $lt: new Date(from) },
+          date: { $lt: periodStart },
         }, { lines: 1 }).lean();
 
         for (const entry of openingEntries) {

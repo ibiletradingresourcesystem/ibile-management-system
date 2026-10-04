@@ -153,6 +153,12 @@ export default function TaxAnalysisPage() {
                 {" "}<a href="/accounting/reports" className="font-semibold underline hover:text-sky-900">Financial Reports</a>{" "}
                 should agree with this page — its <em>Books vs Transactions</em> panel says whether it does, and names any sale
                 still waiting to be posted.
+                {taxData.annualTurnover > 0 && (
+                  <span className="block mt-1">
+                    The company income tax band goes by a year&apos;s turnover: this period&apos;s works out to{" "}
+                    {formatNumber(taxData.annualTurnover)} a year, which puts it in the <strong>{taxData.band}</strong> band.
+                  </span>
+                )}
                 {taxData.basis?.incompleteCostLines > 0 && (
                   <span className="block mt-1">
                     {formatNumber(taxData.basis.incompleteCostLines)} sold line

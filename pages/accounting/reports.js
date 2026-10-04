@@ -30,6 +30,11 @@ function formatMargin(value) {
   return `${((Number(value) || 0) * 100).toFixed(1)}%`;
 }
 
+/** A balance sheet figure as the statement shows it, sign kept (older replies only had `amount`). */
+function statementAmount(row) {
+  return row.display ?? Math.abs(row.amount);
+}
+
 function formatSyncTime(value) {
   if (!value) return "No recent sync";
   return new Date(value).toLocaleString("en-NG");
@@ -41,6 +46,9 @@ export default function AccountingReportsPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  // Bringing the books up to date by itself as the page opens
+  const [autoSyncing, setAutoSyncing] = useState(false);
+  const [booksVersion, setBooksVersion] = useState(0);
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncMessage, setSyncMessage] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -112,9 +120,9 @@ export default function AccountingReportsPage() {
           { key: "amount", label: "Amount", type: "currency", align: "right", width: 1.2 },
         ],
         rows: [
-          ...(data.assets || []).map((r) => ({ section: "Assets", ...r, amount: Math.abs(r.amount) })),
-          ...(data.liabilities || []).map((r) => ({ section: "Liabilities", ...r, amount: Math.abs(r.amount) })),
-          ...(data.equity || []).map((r) => ({ section: "Equity", ...r, amount: Math.abs(r.amount) })),
+          ...(data.assets || []).map((r) => ({ section: "Assets", ...r, amount: statementAmount(r) })),
+          ...(data.liabilities || []).map((r) => ({ section: "Liabilities", ...r, amount: statementAmount(r) })),
+          ...(data.equity || []).map((r) => ({ section: "Equity", ...r, amount: statementAmount(r) })),
         ],
         summary: [
           { label: "Total Assets", value: formatMoney(data.totalAssets || 0) },
@@ -160,11 +168,38 @@ export default function AccountingReportsPage() {
 
   useEffect(() => {
     fetchReport();
-  }, [tab, dateFrom, dateTo]);
+  }, [tab, dateFrom, dateTo, booksVersion]);
 
   useEffect(() => {
     refreshSyncStatus();
+    autoSync();
   }, []);
+
+  /**
+   * The statements are read from posted entries, and sales reach those only through a sync. It
+   * used to run only when someone pressed Sync, so the figures here could be days behind the till.
+   * The page now asks for one as it opens; the server skips it if the books were synced in the
+   * last few minutes, and the figures are read again once it has run.
+   */
+  async function autoSync() {
+    try {
+      setAutoSyncing(true);
+      const res = await fetch("/api/accounting/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto: true }),
+      });
+      if (!res.ok) return;
+      const payload = await res.json();
+      setSyncStatus(payload.status || null);
+      // Read again for whatever tab and dates are showing by now
+      if (payload.result && !payload.result.skipped) setBooksVersion((version) => version + 1);
+    } catch {
+      // The figures already on screen stay; Sync is still there to try again
+    } finally {
+      setAutoSyncing(false);
+    }
+  }
 
   // The standalone /accounting/trial-balance, /profit-loss and /balance-sheet
   // pages now redirect here carrying ?tab=, so honour it on arrival.
@@ -284,7 +319,9 @@ export default function AccountingReportsPage() {
         {syncMessage && <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">{syncMessage}</div>}
 
         <div className="theme-note-primary mb-6 rounded-xl border px-4 py-3 text-sm">
-          Accounting sync is throttled automatically to keep these pages responsive. Use Sync Accounting when you want an immediate refresh from sales, expenses, and purchase orders.
+          {autoSyncing
+            ? "Bringing the books up to date with the latest sales, expenses and purchase orders…"
+            : `The books are brought up to date from sales, expenses and purchase orders when this page opens (at most every few minutes). Last brought up to date: ${formatSyncTime(syncStatus?.lastSyncAt)}. Use Sync to do it now.`}
         </div>
 
         {/* Tabs */}
@@ -377,7 +414,7 @@ function ReconciliationPanel({ reconciliation }) {
 
   const { lines, issues = {}, agrees, period } = reconciliation;
   const rows = [
-    { key: "revenue", label: "Revenue (net of VAT)" },
+    { key: "revenue", label: "Revenue (net of VAT and refunds)" },
     { key: "vat", label: "VAT payable" },
     { key: "costOfSales", label: "Cost of sales" },
     { key: "refunds", label: "Refunds" },
@@ -630,7 +667,9 @@ function BSSection({ title, items, total, colorClass }) {
                 <span className="font-mono theme-accent-text text-xs mr-2">{item.code}</span>
                 <span className="font-medium text-gray-900">{item.name}</span>
               </td>
-              <td className="px-4 py-2 text-right font-semibold">{formatMoney(Math.abs(item.amount))}</td>
+              <td className={`px-4 py-2 text-right font-semibold ${statementAmount(item) < 0 ? "text-red-600" : ""}`}>
+                {formatMoney(statementAmount(item))}
+              </td>
             </tr>
           ))}
         </tbody>
