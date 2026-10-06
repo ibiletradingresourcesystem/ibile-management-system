@@ -8,17 +8,7 @@
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
-import { processAIChatMessage, SUGGESTED_QUESTIONS } from "@/lib/ai/chatService";
-
-// Hard-coded knowledge base responses for common support questions
-const KNOWLEDGE_RESPONSES = [
-  { keywords: ["add product", "new product", "create product"], response: "To add a new product: Go to **Manage → Product List → Add Product**. Enter name, category, cost price, and sale price. Enable stock management if needed. Save." },
-  { keywords: ["stock movement", "restock", "transfer stock"], response: "Go to **Stock → Stock Movement** to create restocks, transfers, or returns. Each movement auto-updates stock levels at relevant locations." },
-  { keywords: ["end of day", "eod", "close till"], response: "Go to **Reporting → EOD Reports**. Select location and date, then reconcile your till against expected values. The system calculates variance automatically." },
-  { keywords: ["expense", "add expense"], response: "Go to **Expenses → Expense Management**. Enter title, amount, category, and location. Cash entries can be added for daily operations." },
-  { keywords: ["credit", "credit sale"], response: "Credit sales are tracked per customer. Go to the customer's profile to see outstanding credit. Mark payments as they come in." },
-  { keywords: ["purchase order", "vendor payment"], response: "Go to **Manage → Vendor Payment Tracker** to manage purchase orders. Use Quick Entry for fast recording, or Seed Data to import vendors and orders from the expense app. Orders placed in **Manage → Vendors** wait in Submitted Stock Orders until they are received." },
-];
+import { helpAnswerFor, processAIChatMessage, SUGGESTED_QUESTIONS } from "@/lib/ai/chatService";
 
 export default async function handler(req, res) {
   if (req.method === "GET") {
@@ -39,12 +29,10 @@ export default async function handler(req, res) {
 
   await mongooseConnect();
 
-  const userMessage = message.trim().toLowerCase();
-
-  // Step 1: Check knowledge base first
-  const kbMatch = KNOWLEDGE_RESPONSES.find(kb =>
-    kb.keywords.some(kw => userMessage.includes(kw))
-  );
+  // Step 1: a how-to question about the app gets the help text straight away. Only a how-to:
+  // matching keywords anywhere sent "What products should I restock?" — a suggested question —
+  // the instructions for Stock Movement instead of an answer.
+  const kbMatch = helpAnswerFor(message);
   if (kbMatch) {
     return res.status(200).json({
       success: true,

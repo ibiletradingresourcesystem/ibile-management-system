@@ -19,7 +19,13 @@ import { mongooseConnect } from "@/lib/mongodb";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { generateDashboardMetrics } from "@/lib/analytics/dashboardAnalytics";
 import { generateBusinessSummary } from "@/lib/ai/gemini";
-import { generateMetricsHash, isCacheValid, logAIEvent, periodToReportType } from "@/lib/ai/insightUtils";
+import { generateMetricsHash, isFresh, logAIEvent, periodToReportType } from "@/lib/ai/insightUtils";
+
+/**
+ * A summary is served again for half an hour whatever has changed: "today" changes with every sale,
+ * and asking the AI again each time would use up a free key's quota by mid-morning.
+ */
+const SUMMARY_MIN_REFRESH_MS = 30 * 60 * 1000;
 import AIInsight from "@/models/AIInsight";
 
 export default async function handler(req, res) {
@@ -52,14 +58,17 @@ export default async function handler(req, res) {
 
     // Step 3: Check cache (unless forced regeneration)
     if (!forceRegenerate) {
+      // The summary for this very period: "today" and "yesterday" are both daily reports
       const cached = await AIInsight.findOne({
         reportType,
+        reportPeriod: metrics.reportPeriod,
         location: locationKey,
-        hash,
         status: "completed",
-      }).lean();
+      })
+        .sort({ generatedAt: -1 })
+        .lean();
 
-      if (cached && isCacheValid(cached)) {
+      if (cached && isFresh(cached, { hash, minRefreshMs: SUMMARY_MIN_REFRESH_MS })) {
         logAIEvent({
           action: "cache-hit",
           reportType,
@@ -111,7 +120,8 @@ export default async function handler(req, res) {
         aiAvailable: false,
         metrics,
         insight: null,
-        error: "AI insight is temporarily unavailable.",
+        // The real reason (a bad key, a used-up quota) so it can be put right
+        error: aiResult.error || "AI insight is temporarily unavailable.",
         metricsGenerationTimeMs: metricsGenerationTime,
       });
     }
@@ -138,9 +148,9 @@ export default async function handler(req, res) {
       cacheHit: false,
     };
 
-    // Upsert: replace existing insight for same reportType + location
+    // Upsert: one insight per period and location, so yesterday's no longer overwrites today's
     await AIInsight.findOneAndUpdate(
-      { reportType, location: locationKey },
+      { reportType, reportPeriod: metrics.reportPeriod, location: locationKey },
       insightData,
       { upsert: true, new: true }
     );

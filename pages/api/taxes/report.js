@@ -62,7 +62,7 @@ export default async function handler(req, res) {
 
     const period = String(req.query.period || "last-month");
     const now = new Date();
-    const { start, end, label, days } = buildPeriodRange(period, now);
+    const { start, end, label, days, to } = buildPeriodRange(period, now);
     const [{ sales, refunds, expenses, voidedCount, productMap, categoryTreatments }, store] = await Promise.all([
       loadFinancialPeriod({ start, end }),
       Store.findOne({}).lean(),
@@ -79,6 +79,7 @@ export default async function handler(req, res) {
       generatedAt: now,
       periodLabel: label,
       periodDays: days,
+      periodTo: to,
     });
 
     const filename = `Tax_Compliance_Report_${period}_${now.toISOString().split("T")[0]}.pdf`;
@@ -188,8 +189,9 @@ export default async function handler(req, res) {
     doc.text(`Gross Profit: ${money(tax.grossProfit)}`);
     doc.text(`Total Allowable Expenses: ${money(tax.totalExpenses)}`);
     doc.text(`Net Profit (assessable): ${money(tax.netProfit)}`);
-    doc.text(`Tax Band Classification: ${tax.band} (on turnover of ${money(tax.annualTurnover)} a year)`);
+    doc.text(`Tax Band Classification: ${tax.band} (on turnover of ${money(tax.annualTurnover)} a year, ${tax.taxLaw})`);
     doc.text(`Company Income Tax (CIT @ ${tax.citRate}%): ${money(tax.companyIncomeTax)}`);
+    doc.text(`Development Levy (@ ${tax.developmentLevyRate}% of assessable profit): ${money(tax.developmentLevy)}`);
     doc.text(`Value Added Tax (VAT @ ${tax.vatRate}%): ${money(tax.vatOnSales)}`);
     doc.text(`National Health Insurance Levy (NHL @ ${tax.nhlRate}%): ${money(tax.nhlAmount)}`);
     doc.moveDown(0.5);
@@ -202,12 +204,13 @@ export default async function handler(req, res) {
     const tableLeft = 48;
     const tableTop = doc.y;
     const col = {
-      period: 160,
-      revenue: 95,
-      expenses: 90,
-      vat: 70,
-      cit: 70,
-      nhl: 62,
+      period: 110,
+      revenue: 80,
+      expenses: 75,
+      vat: 60,
+      cit: 60,
+      levy: 55,
+      nhl: 50,
     };
 
     const drawHeader = () => {
@@ -224,6 +227,8 @@ export default async function handler(req, res) {
       x += col.vat;
       doc.text("CIT", x, doc.y + 6, { width: col.cit, align: "right" });
       x += col.cit;
+      doc.text("Dev. levy", x, doc.y + 6, { width: col.levy, align: "right" });
+      x += col.levy;
       doc.text("NHL", x, doc.y + 6, { width: col.nhl, align: "right" });
       doc.fillColor("#000000");
       doc.y += 20;
@@ -233,7 +238,7 @@ export default async function handler(req, res) {
 
     const rows = tax.breakdown?.length
       ? tax.breakdown
-      : [{ month: tax.periodLabel || label, income: tax.totalRevenue, expenses: tax.totalExpenses, vat: tax.vatOnSales, cit: tax.companyIncomeTax, nhl: tax.nhlAmount }];
+      : [{ month: tax.periodLabel || label, income: tax.totalRevenue, expenses: tax.totalExpenses, vat: tax.vatOnSales, cit: tax.companyIncomeTax, developmentLevy: tax.developmentLevy, nhl: tax.nhlAmount }];
 
     rows.forEach((row, idx) => {
       if (doc.y > 730) {
@@ -254,6 +259,8 @@ export default async function handler(req, res) {
       x += col.vat;
       doc.text(money(row.cit || 0).replace("NGN ", ""), x, doc.y + 5, { width: col.cit, align: "right" });
       x += col.cit;
+      doc.text(money(row.developmentLevy || 0).replace("NGN ", ""), x, doc.y + 5, { width: col.levy, align: "right" });
+      x += col.levy;
       doc.text(money(row.nhl || 0).replace("NGN ", ""), x, doc.y + 5, { width: col.nhl, align: "right" });
       doc.y += 18;
     });
@@ -278,7 +285,7 @@ export default async function handler(req, res) {
     });
     doc.moveDown(5.5);
     doc.fontSize(8).fillColor("#4B5563").text(
-      "Reference tax basis: Nigeria Finance Act (CIT thresholds, VAT and applicable levies). This schedule is intended to support filing preparation and should be validated by your accountant before submission.",
+      `Reference tax basis: ${tax.taxLaw} (CIT thresholds, development levy, VAT and applicable levies). From 1 January 2026 a small company is one with turnover of NGN 100M or less and fixed assets of NGN 250M or less; check the fixed assets yourself, this report only sees turnover. This schedule is intended to support filing preparation and should be validated by your accountant before submission.`,
       { align: "left" }
     );
 
