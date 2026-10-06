@@ -279,7 +279,7 @@ export default function TaxAnalysisPage() {
                   <div className="w-1.5 h-8 bg-emerald-600 rounded-full"></div>
                   Tax Breakdown
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   <DetailBox
                     label="VAT Payable (7.5%)"
                     value={`${formatNumber(taxData.vatOnSales || 0)}`}
@@ -292,7 +292,11 @@ export default function TaxAnalysisPage() {
                     value={`${formatNumber(taxData.companyIncomeTax || 0)}`}
                     icon={faCheckCircle}
                     iconColor="text-purple-600"
-                    subtitle={`Charged on assessable profit of ${formatNumber(Math.max(taxData.taxableIncome || 0, 0))}`}
+                    subtitle={
+                      taxData.minimumTaxApplied
+                        ? `Minimum tax: ${taxData.minimumTaxRate}% of turnover, more than the ${formatNumber(taxData.citOnProfit || 0)} CIT on profit (Finance Act; removed from 2026)`
+                        : `Charged on assessable profit of ${formatNumber(Math.max(taxData.taxableIncome || 0, 0))}`
+                    }
                   />
                   <DetailBox
                     label={`Development Levy (${taxData.developmentLevyRate || 0}%)`}
@@ -304,12 +308,6 @@ export default function TaxAnalysisPage() {
                         ? "On assessable profit, for companies that are not small"
                         : "Not charged: small companies are exempt, and it starts in 2026"
                     }
-                  />
-                  <DetailBox
-                    label="National Health Insurance Levy (0.5%)"
-                    value={`${formatNumber(taxData.nhlAmount || 0)}`}
-                    icon={faCheckCircle}
-                    iconColor="text-teal-600"
                   />
                 </div>
               </div>
@@ -332,7 +330,6 @@ export default function TaxAnalysisPage() {
                           <th className="px-6 py-4 text-right text-sm font-semibold">VAT (NGN)</th>
                           <th className="px-6 py-4 text-right text-sm font-semibold">CIT (NGN)</th>
                           <th className="px-6 py-4 text-right text-sm font-semibold">Dev. Levy (NGN)</th>
-                          <th className="px-6 py-4 text-right text-sm font-semibold">NHL (NGN)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -346,12 +343,11 @@ export default function TaxAnalysisPage() {
                               <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono">{formatNumber(item.vat || 0)}</td>
                               <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono font-semibold">{formatNumber(item.cit || 0)}</td>
                               <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono">{formatNumber(item.developmentLevy || 0)}</td>
-                              <td className="px-6 py-4 text-sm text-right text-gray-700 font-mono">{formatNumber(item.nhl || 0)}</td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan="8" className="py-8 px-6 text-center text-gray-500">
+                            <td colSpan="7" className="py-8 px-6 text-center text-gray-500">
                               <FontAwesomeIcon icon={faExclamationTriangle} className="text-gray-400 mr-2" />
                               No breakdown data available for this period
                             </td>
@@ -363,7 +359,7 @@ export default function TaxAnalysisPage() {
                 </div>
                 <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                   <p className="text-xs text-gray-900 font-medium">
-                     <strong>Tax Calculation Basis:</strong> Nigeria Tax Act 2025, from 1 January 2026 - small companies (turnover up to NGN 100M and fixed assets up to NGN 250M) pay no CIT and no development levy; every other company pays CIT at 30% and a 4% development levy, both on assessable profit. Periods before 2026 use the Finance Act rules then in force (exempt up to NGN 25M, 20% to NGN 100M, 30% above). The band is decided on a year&apos;s turnover. VAT at 7.5% of the price, NHL at 0.5% of turnover. Turnover and profit are measured net of VAT, the same way the books state them.
+                     <strong>Tax Calculation Basis:</strong> Nigeria Tax Act 2025, from 1 January 2026 - small companies (turnover up to NGN 100M and fixed assets up to NGN 250M) pay no CIT and no development levy; every other company pays CIT at 30% and a 4% development levy, both on assessable profit. Periods before 2026 use the Finance Act rules then in force (exempt up to NGN 25M, 20% to NGN 100M, 30% above, with a minimum tax of 0.5% of turnover where CIT came to less). The band is decided on a year&apos;s turnover. VAT at 7.5% of the price. No health insurance levy is charged on turnover: health insurance under the NHIA Act is paid on salaries. Turnover and profit are measured net of VAT, the same way the books state them.
                   </p>
                 </div>
               </div>

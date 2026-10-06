@@ -190,10 +190,13 @@ export default async function handler(req, res) {
     doc.text(`Total Allowable Expenses: ${money(tax.totalExpenses)}`);
     doc.text(`Net Profit (assessable): ${money(tax.netProfit)}`);
     doc.text(`Tax Band Classification: ${tax.band} (on turnover of ${money(tax.annualTurnover)} a year, ${tax.taxLaw})`);
-    doc.text(`Company Income Tax (CIT @ ${tax.citRate}%): ${money(tax.companyIncomeTax)}`);
+    doc.text(
+      tax.minimumTaxApplied
+        ? `Company Income Tax (minimum tax @ ${tax.minimumTaxRate}% of turnover, above CIT of ${money(tax.citOnProfit)}): ${money(tax.companyIncomeTax)}`
+        : `Company Income Tax (CIT @ ${tax.citRate}%): ${money(tax.companyIncomeTax)}`
+    );
     doc.text(`Development Levy (@ ${tax.developmentLevyRate}% of assessable profit): ${money(tax.developmentLevy)}`);
     doc.text(`Value Added Tax (VAT @ ${tax.vatRate}%): ${money(tax.vatOnSales)}`);
-    doc.text(`National Health Insurance Levy (NHL @ ${tax.nhlRate}%): ${money(tax.nhlAmount)}`);
     doc.moveDown(0.5);
     doc.font("Helvetica-Bold").fontSize(11).text(`Total Tax Liability: ${money(tax.totalTaxLiability)}`);
     doc.moveDown(1);
@@ -204,13 +207,12 @@ export default async function handler(req, res) {
     const tableLeft = 48;
     const tableTop = doc.y;
     const col = {
-      period: 110,
-      revenue: 80,
-      expenses: 75,
-      vat: 60,
-      cit: 60,
-      levy: 55,
-      nhl: 50,
+      period: 130,
+      revenue: 90,
+      expenses: 85,
+      vat: 65,
+      cit: 65,
+      levy: 58,
     };
 
     const drawHeader = () => {
@@ -228,8 +230,6 @@ export default async function handler(req, res) {
       doc.text("CIT", x, doc.y + 6, { width: col.cit, align: "right" });
       x += col.cit;
       doc.text("Dev. levy", x, doc.y + 6, { width: col.levy, align: "right" });
-      x += col.levy;
-      doc.text("NHL", x, doc.y + 6, { width: col.nhl, align: "right" });
       doc.fillColor("#000000");
       doc.y += 20;
     };
@@ -238,7 +238,7 @@ export default async function handler(req, res) {
 
     const rows = tax.breakdown?.length
       ? tax.breakdown
-      : [{ month: tax.periodLabel || label, income: tax.totalRevenue, expenses: tax.totalExpenses, vat: tax.vatOnSales, cit: tax.companyIncomeTax, developmentLevy: tax.developmentLevy, nhl: tax.nhlAmount }];
+      : [{ month: tax.periodLabel || label, income: tax.totalRevenue, expenses: tax.totalExpenses, vat: tax.vatOnSales, cit: tax.companyIncomeTax, developmentLevy: tax.developmentLevy }];
 
     rows.forEach((row, idx) => {
       if (doc.y > 730) {
@@ -260,8 +260,6 @@ export default async function handler(req, res) {
       doc.text(money(row.cit || 0).replace("NGN ", ""), x, doc.y + 5, { width: col.cit, align: "right" });
       x += col.cit;
       doc.text(money(row.developmentLevy || 0).replace("NGN ", ""), x, doc.y + 5, { width: col.levy, align: "right" });
-      x += col.levy;
-      doc.text(money(row.nhl || 0).replace("NGN ", ""), x, doc.y + 5, { width: col.nhl, align: "right" });
       doc.y += 18;
     });
 

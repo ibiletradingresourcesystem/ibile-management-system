@@ -1,6 +1,7 @@
 import Layout from "@/components/Layout";
 import { useState } from "react";
 import { formatCurrency } from "@/lib/format";
+import { calculatePersonalTax, RENT_RELIEF_CAP } from "@/lib/personalTax";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCalculator,
@@ -12,28 +13,21 @@ import {
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 
+// The deductions the Nigeria Tax Act 2025 allows (rent relief has its own field)
 const DEDUCTION_OPTIONS = [
   "NHF (Housing Fund)",
-  "NHIS (Health Insurance)",
-  "Life Assurance Premium",
+  "NHIA (Health Insurance) contribution",
+  "Life Assurance / Annuity Premium",
   "Voluntary Pension",
-  "Others",
-];
-
-const THRESHOLD_RELIEF = 800000;
-
-const TAX_BANDS = [
-  { limit: 2200000, rate: 0.15, label: "First ₦2,200,000" },
-  { limit: 7000000, rate: 0.18, label: "Next ₦7,000,000" },
-  { limit: 15000000, rate: 0.21, label: "Next ₦15,000,000" },
-  { limit: 25000000, rate: 0.23, label: "Next ₦25,000,000" },
-  { limit: Infinity, rate: 0.25, label: "Above ₦50,000,000" },
+  "Mortgage Interest (home you live in)",
+  "Other allowable deduction",
 ];
 
 export default function PersonalTaxCalculator() {
   const [mode, setMode] = useState("yearly");
   const [grossIncome, setGrossIncome] = useState("");
   const [pension, setPension] = useState("");
+  const [rent, setRent] = useState("");
   const [selectedDeduction, setSelectedDeduction] = useState("");
   const [deductionAmount, setDeductionAmount] = useState("");
   const [deductions, setDeductions] = useState([]);
@@ -56,53 +50,17 @@ export default function PersonalTaxCalculator() {
     setDeductions((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Everything is worked out for the year (lib/personalTax.js): monthly figures are taken x 12
   const calculateTax = () => {
     const multiplier = mode === "monthly" ? 12 : 1;
-    const gross = parseFloat(grossIncome || 0) * multiplier;
-    const pensionDeduction = parseFloat(pension || 0) * multiplier;
-    const totalOtherDeductions =
-      deductions.reduce((sum, d) => sum + d.amount, 0) * multiplier;
-
-    // Step 1: Deduct ₦800,000 threshold relief first (NTA 2025)
-    const afterThreshold = Math.max(0, gross - THRESHOLD_RELIEF);
-
-    // Step 2: CRA (calculated on original gross income)
-    const onePercent = gross * 0.01;
-    const cra = Math.max(200000, onePercent) + gross * 0.2;
-
-    // Step 3: Taxable income after all deductions
-    const taxableIncome = Math.max(0, afterThreshold - pensionDeduction - totalOtherDeductions - cra);
-
-    let remaining = taxableIncome;
-    let tax = 0;
-    const bandBreakdown = [];
-
-    for (const band of TAX_BANDS) {
-      if (remaining <= 0) {
-        bandBreakdown.push({ ...band, taxable: 0, tax: 0 });
-        continue;
-      }
-      const bandAmount = Math.min(remaining, band.limit);
-      const bandTax = bandAmount * band.rate;
-      tax += bandTax;
-      remaining -= bandAmount;
-      bandBreakdown.push({ ...band, taxable: bandAmount, tax: bandTax });
-    }
-
-    const effectiveRate = gross > 0 ? (tax / gross) * 100 : 0;
-
     setResult({
       mode,
-      gross,
-      thresholdRelief: THRESHOLD_RELIEF,
-      pension: pensionDeduction,
-      other: totalOtherDeductions,
-      cra,
-      taxableIncome,
-      yearlyTax: tax,
-      monthlyTax: tax / 12,
-      effectiveRate,
-      bandBreakdown,
+      ...calculatePersonalTax({
+        grossIncome: parseFloat(grossIncome || 0) * multiplier,
+        pension: parseFloat(pension || 0) * multiplier,
+        deductions: deductions.reduce((sum, d) => sum + d.amount, 0) * multiplier,
+        annualRent: parseFloat(rent || 0) * multiplier,
+      }),
       allDeductions: deductions,
     });
   };
@@ -110,6 +68,7 @@ export default function PersonalTaxCalculator() {
   const resetForm = () => {
     setGrossIncome("");
     setPension("");
+    setRent("");
     setDeductions([]);
     setSelectedDeduction("");
     setDeductionAmount("");
@@ -170,7 +129,7 @@ export default function PersonalTaxCalculator() {
                 Income Details
               </h2>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="form-group">
                 <label className="form-label">
                   Gross {mode === "monthly" ? "Monthly" : "Annual"} Income (NGN)
@@ -194,6 +153,21 @@ export default function PersonalTaxCalculator() {
                   onChange={(e) => setPension(e.target.value)}
                   className="form-input"
                 />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  Rent Paid ({mode}, home you live in)
+                </label>
+                <input
+                  type="number"
+                  placeholder="Leave empty if you own your home"
+                  value={rent}
+                  onChange={(e) => setRent(e.target.value)}
+                  className="form-input"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Rent relief: 20% of the year&apos;s rent, up to {formatCurrencyValue(RENT_RELIEF_CAP)}.
+                </p>
               </div>
             </div>
           </div>
@@ -297,11 +271,11 @@ export default function PersonalTaxCalculator() {
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 shadow-sm hover:shadow-lg transition-all">
                   <p className="text-sm font-medium text-gray-600 mb-1">Total Deductions</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">
-                    {formatCurrencyValue(result.thresholdRelief + result.pension + result.other + result.cra)}
+                    {formatCurrencyValue(result.totalDeductions)}
                   </p>
                 </div>
                 <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 shadow-sm hover:shadow-lg transition-all">
-                  <p className="text-sm font-medium text-gray-600 mb-1">Taxable Income</p>
+                  <p className="text-sm font-medium text-gray-600 mb-1">Chargeable Income</p>
                   <p className="text-xl sm:text-2xl font-bold text-gray-900">{formatCurrencyValue(result.taxableIncome)}</p>
                 </div>
                 <div className="bg-rose-50 border border-rose-200 rounded-xl p-6 shadow-sm hover:shadow-lg transition-all">
@@ -326,10 +300,6 @@ export default function PersonalTaxCalculator() {
                 <div className="content-card">
                   <div className="space-y-3">
                     <div className="flex justify-between items-center py-2">
-                      <span className="text-sm text-gray-700">Threshold Relief (NTA 2025)</span>
-                      <span className="text-sm font-semibold text-gray-900 font-mono">{formatCurrencyValue(result.thresholdRelief)}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
                       <span className="text-sm text-gray-700">Pension Contribution</span>
                       <span className="text-sm font-semibold text-gray-900 font-mono">{formatCurrencyValue(result.pension)}</span>
                     </div>
@@ -338,13 +308,17 @@ export default function PersonalTaxCalculator() {
                       <span className="text-sm font-semibold text-gray-900 font-mono">{formatCurrencyValue(result.other)}</span>
                     </div>
                     <div className="flex justify-between items-center py-2">
-                      <span className="text-sm text-gray-700">Consolidated Relief Allowance (CRA)</span>
-                      <span className="text-sm font-semibold text-gray-900 font-mono">{formatCurrencyValue(result.cra)}</span>
+                      <span className="text-sm text-gray-700">Rent Relief (20% of rent, max ₦500,000)</span>
+                      <span className="text-sm font-semibold text-gray-900 font-mono">{formatCurrencyValue(result.rentRelief)}</span>
                     </div>
                     <div className="flex justify-between items-center py-2 border-t-2 border-gray-200 font-bold">
                       <span className="text-sm text-gray-900">Total Deductions</span>
-                      <span className="text-sm text-gray-900 font-mono">{formatCurrencyValue(result.thresholdRelief + result.pension + result.other + result.cra)}</span>
+                      <span className="text-sm text-gray-900 font-mono">{formatCurrencyValue(result.totalDeductions)}</span>
                     </div>
+                    <p className="text-xs text-gray-500">
+                      The first ₦800,000 of chargeable income is taxed at 0% — see the bands below. The old
+                      Consolidated Relief Allowance no longer applies from 2026.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -400,15 +374,11 @@ export default function PersonalTaxCalculator() {
                         <span className="text-sm font-semibold text-gray-900 font-mono">{formatCurrencyValue(result.gross)}</span>
                       </div>
                       <div className="flex justify-between py-2">
-                        <span className="text-sm text-gray-600">Threshold Relief (₦800K)</span>
-                        <span className="text-sm font-semibold text-red-600 font-mono">-{formatCurrencyValue(result.thresholdRelief)}</span>
-                      </div>
-                      <div className="flex justify-between py-2">
-                        <span className="text-sm text-gray-600">Other Deductions + CRA</span>
-                        <span className="text-sm font-semibold text-red-600 font-mono">-{formatCurrencyValue(result.pension + result.other + result.cra)}</span>
+                        <span className="text-sm text-gray-600">Deductions and Rent Relief</span>
+                        <span className="text-sm font-semibold text-red-600 font-mono">-{formatCurrencyValue(result.totalDeductions)}</span>
                       </div>
                       <div className="flex justify-between py-2 border-t border-gray-200">
-                        <span className="text-sm font-bold text-gray-900">Taxable Income</span>
+                        <span className="text-sm font-bold text-gray-900">Chargeable Income</span>
                         <span className="text-sm font-bold text-gray-900 font-mono">{formatCurrencyValue(result.taxableIncome)}</span>
                       </div>
                     </div>
@@ -433,7 +403,7 @@ export default function PersonalTaxCalculator() {
               {/* Disclaimer */}
               <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
                 <p className="text-xs text-gray-900 font-medium">
-                  <strong>Disclaimer:</strong> This calculation is based on Nigeria&apos;s Tax Act (NTA) 2025 personal income tax provisions, including the ₦800,000 threshold relief and updated graduated rates. Actual tax liability may vary based on specific circumstances, additional reliefs, and the latest tax regulations. Consult a qualified tax professional for personalized advice.
+                  <strong>Disclaimer:</strong> This calculation follows the Nigeria Tax Act 2025 personal income tax rules in force from 1 January 2026: the first ₦800,000 at 0%, then 15%, 18%, 21%, 23% and 25%; rent relief of 20% of rent up to ₦500,000; and no Consolidated Relief Allowance. Actual tax liability may vary based on specific circumstances, additional reliefs, and the latest tax regulations. Consult a qualified tax professional for personalized advice.
                 </p>
               </div>
             </>
