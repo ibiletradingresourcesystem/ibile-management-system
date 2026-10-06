@@ -147,25 +147,18 @@ export default function TaxAnalysisPage() {
             <>
               {/* Key Metrics - Top Section */}
               <div className="mb-6 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-                <strong>Basis:</strong> turnover is net of VAT, credit sales count, voided sales do not, refunds reverse in the
-                period they were given, cost comes from the sale line, and money spent buying stock is held as inventory rather
-                than deducted twice — once as an expense and again as cost of goods sold. The books use the same rules, so
-                {" "}<a href="/accounting/reports" className="font-semibold underline hover:text-sky-900">Financial Reports</a>{" "}
-                should agree with this page — its <em>Books vs Transactions</em> panel says whether it does, and names any sale
-                still waiting to be posted.
+                <strong>Basis:</strong> turnover net of VAT and refunds, on the same rules as{" "}
+                <a href="/accounting/reports" className="font-semibold underline hover:text-sky-900">Financial Reports</a>.
                 {taxData.annualTurnover > 0 && (
-                  <span className="block mt-1">
-                    The company income tax band goes by a year&apos;s turnover: this period&apos;s works out to{" "}
-                    {formatNumber(taxData.annualTurnover)} a year, which puts it in the <strong>{taxData.band}</strong> band under the {taxData.taxLaw || "tax law"}.
-                    {taxData.taxLaw === "Nigeria Tax Act 2025" && taxData.citRate === 0 && (
-                      <> A small company also needs fixed assets of ₦250m or less — this page cannot see those, so check them.</>
-                    )}
-                  </span>
+                  <>
+                    {" "}Band: <strong>{taxData.band}</strong> ({formatNumber(taxData.annualTurnover)} a year, {taxData.taxLaw}).
+                    {taxData.taxLaw === "Nigeria Tax Act 2025" && taxData.citRate === 0 && " Also needs fixed assets of ₦250m or less."}
+                  </>
                 )}
                 {taxData.basis?.incompleteCostLines > 0 && (
                   <span className="block mt-1">
                     {formatNumber(taxData.basis.incompleteCostLines)} sold line
-                    {taxData.basis.incompleteCostLines === 1 ? " has" : "s have"} no cost price recorded, so cost of goods sold is understated.
+                    {taxData.basis.incompleteCostLines === 1 ? " has" : "s have"} no cost price, so cost of goods sold is understated.
                   </span>
                 )}
               </div>
@@ -359,7 +352,7 @@ export default function TaxAnalysisPage() {
                 </div>
                 <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                   <p className="text-xs text-gray-900 font-medium">
-                     <strong>Tax Calculation Basis:</strong> Nigeria Tax Act 2025, from 1 January 2026 - small companies (turnover up to NGN 100M and fixed assets up to NGN 250M) pay no CIT and no development levy; every other company pays CIT at 30% and a 4% development levy, both on assessable profit. Periods before 2026 use the Finance Act rules then in force (exempt up to NGN 25M, 20% to NGN 100M, 30% above, with a minimum tax of 0.5% of turnover where CIT came to less). The band is decided on a year&apos;s turnover. VAT at 7.5% of the price. No health insurance levy is charged on turnover: health insurance under the NHIA Act is paid on salaries. Turnover and profit are measured net of VAT, the same way the books state them.
+                     <strong>Tax Calculation Basis:</strong> From 2026 (Nigeria Tax Act 2025): exempt up to NGN 100M turnover; above that, 30% CIT plus a 4% development levy on profit. Before 2026: exempt to NGN 25M, 20% to NGN 100M, 30% above. VAT 7.5%.
                   </p>
                 </div>
               </div>
