@@ -7,6 +7,7 @@ import {
   normalizePosPermissions,
   normalizeStaffRole,
 } from "@/lib/pos-permissions";
+import { staffLocationFields } from "@/lib/staffLocation";
 
 let staffIndexesSynced = false;
 
@@ -88,7 +89,8 @@ export default async function handler(req, res) {
       const staff = await Staff.create({
         name,
         password: hashedPassword,
-        location: location || "",
+        // location, and the locationName and locationId the till reads
+        ...(await staffLocationFields(location)),
         role: normalizedRole,
         posPermissions: normalizePosPermissions(normalizedRole, posPermissions),
         accountName: accountName || "",

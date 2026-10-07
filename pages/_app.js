@@ -176,9 +176,12 @@ export default function App({
     };
   }, []);
 
-  // Make all overflowing tables / containers draggable to scroll horizontally
+  // Make all overflowing tables / containers draggable to scroll horizontally. Only on pages with
+  // the app's sidebar: the phone stock-take counter and the other standalone pages have no such
+  // tables, and the observer below re-queries the whole page on every change to it.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!showLayout) return;
 
     function initDragScroll() {
       const containers = document.querySelectorAll(".overflow-x-auto, .table-wrapper, .data-table-container");
@@ -225,7 +228,7 @@ export default function App({
     observer.observe(document.body, { childList: true, subtree: true });
 
     return () => observer.disconnect();
-  }, []);
+  }, [showLayout]);
   
   return (
     <DialogProvider>

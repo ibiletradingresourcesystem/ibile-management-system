@@ -5,6 +5,7 @@ import {
   normalizePosPermissions,
   normalizeStaffRole,
 } from "@/lib/pos-permissions";
+import { staffLocationFields } from "@/lib/staffLocation";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -55,7 +56,8 @@ export default async function handler(req, res) {
 
       const updateData = {
         name,
-        location: location || "",
+        // location, and the locationName and locationId the till reads
+        ...(await staffLocationFields(location)),
         role: normalizedRole,
         posPermissions: resolvedPermissions,
         accountName: accountName || "",

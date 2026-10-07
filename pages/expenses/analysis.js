@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Layout from "@/components/Layout";
 import { formatCurrency } from "@/lib/format";
-import { RefreshCw, Filter, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { RefreshCw, Filter, Download, ChevronDown, ChevronUp, ClipboardList, CreditCard, Copy, MessageCircle, Mail, Wallet, Store, Calendar } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from "recharts";
 import { addDays, currentTradingDay, formatDayKey, TRADING_DAY_START_HOUR, tradingDayKey } from "@/lib/tradingDay";
 
@@ -424,7 +424,7 @@ export default function ExpenseAnalysisPage() {
           <div key={loc} className="content-card mb-6">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">📊 End of Day Report</h2>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2"><ClipboardList className="w-5 h-5 text-gray-500" aria-hidden="true" /> End of Day Report</h2>
                 <p className="text-sm text-gray-500">Date: {selectedDate} | Location: {loc}</p>
                 <p className="text-xs text-gray-400">
                   {TRADING_DAY_START_HOUR}am to {TRADING_DAY_START_HOUR}am: a till closed before {TRADING_DAY_START_HOUR}am counts for this day.
@@ -470,7 +470,7 @@ export default function ExpenseAnalysisPage() {
 
                 {/* Payments */}
                 <div className="mb-4">
-                  <h4 className="text-sm font-semibold text-gray-700 mb-2">💎 Payments</h4>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1.5"><CreditCard className="w-4 h-4 text-gray-500" aria-hidden="true" /> Payments</h4>
                   {reports[loc]?.expenses?.length > 0 ? (
                     <div className="space-y-1">
                       {reports[loc].expenses.map(e => (
@@ -491,7 +491,7 @@ export default function ExpenseAnalysisPage() {
                     }}
                     className="text-xs border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 flex items-center gap-1"
                   >
-                    📋 Copy
+                    <Copy className="w-3.5 h-3.5" aria-hidden="true" /> Copy
                   </button>
                   <button
                     onClick={() => {
@@ -500,7 +500,7 @@ export default function ExpenseAnalysisPage() {
                     }}
                     className="text-xs border border-green-300 text-green-700 px-3 py-1.5 rounded-lg hover:bg-green-50 flex items-center gap-1"
                   >
-                    💬 WhatsApp
+                    <MessageCircle className="w-3.5 h-3.5" aria-hidden="true" /> WhatsApp
                   </button>
                   <button
                     onClick={() => {
@@ -509,7 +509,7 @@ export default function ExpenseAnalysisPage() {
                     }}
                     className="text-xs border border-blue-300 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-50 flex items-center gap-1"
                   >
-                    ✉️ Email
+                    <Mail className="w-3.5 h-3.5" aria-hidden="true" /> Email
                   </button>
                 </div>
               </>
@@ -524,7 +524,7 @@ export default function ExpenseAnalysisPage() {
           <div className="lg:col-span-1">
             <div className="content-card">
               <div className="flex items-start justify-between gap-2 mb-4">
-                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">💰 Daily Cash Report</h2>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Wallet className="w-5 h-5 text-gray-500" aria-hidden="true" /> Daily Cash Report</h2>
                 <button
                   onClick={rebuildCashEntries}
                   disabled={rebuilding}
@@ -536,13 +536,13 @@ export default function ExpenseAnalysisPage() {
               </div>
               {locations.map(loc => (
                 <div key={loc} className="mb-4">
-                  <h3 className="font-semibold text-sm text-blue-700 mb-2 flex items-center gap-1">🏪 {loc}</h3>
+                  <h3 className="font-semibold text-sm text-blue-700 mb-2 flex items-center gap-1.5"><Store className="w-4 h-4" aria-hidden="true" /> {loc}</h3>
                   {dailyCashEntries[loc]?.length > 0 ? (
                     <div className="max-h-[300px] overflow-y-auto space-y-1">
                       {dailyCashEntries[loc].map(entry => (
                         <div key={entry._id} className="flex justify-between items-center bg-blue-50 rounded px-3 py-2 text-sm">
                           {/* The server says which day an entry is; reading it out of the date depends on the computer's time zone */}
-                          <span className="text-gray-700 flex items-center gap-1">🏪 {formatDayKey(entry.day) || formatDate(entry.date)}</span>
+                          <span className="text-gray-700 flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5 text-gray-400" aria-hidden="true" /> {formatDayKey(entry.day) || formatDate(entry.date)}</span>
                           <span className="font-bold text-blue-800">{formatCurrency(entry.amount)}</span>
                         </div>
                       ))}

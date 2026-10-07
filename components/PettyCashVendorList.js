@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { apiClient } from "@/lib/api-client";
+import { CheckCircle, Copy, MessageCircle, UserPlus } from "lucide-react";
 
 export default function PettyCashVendorList({
   vendors = [],
@@ -56,15 +57,15 @@ export default function PettyCashVendorList({
       {/* Blank Vendor Onboarding Link */}
       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-purple-800">📨 Invite New Vendor</p>
+          <p className="text-sm font-semibold text-purple-800 flex items-center gap-1.5"><UserPlus className="w-4 h-4" aria-hidden="true" /> Invite New Vendor</p>
           <p className="text-xs text-purple-600 mt-1">Send a blank registration form to a new vendor to sign up directly.</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={handleCopyBlankFormLink}
-            className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-purple-700"
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-purple-700 inline-flex items-center gap-1.5"
           >
-            📋 Copy Blank Form Link
+            <Copy className="w-3.5 h-3.5" aria-hidden="true" /> Copy Blank Form Link
           </button>
           <button
             onClick={() => {
@@ -73,9 +74,9 @@ export default function PettyCashVendorList({
               const msg = `Hi! Please register as a vendor by filling out this form: ${link}`;
               window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
             }}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-green-700"
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-green-700 inline-flex items-center gap-1.5"
           >
-            📱 Send via WhatsApp
+            <MessageCircle className="w-3.5 h-3.5" aria-hidden="true" /> Send via WhatsApp
           </button>
         </div>
       </div>
@@ -102,23 +103,23 @@ export default function PettyCashVendorList({
                     <button
                       onClick={() => handleSendOnboardingLink(vendor, "copy")}
                       disabled={linkLoading === vendor._id}
-                      className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-200 disabled:opacity-50 whitespace-nowrap"
+                      className="bg-purple-100 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-200 disabled:opacity-50 whitespace-nowrap inline-flex items-center gap-1"
                     >
-                      {linkLoading === vendor._id ? "..." : "📋 Copy Link"}
+                      {linkLoading === vendor._id ? "..." : <><Copy className="w-3 h-3" aria-hidden="true" /> Copy Link</>}
                     </button>
                     {vendor.repPhone && (
                       <button
                         onClick={() => handleSendOnboardingLink(vendor, "whatsapp")}
                         disabled={linkLoading === vendor._id}
-                        className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50 whitespace-nowrap"
+                        className="bg-green-100 text-green-700 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50 whitespace-nowrap inline-flex items-center gap-1"
                       >
-                        📱 WhatsApp
+                        <MessageCircle className="w-3 h-3" aria-hidden="true" /> WhatsApp
                       </button>
                     )}
                   </>
                 )}
                 {vendor.onboardingComplete && (
-                  <span className="text-xs text-green-600 font-medium">✓ Registered</span>
+                  <span className="text-xs text-green-600 font-medium inline-flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" aria-hidden="true" /> Registered</span>
                 )}
               </div>
             </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { PERIOD_OPTIONS, filterByPeriod, periodLabel } from "@/lib/periodFilter";
 import { apiClient } from "@/lib/api-client";
+import { CheckCircle } from "lucide-react";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 
 function formatCurrency(val) {
@@ -848,8 +849,8 @@ export default function PettyCashTransactionPanel({
                     )}
                     {tx.status === "Received" && (
                       <>
-                        <span className="text-xs text-green-600 font-medium px-2.5 py-1 bg-green-50 rounded">
-                          ✓ Received on {formatDate(tx.receivedAt)} by {tx.receivedBy?.name || "Unknown"}
+                        <span className="text-xs text-green-600 font-medium px-2.5 py-1 bg-green-50 rounded inline-flex items-center gap-1">
+                          <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" /> Received on {formatDate(tx.receivedAt)} by {tx.receivedBy?.name || "Unknown"}
                         </span>
                         <button
                           onClick={() => {

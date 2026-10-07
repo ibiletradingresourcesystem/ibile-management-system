@@ -1,17 +1,16 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import Layout from "@/components/Layout";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency } from "@/lib/format";
-import { Printer, Mail, Camera, Copy, CheckCircle, ChevronDown, ChevronUp, Loader2, Send, Link2 } from "lucide-react";
+import { Printer, Mail, Camera, Copy, CheckCircle, ChevronDown, Loader2, Send, Link2, MapPin, Search, Pencil, Trash2, Monitor, Clock, UserX } from "lucide-react";
 import { useRouter } from "next/router";
 import { apiClient } from "@/lib/api-client";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { STAFF_ROLE_OPTIONS, normalizeStaffRole, POS_PERMISSION_KEYS, POS_PERMISSION_LABELS, getDefaultPosPermissions, normalizePosPermissions } from "@/lib/pos-permissions";
 import { showToastMessage } from "@/lib/toast-state";
-import { useTableSort, SortableTh } from "@/components/SortableTable";
 import {
   chunkPayroll,
   missingBankDetails,
@@ -34,6 +33,41 @@ function toCamelCase(str) {
     .join(" ");
 }
 
+/** Where a staff member works: set here as location, or by the till as locationName. */
+const staffLocationOf = (staff) => String(staff?.location || staff?.locationName || "");
+
+const roleLabel = (role) => toCamelCase(STAFF_ROLE_OPTIONS.find((o) => o.value === role)?.label || role || "staff");
+
+function Field({ label, hint, children }) {
+  return (
+    <label className="block">
+      <span className="block text-xs font-semibold text-gray-600 mb-1">{label}</span>
+      {children}
+      {hint && <span className="block text-[11px] text-gray-400 mt-1">{hint}</span>}
+    </label>
+  );
+}
+
+function DetailSection({ title, children }) {
+  return (
+    <div className="rounded-lg bg-gray-50 p-3">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-blue-700 mb-2">{title}</h4>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+/** One label and value; nothing at all when there is no value. */
+function Detail({ label, value }) {
+  if (value === undefined || value === null || value === "") return null;
+  return (
+    <div className="flex justify-between gap-3 text-sm">
+      <span className="text-gray-500 shrink-0">{label}</span>
+      <span className="text-gray-800 text-right break-words min-w-0">{value}</span>
+    </div>
+  );
+}
+
 export default function StaffPage() {
   const router = useRouter();
   const [staffList, setStaffList] = useState([]);
@@ -42,9 +76,8 @@ export default function StaffPage() {
   const [editingId, setEditingId] = useState(null);
   const [isSending, setIsSending] = useState(false);
   const [loadingStaffList, setLoadingStaffList] = useState(true);
-  const { sorted: sortedStaff, sortKey, sortDir, toggleSort } = useTableSort(staffList, "name", "asc", {
-    isActive: (s) => (s.isActive === false ? 1 : 0),
-  });
+  const [staffSearch, setStaffSearch] = useState("");
+  const [staffSort, setStaffSort] = useState("name");
   const { progress, start, onFetch, onProcess, complete } = useProgress();
   const [locations, setLocations] = useState([]);
   const [expandedProfile, setExpandedProfile] = useState(null);
@@ -70,11 +103,12 @@ export default function StaffPage() {
     accountName: "", accountNumber: "", bankName: "", salary: "", photo: "",
   });
 
-  const [editForm, setEditForm] = useState({
+  const emptyEditForm = () => ({
     name: "", password: "", location: "", role: "staff",
-    accountName: "", accountNumber: "", bankName: "", salary: "", photo: "",
+    accountName: "", accountNumber: "", bankName: "", salary: "", photo: "", isActive: true,
     posPermissions: getDefaultPosPermissions("staff"),
   });
+  const [editForm, setEditForm] = useState(emptyEditForm);
 
   const [penaltyForm, setPenaltyForm] = useState({
     staffId: "", reason: "", amount: "",
@@ -112,6 +146,10 @@ export default function StaffPage() {
   };
 
   useEffect(() => { fetchStaff(); fetchLocations(); }, []);
+
+  /** The store's locations, plus a staff member's own when it is not one of them (an old name). */
+  const locationChoices = (current) =>
+    current && !locations.some((loc) => loc.toLowerCase() === current.toLowerCase()) ? [...locations, current] : locations;
 
   useEffect(() => {
     if (!message) return;
@@ -255,12 +293,16 @@ export default function StaffPage() {
 
   const startEdit = (staff) => {
     setEditingId(staff._id);
+    setExpandedProfile(staff._id);
     const role = normalizeStaffRole(staff.role) || "staff";
-    setEditForm({ name: staff.name || "", password: "", location: staff.location || "", role, accountName: staff.accountName || "", accountNumber: staff.accountNumber || "", bankName: staff.bankName || "", salary: staff.salary || "", photo: staff.photo || "", posPermissions: normalizePosPermissions(role, staff.posPermissions) });
+    // The store's own spelling of the location, so the list shows it picked
+    const current = staffLocationOf(staff);
+    const location = locations.find((loc) => loc.toLowerCase() === current.trim().toLowerCase()) || current;
+    setEditForm({ name: staff.name || "", password: "", location, role, accountName: staff.accountName || "", accountNumber: staff.accountNumber || "", bankName: staff.bankName || "", salary: staff.salary || "", photo: staff.photo || "", isActive: staff.isActive !== false, posPermissions: normalizePosPermissions(role, staff.posPermissions) });
     setEditPhotoPreview(staff.photo || null);
   };
 
-  const cancelEdit = () => { setEditingId(null); setEditPhotoPreview(null); setEditForm({ name: "", password: "", location: "", role: "staff", accountName: "", accountNumber: "", bankName: "", salary: "", photo: "", posPermissions: getDefaultPosPermissions("staff") }); };
+  const cancelEdit = () => { setEditingId(null); setEditPhotoPreview(null); setEditForm(emptyEditForm()); };
 
   const saveEdit = async (id) => {
     try { await apiClient.put(`/api/staff/${id}`, editForm); setMessage("Staff updated."); setEditingId(null); fetchStaff(); }
@@ -286,6 +328,19 @@ export default function StaffPage() {
     try { await apiClient.delete(`/api/staff/${id}`); setMessage("Staff deleted."); fetchStaff(); }
     catch (err) { setMessage(err.response?.data?.error || "Failed to delete staff"); }
   };
+
+  const visibleStaff = useMemo(() => {
+    const term = staffSearch.trim().toLowerCase();
+    const matches = staffList.filter(
+      (s) => !term || [s.name, staffLocationOf(s), s.role, s.accountName].some((v) => String(v || "").toLowerCase().includes(term))
+    );
+    const keyOf = (s) => (staffSort === "location" ? staffLocationOf(s) : staffSort === "role" ? s.role : s.name) || "~";
+    return [...matches].sort(
+      (a, b) =>
+        String(keyOf(a)).localeCompare(String(keyOf(b)), undefined, { sensitivity: "base" }) ||
+        String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })
+    );
+  }, [staffList, staffSearch, staffSort]);
 
   // What is actually paid, after penalties — the same figure the memo and the email use.
   const paySlipRows = payrollRows(staffList);
@@ -384,212 +439,254 @@ export default function StaffPage() {
           <div className="flex flex-col lg:flex-row justify-between gap-6">
             {/* Staff List */}
             <div className="content-card w-full lg:w-2/3">
-              <h2 className="text-xl font-semibold mb-6 text-sky-700">All Staff</h2>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                <h2 className="text-xl font-semibold text-sky-700">
+                  All Staff {staffList.length > 0 && <span className="text-sm font-medium text-gray-400">({staffList.length})</span>}
+                </h2>
+                {staffList.length > 0 && (
+                  <div className="flex gap-2">
+                    <div className="relative flex-1 sm:w-56">
+                      <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        type="text"
+                        value={staffSearch}
+                        onChange={(e) => setStaffSearch(e.target.value)}
+                        placeholder="Search staff"
+                        className="form-input !pl-9"
+                        aria-label="Search staff"
+                      />
+                    </div>
+                    <select value={staffSort} onChange={(e) => setStaffSort(e.target.value)} className="form-select !w-auto" aria-label="Sort staff">
+                      <option value="name">By name</option>
+                      <option value="location">By location</option>
+                      <option value="role">By role</option>
+                    </select>
+                  </div>
+                )}
+              </div>
               {loadingStaffList ? (
                 <div className="flex justify-center items-center py-10"><Loader size="md" text="Loading staff list..." progress={progress} /></div>
               ) : staffList.length === 0 ? (
                 <p className="text-gray-500">No staff created yet.</p>
+              ) : visibleStaff.length === 0 ? (
+                <p className="text-gray-500 py-6 text-center">No staff match that search.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="table-header-gradient text-white text-xs uppercase tracking-wider">
-                      <tr>
-                        <SortableTh sortKey="name" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Staff</SortableTh>
-                        <SortableTh sortKey="location" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Location</SortableTh>
-                        <SortableTh sortKey="role" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Role</SortableTh>
-                        <th className="text-center px-4 py-3 font-semibold">POS</th>
-                        <SortableTh sortKey="isActive" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Status</SortableTh>
-                        <th className="text-left px-4 py-3 font-semibold">Onboarding</th>
-                        <th className="text-right px-4 py-3 font-semibold">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                  {sortedStaff.map((staff) => (
-                    <React.Fragment key={staff._id}>
-                    <tr className="border-b border-gray-100 hover:bg-gray-50">
-                      {editingId === staff._id ? (
-                        <td colSpan={7} className="px-4 py-4">
-                        <div className="space-y-3 max-w-xl">
-                          <div className="flex items-center gap-3">
-                            <div onClick={() => editPhotoRef.current?.click()} className="w-14 h-14 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-400 transition overflow-hidden shrink-0">
-                              {uploadingEditPhoto ? <Loader2 size={18} className="text-blue-400 animate-spin" /> : editPhotoPreview ? <img src={editPhotoPreview} alt="Staff" className="w-full h-full object-cover" /> : <Camera size={18} className="text-gray-400" />}
-                            </div>
-                            <input ref={editPhotoRef} type="file" accept="image/*" onChange={handleEditPhotoUpload} className="hidden" />
-                            <span className="text-xs text-gray-400">Update photo</span>
-                          </div>
-                          <input type="text" name="name" value={editForm.name} onChange={handleEditChange} className="form-input w-full" />
-                          <select name="location" value={editForm.location} onChange={handleEditChange} className="form-select w-full">
-                            <option value="">Select Location</option>
-                            {locations.map((loc) => <option key={loc} value={loc}>{loc}</option>)}
-                          </select>
-                          <select name="role" value={editForm.role} onChange={handleEditChange} className="form-select w-full">
-                            {STAFF_ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                          </select>
-                          <input type="password" name="password" placeholder="Leave blank to keep current" value={editForm.password} maxLength={4} inputMode="numeric" onChange={handleEditChange} className="form-input w-full" />
-                          <input type="text" name="accountName" placeholder="Account Name" value={editForm.accountName} onChange={handleEditChange} className="form-input w-full" />
-                          <input type="text" name="accountNumber" placeholder="Account Number" value={editForm.accountNumber} onChange={handleEditChange} className="form-input w-full" />
-                          <input type="text" name="bankName" placeholder="Bank Name" value={editForm.bankName} onChange={handleEditChange} className="form-input w-full" />
-                          <input type="number" name="salary" placeholder="Salary" value={editForm.salary} onChange={handleEditChange} className="form-input w-full" />
-                          <div className="border rounded-lg p-3 bg-gray-50">
-                            <div className="text-xs font-semibold text-gray-600 mb-2">POS Permissions</div>
-                            <div className="grid grid-cols-2 gap-2">
-                              {POS_PERMISSION_KEYS.map((key) => (
-                                <label key={key} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-                                  <input type="checkbox" checked={!!editForm.posPermissions?.[key]} onChange={() => handleEditPermissionToggle(key)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                                  {POS_PERMISSION_LABELS[key] || key}
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex justify-end gap-2 pt-2">
-                            <button onClick={() => saveEdit(staff._id)} className="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700 text-sm font-semibold">Save</button>
-                            <button onClick={cancelEdit} className="bg-gray-400 text-white px-4 py-1 rounded hover:bg-gray-500 text-sm font-semibold">Cancel</button>
-                          </div>
-                        </div>
-                        </td>
-                      ) : (
-                        <>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            {staff.photo ? <img src={staff.photo} alt={staff.name} className="w-10 h-10 rounded-full object-cover shrink-0" /> : <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm shrink-0">{staff.name?.charAt(0).toUpperCase()}</div>}
-                            <div>
-                              <div className="font-semibold text-gray-800">{toCamelCase(staff.name || "")}</div>
-                              {staff.accountName && <div className="text-xs text-gray-400">{toCamelCase(staff.accountName)}</div>}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">{toCamelCase(staff.location || "—")}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs font-medium px-2 py-1 rounded-full ${staff.role === "admin" || staff.role === "manager" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
-                            {toCamelCase(STAFF_ROLE_OPTIONS.find((o) => o.value === staff.role)?.label || staff.role)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => toggleShowOnPos(staff._id, staff.showOnPos !== false)}
-                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${staff.showOnPos !== false ? "bg-green-500" : "bg-gray-300"}`}
-                            title={staff.showOnPos !== false ? "Visible on POS" : "Hidden from POS"}
-                          >
-                            <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${staff.showOnPos !== false ? "translate-x-4.5" : "translate-x-0.5"}`} />
-                          </button>
-                        </td>
-                        <td className="px-4 py-3">
-                          {staff.onboardingComplete ? (
-                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 inline-flex items-center gap-1"><CheckCircle size={10} /> Onboarded</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {visibleStaff.map((staff) => {
+                    const open = expandedProfile === staff._id;
+                    const editing = editingId === staff._id;
+                    const location = staffLocationOf(staff);
+                    const onPos = staff.showOnPos !== false;
+                    return (
+                      <div
+                        key={staff._id}
+                        className={`rounded-xl border bg-white transition-shadow ${open ? "md:col-span-2 border-sky-300 shadow-md" : "border-gray-200 hover:border-gray-300 hover:shadow-md"}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editing) return;
+                            setExpandedProfile(open ? null : staff._id);
+                          }}
+                          aria-expanded={open}
+                          className="w-full flex items-center gap-3 p-4 text-left"
+                        >
+                          {staff.photo ? (
+                            <img src={staff.photo} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" />
                           ) : (
-                            <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-700">Pending</span>
+                            <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold shrink-0">
+                              {staff.name?.charAt(0).toUpperCase()}
+                            </div>
                           )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {staff.onboardingToken && (
-                              <>
-                                <button onClick={() => copyOnboardingLink(staff)} className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 transition font-medium">
-                                  {copiedLink === staff._id ? <><CheckCircle size={12} /> Copied!</> : <><Copy size={12} /> Copy Link</>}
-                                </button>
-                                <button onClick={() => { setShowOnboardingEmailModal(staff._id); setOnboardingEmail(""); }} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 transition font-medium">
-                                  <Send size={12} /> Send
-                                </button>
-                                <a href={`${typeof window !== "undefined" ? window.location.origin : ""}/onboarding/${staff.onboardingToken}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs bg-green-50 text-green-600 px-2 py-1 rounded hover:bg-green-100 transition font-medium">
-                                  <Link2 size={12} /> Open Form
-                                </a>
-                              </>
-                            )}
-                            {/* Available for everyone: the pay and bank details are worth
-                                seeing whether or not the onboarding form came back. */}
-                            <button onClick={() => setExpandedProfile(expandedProfile === staff._id ? null : staff._id)} className="flex items-center gap-1 text-xs bg-gray-50 text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition">
-                              {expandedProfile === staff._id ? <><ChevronUp size={12} /> Hide</> : <><ChevronDown size={12} /> Details</>}
-                            </button>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-gray-900 truncate">{toCamelCase(staff.name || "")}</span>
+                              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${staff.role === "admin" || staff.role === "manager" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
+                                {roleLabel(staff.role)}
+                              </span>
+                            </div>
+                            <div className={`mt-1 flex items-center gap-1 text-xs ${location ? "text-gray-600" : "text-amber-600"}`}>
+                              <MapPin size={12} className="shrink-0" />
+                              <span className="truncate">{location ? toCamelCase(location) : "No location set"}</span>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ${onPos ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                                <Monitor size={11} /> {onPos ? "On POS" : "Hidden on POS"}
+                              </span>
+                              {staff.onboardingComplete ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-green-50 text-green-700"><CheckCircle size={11} /> Onboarded</span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700"><Clock size={11} /> Onboarding pending</span>
+                              )}
+                              {staff.isActive === false && (
+                                <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-200 text-gray-700"><UserX size={11} /> Inactive</span>
+                              )}
+                            </div>
                           </div>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex justify-end gap-2">
-                            <button onClick={() => startEdit(staff)} className="text-xs px-3 py-1 border border-blue-500 text-blue-600 rounded-full hover:bg-blue-500 hover:text-white transition font-semibold">Edit</button>
-                            <button onClick={() => handleDelete(staff._id)} className="text-xs px-3 py-1 border border-red-500 text-red-600 rounded-full hover:bg-red-500 hover:text-white transition font-semibold">Delete</button>
-                          </div>
-                        </td>
-                        </>
-                      )}
-                    </tr>
-                    {expandedProfile === staff._id && (
-                      <tr>
-                        <td colSpan={7} className="px-4 pb-4">
-                          <div className="bg-gray-50 rounded-lg p-3 text-xs space-y-3">
-                            <div>
-                              <h4 className="font-semibold text-blue-700 mb-1">Account &amp; Pay</h4>
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
-                                <p><span className="text-gray-500">Account Name:</span> {staff.accountName ? toCamelCase(staff.accountName) : "—"}</p>
-                                <p><span className="text-gray-500">Account Number:</span> {staff.accountNumber || "—"}</p>
-                                <p><span className="text-gray-500">Bank:</span> {staff.bankName ? toCamelCase(staff.bankName) : "—"}</p>
-                                <p><span className="text-gray-500">Salary:</span> {formatCurrency(Number(staff.salary) || 0)}</p>
-                                <p><span className="text-gray-500">Penalties:</span>{" "}
-                                  {staffPenaltyTotal(staff) > 0 ? <span className="text-red-600">−{formatCurrency(staffPenaltyTotal(staff))}</span> : "None"}
-                                </p>
-                                <p><span className="text-gray-500">Net Pay:</span> <strong>{formatCurrency(staffNetPay(staff))}</strong></p>
-                                <p><span className="text-gray-500">Location:</span> {staff.location ? toCamelCase(staff.location) : "—"}</p>
-                                <p><span className="text-gray-500">On POS:</span> {staff.showOnPos !== false ? "Yes" : "No"}</p>
+                          <ChevronDown size={18} className={`shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+                        </button>
+
+                        {open && editing && (
+                          <div className="border-t border-gray-100 p-4 space-y-4">
+                            <div className="flex items-center gap-3">
+                              <div onClick={() => editPhotoRef.current?.click()} className="w-14 h-14 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-400 transition overflow-hidden shrink-0">
+                                {uploadingEditPhoto ? <Loader2 size={18} className="text-blue-400 animate-spin" /> : editPhotoPreview ? <img src={editPhotoPreview} alt="Staff" className="w-full h-full object-cover" /> : <Camera size={18} className="text-gray-400" />}
+                              </div>
+                              <input ref={editPhotoRef} type="file" accept="image/*" onChange={handleEditPhotoUpload} className="hidden" />
+                              <span className="text-xs text-gray-500">Tap the photo to change it</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <Field label="Name">
+                                <input type="text" name="name" value={editForm.name} onChange={handleEditChange} className="form-input w-full" />
+                              </Field>
+                              <Field label="Location" hint="Where they work: the till picks it when they sign in.">
+                                <select name="location" value={editForm.location} onChange={handleEditChange} className="form-select w-full">
+                                  <option value="">No location</option>
+                                  {locationChoices(editForm.location).map((loc) => <option key={loc} value={loc}>{loc}</option>)}
+                                </select>
+                              </Field>
+                              <Field label="Role">
+                                <select name="role" value={editForm.role} onChange={handleEditChange} className="form-select w-full">
+                                  {STAFF_ROLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
+                              </Field>
+                              <Field label="New PIN" hint="4 digits. Leave blank to keep the current PIN.">
+                                <input type="password" name="password" value={editForm.password} maxLength={4} inputMode="numeric" onChange={handleEditChange} className="form-input w-full" autoComplete="new-password" />
+                              </Field>
+                              <Field label="Account name">
+                                <input type="text" name="accountName" value={editForm.accountName} onChange={handleEditChange} className="form-input w-full" />
+                              </Field>
+                              <Field label="Account number">
+                                <input type="text" name="accountNumber" value={editForm.accountNumber} onChange={handleEditChange} className="form-input w-full" inputMode="numeric" />
+                              </Field>
+                              <Field label="Bank">
+                                <input type="text" name="bankName" value={editForm.bankName} onChange={handleEditChange} className="form-input w-full" />
+                              </Field>
+                              <Field label="Salary (₦)">
+                                <input type="number" name="salary" value={editForm.salary} onChange={handleEditChange} className="form-input w-full" />
+                              </Field>
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                              <input type="checkbox" checked={editForm.isActive !== false} onChange={(e) => setEditForm((prev) => ({ ...prev, isActive: e.target.checked }))} className="h-4 w-4 shrink-0 p-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                              Active (can sign in)
+                            </label>
+                            <div className="border rounded-lg p-3 bg-gray-50">
+                              <div className="text-xs font-semibold text-gray-600 mb-2">POS Permissions</div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {POS_PERMISSION_KEYS.map((key) => (
+                                  <label key={key} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                                    <input type="checkbox" checked={!!editForm.posPermissions?.[key]} onChange={() => handleEditPermissionToggle(key)} className="h-4 w-4 shrink-0 p-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                    {POS_PERMISSION_LABELS[key] || key}
+                                  </label>
+                                ))}
                               </div>
                             </div>
-
-                            {staff.penalty?.length > 0 && (
-                              <div>
-                                <h4 className="font-semibold text-blue-700 mb-1">Penalties ({staff.penalty.length})</h4>
-                                <ul className="space-y-0.5">
-                                  {staff.penalty.map((p, i) => (
-                                    <li key={i} className="text-gray-700">
-                                      <span className="text-red-600 font-medium">{formatCurrency(Number(p.amount) || 0)}</span>
-                                      {p.reason ? <span className="italic"> — {p.reason}</span> : null}
-                                      {p.date ? <span className="text-gray-500"> ({new Date(p.date).toLocaleDateString()})</span> : null}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-
-                            {!staff.onboardingComplete && (
-                              <p className="text-amber-700">
-                                The onboarding form has not been returned yet, so personal and guarantor details are not on file.
-                              </p>
-                            )}
-
-                            {staff.onboardingData && (
-                              <div>
-                                <h4 className="font-semibold text-blue-700 mb-1">Personal Details</h4>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
-                                  {staff.onboardingData.fullName && <p><span className="text-gray-500">Name:</span> {toCamelCase(staff.onboardingData.fullName)}</p>}
-                                  {staff.onboardingData.phone && <p><span className="text-gray-500">Phone:</span> {staff.onboardingData.phone}</p>}
-                                  {staff.onboardingData.email && <p><span className="text-gray-500">Email:</span> {staff.onboardingData.email}</p>}
-                                  {staff.onboardingData.dateOfBirth && <p><span className="text-gray-500">DOB:</span> {staff.onboardingData.dateOfBirth}</p>}
-                                  {staff.onboardingData.stateOfOrigin && <p><span className="text-gray-500">State:</span> {toCamelCase(staff.onboardingData.stateOfOrigin)}</p>}
-                                  {staff.onboardingData.address && <p className="col-span-2"><span className="text-gray-500">Address:</span> {toCamelCase(staff.onboardingData.address)}</p>}
-                                  {staff.onboardingData.nextOfKin && <p><span className="text-gray-500">Next Of Kin:</span> {toCamelCase(staff.onboardingData.nextOfKin)}</p>}
-                                  {staff.onboardingData.nextOfKinPhone && <p><span className="text-gray-500">NoK Phone:</span> {staff.onboardingData.nextOfKinPhone}</p>}
-                                </div>
-                                {staff.onboardingData.photo && <img src={staff.onboardingData.photo} alt="Passport" className="w-16 h-16 rounded-lg object-cover mt-2 border" />}
-                              </div>
-                            )}
-                            {staff.guarantor?.name && (
-                              <div>
-                                <h4 className="font-semibold text-blue-700 mb-1">Guarantor</h4>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
-                                  <p><span className="text-gray-500">Name:</span> {toCamelCase(staff.guarantor.name)}</p>
-                                  {staff.guarantor.phone && <p><span className="text-gray-500">Phone:</span> {staff.guarantor.phone}</p>}
-                                  {staff.guarantor.email && <p><span className="text-gray-500">Email:</span> {staff.guarantor.email}</p>}
-                                  {staff.guarantor.relationship && <p><span className="text-gray-500">Relationship:</span> {toCamelCase(staff.guarantor.relationship)}</p>}
-                                  {staff.guarantor.occupation && <p><span className="text-gray-500">Occupation:</span> {toCamelCase(staff.guarantor.occupation)}</p>}
-                                  {staff.guarantor.address && <p className="col-span-2"><span className="text-gray-500">Address:</span> {toCamelCase(staff.guarantor.address)}</p>}
-                                </div>
-                                {staff.guarantor.photo && <img src={staff.guarantor.photo} alt="Guarantor" className="w-16 h-16 rounded-lg object-cover mt-2 border" />}
-                              </div>
-                            )}
+                            <div className="flex justify-end gap-2">
+                              <button type="button" onClick={cancelEdit} className="btn-action btn-action-secondary btn-sm">Cancel</button>
+                              <button type="button" onClick={() => saveEdit(staff._id)} className="btn-action btn-action-primary btn-sm">Save changes</button>
+                            </div>
                           </div>
-                        </td>
-                      </tr>
-                    )}
-                    </React.Fragment>
-                  ))}
-                    </tbody>
-                  </table>
+                        )}
+
+                        {open && !editing && (
+                          <div className="border-t border-gray-100 p-4 space-y-4 text-sm">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button type="button" onClick={() => startEdit(staff)} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 border border-blue-500 text-blue-600 rounded-full hover:bg-blue-500 hover:text-white transition font-semibold">
+                                <Pencil size={12} /> Edit
+                              </button>
+                              <button type="button" onClick={() => handleDelete(staff._id)} className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 border border-red-500 text-red-600 rounded-full hover:bg-red-500 hover:text-white transition font-semibold">
+                                <Trash2 size={12} /> Delete
+                              </button>
+                              <label className="ml-auto inline-flex items-center gap-2 text-xs text-gray-600">
+                                Show on POS
+                                <button
+                                  type="button"
+                                  onClick={() => toggleShowOnPos(staff._id, onPos)}
+                                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${onPos ? "bg-green-500" : "bg-gray-300"}`}
+                                  aria-pressed={onPos}
+                                  aria-label="Show on POS"
+                                >
+                                  <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${onPos ? "translate-x-4.5" : "translate-x-0.5"}`} />
+                                </button>
+                              </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <DetailSection title="Account & Pay">
+                                <Detail label="Account name" value={staff.accountName ? toCamelCase(staff.accountName) : ""} />
+                                <Detail label="Account number" value={staff.accountNumber} />
+                                <Detail label="Bank" value={staff.bankName ? toCamelCase(staff.bankName) : ""} />
+                                <Detail label="Salary" value={formatCurrency(Number(staff.salary) || 0)} />
+                                <Detail label="Penalties" value={staffPenaltyTotal(staff) > 0 ? <span className="text-red-600">−{formatCurrency(staffPenaltyTotal(staff))}</span> : "None"} />
+                                <Detail label="Net pay" value={<strong>{formatCurrency(staffNetPay(staff))}</strong>} />
+                              </DetailSection>
+
+                              <DetailSection title="Onboarding">
+                                <p className={staff.onboardingComplete ? "text-green-700" : "text-amber-700"}>
+                                  {staff.onboardingComplete
+                                    ? "The onboarding form is back: personal and guarantor details are on file."
+                                    : "The onboarding form has not been returned yet."}
+                                </p>
+                                {staff.onboardingToken && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1">
+                                    <button type="button" onClick={() => copyOnboardingLink(staff)} className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100 transition font-medium">
+                                      {copiedLink === staff._id ? <><CheckCircle size={12} /> Copied!</> : <><Copy size={12} /> Copy link</>}
+                                    </button>
+                                    <button type="button" onClick={() => { setShowOnboardingEmailModal(staff._id); setOnboardingEmail(""); }} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 transition font-medium">
+                                      <Send size={12} /> Send
+                                    </button>
+                                    <a href={`${typeof window !== "undefined" ? window.location.origin : ""}/onboarding/${staff.onboardingToken}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs bg-green-50 text-green-600 px-2 py-1 rounded hover:bg-green-100 transition font-medium">
+                                      <Link2 size={12} /> Open form
+                                    </a>
+                                  </div>
+                                )}
+                              </DetailSection>
+
+                              {staff.penalty?.length > 0 && (
+                                <DetailSection title={`Penalties (${staff.penalty.length})`}>
+                                  <ul className="space-y-1">
+                                    {staff.penalty.map((p, i) => (
+                                      <li key={i} className="text-gray-700">
+                                        <span className="text-red-600 font-medium">{formatCurrency(Number(p.amount) || 0)}</span>
+                                        {p.reason ? <span className="italic"> — {p.reason}</span> : null}
+                                        {p.date ? <span className="text-gray-500"> ({new Date(p.date).toLocaleDateString()})</span> : null}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </DetailSection>
+                              )}
+
+                              {staff.onboardingData && (
+                                <DetailSection title="Personal details">
+                                  <Detail label="Full name" value={staff.onboardingData.fullName ? toCamelCase(staff.onboardingData.fullName) : ""} />
+                                  <Detail label="Phone" value={staff.onboardingData.phone} />
+                                  <Detail label="Email" value={staff.onboardingData.email} />
+                                  <Detail label="Date of birth" value={staff.onboardingData.dateOfBirth} />
+                                  <Detail label="State of origin" value={staff.onboardingData.stateOfOrigin ? toCamelCase(staff.onboardingData.stateOfOrigin) : ""} />
+                                  <Detail label="Address" value={staff.onboardingData.address ? toCamelCase(staff.onboardingData.address) : ""} />
+                                  <Detail label="Next of kin" value={staff.onboardingData.nextOfKin ? toCamelCase(staff.onboardingData.nextOfKin) : ""} />
+                                  <Detail label="Next of kin phone" value={staff.onboardingData.nextOfKinPhone} />
+                                  {staff.onboardingData.photo && <img src={staff.onboardingData.photo} alt="Passport" className="w-16 h-16 rounded-lg object-cover mt-2 border" />}
+                                </DetailSection>
+                              )}
+
+                              {staff.guarantor?.name && (
+                                <DetailSection title="Guarantor">
+                                  <Detail label="Name" value={toCamelCase(staff.guarantor.name)} />
+                                  <Detail label="Phone" value={staff.guarantor.phone} />
+                                  <Detail label="Email" value={staff.guarantor.email} />
+                                  <Detail label="Relationship" value={staff.guarantor.relationship ? toCamelCase(staff.guarantor.relationship) : ""} />
+                                  <Detail label="Occupation" value={staff.guarantor.occupation ? toCamelCase(staff.guarantor.occupation) : ""} />
+                                  <Detail label="Address" value={staff.guarantor.address ? toCamelCase(staff.guarantor.address) : ""} />
+                                  {staff.guarantor.photo && <img src={staff.guarantor.photo} alt="Guarantor" className="w-16 h-16 rounded-lg object-cover mt-2 border" />}
+                                </DetailSection>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               <p className="text-sm text-gray-500 mt-6">Note: Passwords are hashed and not displayed for security.</p>
@@ -664,11 +761,6 @@ export default function StaffPage() {
             <h2 className="text-xl font-semibold text-blue-700 mb-6">Salary Table</h2>
             {paySlipRows.length > 0 ? (
               <>
-                <p className="text-sm text-gray-500 -mt-4 mb-4">
-                  {paySlipRows.length} staff to pay, in {payChunks.length} table{payChunks.length === 1 ? "" : "s"} of up to{" "}
-                  {MEMO_TABLE_SIZE} — each one is a transfer memo of its own. Penalties are already taken off.
-                </p>
-
                 {payChunks.map((chunk, index) => {
                   const subtotal = payrollTotal(chunk);
                   return (

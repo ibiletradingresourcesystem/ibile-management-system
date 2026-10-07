@@ -3,7 +3,7 @@ import Layout from "@/components/Layout";
 import ExpenseForm from "@/components/ExpenseForm";
 import { formatCurrency } from "@/lib/format";
 import { showAlertDialog } from "@/lib/dialogs";
-import { RefreshCw, Search, Save, X, DollarSign } from "lucide-react";
+import { Search, Save, X, Banknote, Receipt, Wallet, Info, MapPin, Calendar } from "lucide-react";
 import { currentTradingDay, formatDayKey } from "@/lib/tradingDay";
 
 function formatDate(dateStr) {
@@ -201,7 +201,7 @@ export default function ExpensesPage() {
         {/* Add Cash for the Day */}
         <div className="content-card mb-6">
           <h2 className="text-lg font-semibold text-blue-700 mb-3 flex items-center gap-2">
-            <DollarSign className="w-5 h-5" /> Add Cash for the Day
+            <Banknote className="w-5 h-5" /> Add Cash for the Day
           </h2>
           <div className="flex flex-wrap gap-3 items-end">
             <input type="date" value={cashDate} onChange={e => setCashDate(e.target.value)} className="form-input w-auto" />
@@ -221,8 +221,9 @@ export default function ExpensesPage() {
               {cashSaving ? "Saving..." : "Save"}
             </button>
           </div>
-          <p className="text-xs text-gray-400 mt-2">
-            💡 Cash is also added automatically from POS End-of-Day close and Close-of-Work reports. Manual entry is for additional cash or corrections.
+          <p className="text-xs text-gray-400 mt-2 flex items-start gap-1.5">
+            <Info className="w-3.5 h-3.5 mt-px flex-shrink-0" aria-hidden="true" />
+            Cash is also added automatically from POS End-of-Day close and Close-of-Work reports. Manual entry is for additional cash or corrections.
           </p>
         </div>
 
@@ -239,7 +240,7 @@ export default function ExpensesPage() {
           {/* Center: Recent Expenses */}
           <div className="content-card h-full flex flex-col">
             <h2 className="text-lg font-semibold text-green-700 mb-3 flex items-center gap-2">
-              <RefreshCw className="w-4 h-4" /> Recent Expenses
+              <Receipt className="w-4 h-4" /> Recent Expenses
             </h2>
             <div className="relative mb-3">
               <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
@@ -276,8 +277,9 @@ export default function ExpensesPage() {
                           <h3 className="font-semibold text-sm text-gray-900">{exp.title}</h3>
                           <span className="font-bold text-sm text-green-700">{formatCurrency(exp.amount)}</span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          <span className="text-green-600">●</span> {exp.locationName || "—"} &nbsp;📅 {formatDate(exp.createdAt)}
+                        <p className="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                          <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" aria-hidden="true" /> {exp.locationName || "—"}</span>
+                          <span className="inline-flex items-center gap-1"><Calendar className="w-3 h-3" aria-hidden="true" /> {formatDate(exp.createdAt)}</span>
                         </p>
                         <div className="flex items-center justify-between mt-2">
                           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium uppercase">{exp.categoryName === "Petty Cash" ? "Petty Cash Vendor" : exp.categoryName}</span>
@@ -308,7 +310,7 @@ export default function ExpensesPage() {
           {/* Right: Daily Cash Entries */}
           <div className="content-card h-full flex flex-col">
             <h2 className="text-lg font-semibold text-orange-700 mb-3 flex items-center gap-2">
-              <RefreshCw className="w-4 h-4" /> Daily Cash Entries
+              <Wallet className="w-4 h-4" /> Daily Cash Entries
             </h2>
 
             {loading ? (
@@ -336,8 +338,9 @@ export default function ExpensesPage() {
                         <div className="flex justify-between items-center">
                           <div>
                             <p className="font-semibold text-sm text-gray-900">Daily Cash</p>
-                            <p className="text-xs text-gray-500">
-                              <span className="text-green-600">●</span> {entry.location} &nbsp;📅 {formatDayKey(entry.day) || formatDate(entry.date)}
+                            <p className="text-xs text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                              <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" aria-hidden="true" /> {entry.location}</span>
+                              <span className="inline-flex items-center gap-1"><Calendar className="w-3 h-3" aria-hidden="true" /> {formatDayKey(entry.day) || formatDate(entry.date)}</span>
                             </p>
                           </div>
                           <span className="font-bold text-sm text-green-700">{formatCurrency(entry.amount)}</span>

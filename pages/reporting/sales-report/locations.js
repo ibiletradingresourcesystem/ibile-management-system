@@ -12,6 +12,7 @@ import {
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Pie, Bar } from "react-chartjs-2";
+import { Banknote, MapPin, Package, Receipt } from "lucide-react";
 import {
   Chart as ChartJS, ArcElement, Tooltip, Legend,
   CategoryScale, LinearScale, BarElement, Title,
@@ -19,7 +20,7 @@ import {
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
-function MetricCard({ title, value, icon, color }) {
+function MetricCard({ title, value, icon: Icon, color }) {
   const colors = {
     sky: "bg-sky-50 border-sky-200 text-sky-700",
     emerald: "bg-emerald-50 border-emerald-200 text-emerald-700",
@@ -30,7 +31,11 @@ function MetricCard({ title, value, icon, color }) {
     <div className={`border rounded-xl p-4 shadow-sm ${colors[color] || colors.sky}`}>
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium opacity-80">{title}</span>
-        <span className="text-xl">{icon}</span>
+        {Icon && (
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-white/70 ring-1 ring-black/5">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+        )}
       </div>
       <div className="text-2xl font-bold">{value}</div>
     </div>
@@ -179,10 +184,10 @@ export default function LocationsSales() {
             <>
               {/* Metric Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <MetricCard title="Total Sales" value={formatCurrency(data.totalSales)} icon="💰" color="sky" />
-                <MetricCard title="Total Transactions" value={formatNumber(data.totalTransactions)} icon="🧾" color="emerald" />
-                <MetricCard title="Total Items Sold" value={formatNumber(data.totalItems)} icon="📦" color="amber" />
-                <MetricCard title="Avg Per Location" value={formatCurrency(data.avgPerLocation)} icon="📍" color="purple" />
+                <MetricCard title="Total Sales" value={formatCurrency(data.totalSales)} icon={Banknote} color="sky" />
+                <MetricCard title="Total Transactions" value={formatNumber(data.totalTransactions)} icon={Receipt} color="emerald" />
+                <MetricCard title="Total Items Sold" value={formatNumber(data.totalItems)} icon={Package} color="amber" />
+                <MetricCard title="Avg Per Location" value={formatCurrency(data.avgPerLocation)} icon={MapPin} color="purple" />
               </div>
 
               {/* Charts */}

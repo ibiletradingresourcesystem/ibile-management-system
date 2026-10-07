@@ -24,6 +24,9 @@ const PIN_LENGTH = 4;
 /** How many saved items to keep on screen as a running record. */
 const RECENT_LIMIT = 8;
 
+/** A code just found not to be on the count is not asked about again for this long. */
+const NOT_FOUND_MEMORY_MS = 8000;
+
 export default function MobileStockTakePage() {
   const router = useRouter();
   const { id } = router.query;
@@ -42,7 +45,6 @@ export default function MobileStockTakePage() {
   // Count session
   const [stockTake, setStockTake] = useState(null);
   const [progress, setProgress] = useState({ total: 0, counted: 0, pending: 0, variances: 0 });
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState(null); // { tone, text }
 
@@ -66,6 +68,7 @@ export default function MobileStockTakePage() {
   const [scanHint, setScanHint] = useState("");
   const qtyInputRef = useRef(null);
   const submittedPinRef = useRef("");
+  const notFoundRef = useRef({ code: "", at: 0 });
 
   /* ─── Session ─────────────────────────────────────────────────── */
 
@@ -126,7 +129,6 @@ export default function MobileStockTakePage() {
   /** Header and totals only — never the item list. */
   const loadSummary = useCallback(async () => {
     if (!token || !id) return;
-    setLoading(true);
     setError("");
     try {
       const data = await api();
@@ -134,8 +136,6 @@ export default function MobileStockTakePage() {
       setProgress(data.progress);
     } catch (err) {
       setError(err.message);
-    } finally {
-      setLoading(false);
     }
   }, [api, token, id]);
 
@@ -232,6 +232,12 @@ export default function MobileStockTakePage() {
   const lookupBarcode = useCallback(
     async (barcode) => {
       setLastScanned(barcode);
+      // Held on a product that is not on the count, the camera keeps reading it: say so again
+      // without asking the server every couple of seconds
+      if (notFoundRef.current.code === barcode && Date.now() - notFoundRef.current.at < NOT_FOUND_MEMORY_MS) {
+        setScanHint(`Not on this count: ${barcode}`);
+        return;
+      }
       setLookingUp(true);
       setMessage(null);
       try {
@@ -241,6 +247,7 @@ export default function MobileStockTakePage() {
         if (!data.found) {
           // Stay on the camera so the counter can try the next item, and say
           // why here: the page's message bar sits behind the scanner overlay.
+          notFoundRef.current = { code: barcode, at: Date.now() };
           setActiveItem(null);
           setChoices([]);
           setScanHint(`Not on this count: ${barcode}`);
@@ -455,7 +462,9 @@ export default function MobileStockTakePage() {
 
   /* ─── Loading / error ─────────────────────────────────────────── */
 
-  if (loading && !stockTake) {
+  // Until the count has loaded (not only while the request runs: the counter used to flash up,
+  // empty, between signing in and the request starting)
+  if (!stockTake && !error) {
     return (
       <>
         <Head><title>Loading Stock Take…</title></Head>
@@ -507,7 +516,11 @@ export default function MobileStockTakePage() {
             <h1>{stockTake?.reference}</h1>
             <p>{stockTake?.locationName} · {staffName}</p>
           </div>
-          <button onClick={handleSignOut} className="mst-signout" aria-label="Sign out">⏻</button>
+          <button onClick={handleSignOut} className="mst-signout" aria-label="Sign out">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M12 3v9M6.3 7.3a8 8 0 1 0 11.4 0" />
+            </svg>
+          </button>
         </header>
 
         <div className="mst-progress">
@@ -694,6 +707,7 @@ export default function MobileStockTakePage() {
               setScanHint("");
             }}
             lastResult={lastScanned}
+            busy={lookingUp}
             title="Scan a product"
             hint={scanHint || `${progress.counted} of ${progress.total} counted`}
           />
@@ -839,7 +853,8 @@ function MobileStockTakeStyles() {
       .mst-header__info p { font-size: 11.5px; color: var(--mst-muted); margin-top: 2px; }
       .mst-signout {
         width: 38px; height: 38px; border: 1px solid var(--mst-line); border-radius: 10px;
-        background: #fff; color: #64748b; font-size: 15px; cursor: pointer; flex-shrink: 0;
+        background: #fff; color: #64748b; cursor: pointer; flex-shrink: 0;
+        display: grid; place-items: center;
       }
 
       .mst-progress { height: 4px; background: #e2e8f0; }

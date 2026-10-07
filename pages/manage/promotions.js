@@ -173,7 +173,7 @@ export default function Promotions() {
               <thead>
                 <tr>
                   <th className="w-10">
-                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all shown" />
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all shown" className="h-4 w-4 p-0" />
                   </th>
                   <th>Promotion</th>
                   <th>Product</th>
@@ -220,6 +220,7 @@ export default function Promotions() {
                             checked={selected.has(promo._id)}
                             onChange={() => toggleSelected(promo._id)}
                             aria-label={`Select ${promo.name}`}
+                            className="h-4 w-4 p-0"
                           />
                         </td>
                         <td>

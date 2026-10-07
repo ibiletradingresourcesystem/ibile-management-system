@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { X } from "lucide-react";
 
 export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel }) {
   const [form, setForm] = useState(
@@ -287,8 +288,9 @@ export default function PettyCashVendorForm({ onSubmit, editingVendor, onCancel 
                         onClick={() => removeProduct(i)}
                         className="inline-flex items-center justify-center w-7 h-7 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                         title="Delete product"
+                        aria-label="Delete product"
                       >
-                        ✕
+                        <X className="w-4 h-4" aria-hidden="true" />
                       </button>
                     </td>
                   </tr>

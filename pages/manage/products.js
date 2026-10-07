@@ -840,18 +840,19 @@ export default function Products() {
                         )}
                       </td>
 
-                      <td className="min-w-[10rem]">
+                      {/* The name in full: it is what the list is read by */}
+                      <td className="min-w-[13rem] sm:min-w-[16rem]">
                         {isEditing ? (
                           <input
                             name="name"
                             value={editableProduct.name || ""}
                             onChange={handleChange}
                             onClick={(e) => e.stopPropagation()}
-                            className="w-32 md:w-36 border p-1 rounded text-xs"
+                            className="w-full min-w-[12rem] border p-1 rounded text-xs"
                           />
                         ) : (
-                          <div className="max-w-[16rem]">
-                            <TruncatedText text={p.name} lines={2} className="font-semibold text-gray-900" />
+                          <div className="max-w-[22rem]">
+                            <span className="block whitespace-normal break-words font-semibold leading-snug text-gray-900">{p.name || "—"}</span>
                             {(p.packType === "pack" || (p.isChildProduct && p.packType !== "pack")) && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {p.packType === "pack" && <Badge tone="purple">Pack of {p.qtyPerPack}</Badge>}

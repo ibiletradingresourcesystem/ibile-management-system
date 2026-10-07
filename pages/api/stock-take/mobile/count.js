@@ -16,6 +16,7 @@
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import StockTake from "@/models/StockTake";
+import Product from "@/models/Product";
 import { verifyToken } from "@/lib/jwt";
 
 const MOBILE_SCOPE = "stock-take-mobile";
@@ -49,12 +50,40 @@ function publicItem(item) {
   };
 }
 
+/**
+ * A barcode as it is compared. A camera reads the same code in more than one form: a UPC-A
+ * (12 digits) comes back from some phones as an EAN-13 with a 0 in front, and printed codes are
+ * often stored with a dash. So dashes go, and a code of digits loses its leading zeros.
+ */
+function barcodeKey(code) {
+  const text = String(code || "").trim().toLowerCase().replace(/-/g, "");
+  return /^\d+$/.test(text) ? text.replace(/^0+/, "") || "0" : text;
+}
+
 /** A product can carry several barcodes in one field, comma or space separated. */
 function barcodeMatches(item, wanted) {
   if (!item.barcode) return false;
   return String(item.barcode)
     .split(/[,;\s|]+/)
-    .some((code) => code.trim().toLowerCase() === wanted);
+    .some((code) => code && barcodeKey(code) === wanted);
+}
+
+const escapeRegex = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Lines on the count for products that carry the barcode now. A count keeps each product's
+ * barcode as it was when the count was made, so a barcode added to a product since then is
+ * found here instead.
+ */
+async function linesByProductBarcode(items, wanted) {
+  if (!wanted) return [];
+  const products = await Product.find({ barcode: { $regex: escapeRegex(wanted), $options: "i" } })
+    .select("_id barcode")
+    .limit(25)
+    .lean();
+  const ids = new Set(products.filter((product) => barcodeMatches(product, wanted)).map((product) => String(product._id)));
+  if (ids.size === 0) return [];
+  return items.filter((item) => ids.has(String(item.productId)));
 }
 
 function buildProgress(items) {
@@ -112,8 +141,9 @@ export default async function handler(req, res) {
 
       // ── One item by barcode ───────────────────────────────────
       if (barcode) {
-        const wanted = String(barcode).trim().toLowerCase();
-        const matches = items.filter((item) => barcodeMatches(item, wanted));
+        const wanted = barcodeKey(barcode);
+        let matches = items.filter((item) => barcodeMatches(item, wanted));
+        if (matches.length === 0) matches = await linesByProductBarcode(items, wanted);
 
         if (matches.length === 0) {
           return res.status(200).json({

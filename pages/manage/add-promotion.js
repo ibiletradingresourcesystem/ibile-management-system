@@ -344,7 +344,7 @@ export default function AddPromotion() {
                     customerTypes.includes(key) ? "border-sky-500 bg-sky-50" : "border-gray-300"
                   }`}
                 >
-                  <input type="checkbox" checked={customerTypes.includes(key)} onChange={() => toggleCustomerType(key)} />
+                  <input type="checkbox" checked={customerTypes.includes(key)} onChange={() => toggleCustomerType(key)} className="h-4 w-4 shrink-0 p-0" />
                   {CUSTOMER_TYPE_LABELS[key]}
                 </label>
               ))}
