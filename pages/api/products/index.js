@@ -10,6 +10,7 @@ import { resolveChildCost, syncChildCostsForParent } from "@/lib/childPricing";
 import { deriveChildQuantity, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
 import { calculateMarginPercent, normalizeTaxRate, roundMoney, VAT_RATE } from "@/lib/pricing";
 import { repairStoredBarcodes, suffixBarcodes } from "@/lib/barcodes";
+import { promotionWindow } from "@/lib/promotions";
 import {
   sanitizeMultilineText,
   sanitizePlainText,
@@ -479,32 +480,24 @@ export default async function handler(req, res) {
       }
 
       /* 🔒 Promotion Validation */
+      // The dates are whole days in Lagos: the promotion runs to the end of its last day, and a
+      // one-day promotion (same start and end) is allowed. There is no overlap check: a product
+      // holds one promotion, so the old check found the product's own promotion and refused every
+      // save of a product that had one running — a price change included.
+      let promotionDates = null;
       if (isPromotion) {
-        if (!promoPrice || !promoStart || !promoEnd) {
+        promotionDates = promotionWindow(promoStart, promoEnd);
+        if (!promoPrice || !promotionDates.start || !promotionDates.end) {
           return res.status(400).json({
             success: false,
             message: "Promo price, start date, and end date are required",
           });
         }
 
-        if (new Date(promoEnd) <= new Date(promoStart)) {
+        if (promotionDates.end < promotionDates.start) {
           return res.status(400).json({
             success: false,
-            message: "Promo end date must be after start date",
-          });
-        }
-
-        const overlap = await Product.findOne({
-          _id,
-          isPromotion: true,
-          promoEnd: { $gte: new Date(promoStart) },
-          promoStart: { $lte: new Date(promoEnd) },
-        });
-
-        if (overlap) {
-          return res.status(400).json({
-            success: false,
-            message: "Promotion dates overlap with existing promotion",
+            message: "Promo end date can't be before the start date",
           });
         }
       }
@@ -598,8 +591,16 @@ export default async function handler(req, res) {
         if (!updateData.isStockManaged) updateData.quantity = 0;
       }
 
-      if (promoStart) updateData.promoStart = new Date(promoStart);
-      if (promoEnd) updateData.promoEnd = new Date(promoEnd);
+      // As whole Lagos days (worked out above when a promotion is on); new Date() made the last
+      // day end at 1am
+      if (promotionDates) {
+        updateData.promoStart = promotionDates.start;
+        updateData.promoEnd = promotionDates.end;
+      } else {
+        const dates = promotionWindow(promoStart, promoEnd);
+        if (promoStart) updateData.promoStart = dates.start;
+        if (promoEnd) updateData.promoEnd = dates.end;
+      }
 
       if (expiryDate) {
         updateData.expiryDate = new Date(expiryDate);

@@ -19,14 +19,15 @@ import {
 import { getPackSize, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
 import AIPriceSuggestion from "@/components/AIPriceSuggestion";
 import ProductPackLinks from "@/components/ProductPackLinks";
+import { dayKeyOf } from "@/lib/tradingDay";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// The day in Lagos: a promotion starts at the shop's midnight, which is the previous day in UTC
 function toDateInputValue(v) {
   if (!v) return "";
   try {
-    const s = typeof v === "string" ? v : new Date(v).toISOString();
-    return s.slice(0, 10);
+    return dayKeyOf(v) || "";
   } catch {
     return "";
   }

@@ -1,549 +1,377 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+/**
+ * Product Promotions: products on a promo price, and when.
+ *
+ * This page used to list only the promotions among the first 100 products, show columns for deal
+ * types, quantities, days and customer types that were never saved, filter on nothing, and save an
+ * edit by sending the whole product back — which could put back a stock count that had moved.
+ * It now shows every promotion with what it really holds, and changes only the promotion.
+ */
+import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import Layout from "@/components/Layout";
 import axios from "axios";
 import Link from "next/link";
-import useSWR, { mutate } from "swr";
+import useSWR from "swr";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
+import { dayKeyOf, formatDayKey } from "@/lib/tradingDay";
 
-const entriesPerPageDefault = 20;
-
-// --- fetcher for SWR
 const fetcher = (url) => axios.get(url).then((r) => r.data);
 
-// Debounce utility
-function debounce(func, wait) {
-  let timeout;
-  return (...args) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(this, args), wait);
-  };
+const STATUS_STYLES = {
+  running: { label: "Running", className: "bg-emerald-100 text-emerald-800" },
+  scheduled: { label: "Scheduled", className: "bg-sky-100 text-sky-800" },
+  ended: { label: "Ended", className: "bg-gray-200 text-gray-700" },
+};
+
+const PAGE_SIZE = 25;
+
+/** The day a stored promotion date falls on, in Lagos, as the date picker wants it. */
+const dayOf = (value) => (value ? dayKeyOf(value) || "" : "");
+
+function saving(promo) {
+  const normal = Number(promo.salePriceIncTax) || 0;
+  const price = Number(promo.promoPrice) || 0;
+  if (!normal || !price || price >= normal) return null;
+  return { amount: normal - price, percent: Math.round(((normal - price) / normal) * 100) };
 }
 
 export default function Promotions() {
-  // SWR-backed promotion list
-  const { data: productsData, error } = useSWR("/api/products", fetcher, {
-    revalidateOnFocus: true,
-    dedupingInterval: 60000,
-  });
+  const { data, error, isLoading, mutate } = useSWR("/api/products/promotions", fetcher, { revalidateOnFocus: true });
+  const promotions = useMemo(() => data?.promotions || [], [data]);
 
-  // local UI state
-  const [allPromotions, setAllPromotions] = useState([]);
-  const [filteredPromotions, setFilteredPromotions] = useState([]);
-  const [editIndex, setEditIndex] = useState(null);
-  const [editablePromotion, setEditablePromotion] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState("* Show All");
-  const [filterCustomer, setFilterCustomer] = useState("* Show All");
-  const [expandedRow, setExpandedRow] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [editingId, setEditingId] = useState(null);
+  const [draft, setDraft] = useState({ promoPrice: "", start: "", end: "" });
+  const [saving_, setSaving] = useState(false);
+  const [selected, setSelected] = useState(new Set());
 
-  // pagination
-  const [entriesPerPage] = useState(entriesPerPageDefault);
-  const [visibleCount, setVisibleCount] = useState(entriesPerPageDefault);
-
-  // Load promotions on data change
-  useEffect(() => {
-    if (productsData) {
-      const products = Array.isArray(productsData)
-        ? productsData
-        : productsData?.data || [];
-      const promoProducts = products.filter((p) => p.isPromotion === true);
-      setAllPromotions(promoProducts);
-      setFilteredPromotions(promoProducts);
-    }
-  }, [productsData]);
-
-  // Debounced search
-  const debouncedSearch = useCallback(
-    debounce((term, promos) => {
-      const filtered = promos.filter((p) =>
-        p.name.toLowerCase().includes(term.toLowerCase())
-      );
-      setFilteredPromotions(filtered);
-      setVisibleCount(entriesPerPageDefault);
-    }, 300),
-    []
+  const counts = useMemo(
+    () => promotions.reduce((acc, p) => ({ ...acc, [p.status]: (acc[p.status] || 0) + 1 }), {}),
+    [promotions]
   );
 
-  const handleSearchChange = (e) => {
-    const term = e.target.value;
-    setSearchTerm(term);
-    debouncedSearch(term, allPromotions);
-  };
-
-  const handleSearch = () => {
-    const filtered = allPromotions.filter((p) =>
-      p.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    setFilteredPromotions(filtered);
-    setVisibleCount(entriesPerPageDefault);
-  };
-
-  const handleEditClick = (index, promo) => {
-    setEditIndex(index);
-    setEditablePromotion({
-      ...promo,
-      promoStart: promo.promoStart
-        ? promo.promoStart.split("T")[0]
-        : "",
-      promoEnd: promo.promoEnd
-        ? promo.promoEnd.split("T")[0]
-        : "",
+  const filtered = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return promotions.filter((p) => {
+      if (statusFilter !== "all" && p.status !== statusFilter) return false;
+      if (!term) return true;
+      return String(p.name || "").toLowerCase().includes(term) || String(p.barcode || "").toLowerCase().includes(term);
     });
+  }, [promotions, searchTerm, statusFilter]);
+
+  const visible = filtered.slice(0, visibleCount);
+
+  const startEdit = (promo) => {
+    setEditingId(promo._id);
+    setDraft({ promoPrice: String(promo.promoPrice ?? ""), start: dayOf(promo.promoStart), end: dayOf(promo.promoEnd) });
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setEditablePromotion((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleUpdateClick = async (_id) => {
+  const saveEdit = async (promo) => {
+    setSaving(true);
     try {
-      await axios.put("/api/products", {
-        _id,
-        ...editablePromotion,
-        promoStart: editablePromotion.promoStart
-          ? new Date(editablePromotion.promoStart)
-          : null,
-        promoEnd: editablePromotion.promoEnd
-          ? new Date(editablePromotion.promoEnd)
-          : null,
+      const res = await axios.put("/api/products/promotions", {
+        productIds: [promo._id],
+        promoPrice: Number(draft.promoPrice),
+        start: draft.start,
+        end: draft.end,
       });
-      mutate("/api/products");
-      setEditIndex(null);
-      setEditablePromotion({});
+      if (!res.data?.success) {
+        await showAlertDialog({
+          title: "Not saved",
+          message: res.data?.skipped?.[0]?.reason || res.data?.message || "The promotion could not be saved.",
+          tone: "warning",
+        });
+        return;
+      }
+      setEditingId(null);
+      await mutate();
     } catch (err) {
-      console.error("Failed to update promotion:", err);
       await showAlertDialog({
-        title: "Update failed",
-        message: "Error updating promotion.",
+        title: "Not saved",
+        message: err.response?.data?.message || "The promotion could not be saved.",
         tone: "danger",
       });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleCancelClick = () => {
-    setEditIndex(null);
-    setEditablePromotion({});
-  };
-
-  const handleDeleteClick = async (_id) => {
-    const shouldDelete = await showConfirmDialog({
-      title: "Remove promotion?",
-      message: "This promotion will be removed from the product.",
+  const endPromotions = async (ids, label) => {
+    const confirmed = await showConfirmDialog({
+      title: ids.length === 1 ? "End this promotion?" : `End ${ids.length} promotions?`,
+      message: `${label} will go back to the normal price.`,
       tone: "danger",
-      confirmLabel: "Remove promotion",
-      cancelLabel: "Keep promotion",
+      confirmLabel: ids.length === 1 ? "End promotion" : "End promotions",
+      cancelLabel: "Keep",
     });
-    if (!shouldDelete) return;
+    if (!confirmed) return;
     try {
-      await axios.put("/api/products", {
-        _id,
-        isPromotion: false,
-        promoPrice: null,
-        promoStart: null,
-        promoEnd: null,
-      });
-      mutate("/api/products");
-      setAllPromotions((prev) => prev.filter((p) => p._id !== _id));
-      setFilteredPromotions((prev) => prev.filter((p) => p._id !== _id));
+      await axios.delete("/api/products/promotions", { data: { productIds: ids } });
+      setSelected(new Set());
+      await mutate();
     } catch (err) {
-      console.error("Failed to remove promotion:", err);
       await showAlertDialog({
-        title: "Remove failed",
-        message: "Error removing promotion.",
+        title: "Not ended",
+        message: err.response?.data?.message || "The promotion could not be ended.",
         tone: "danger",
       });
     }
   };
 
-  const handleLoadMore = () => {
-    setVisibleCount((prev) => prev + entriesPerPageDefault);
-  };
+  const toggleSelected = (id) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  const visibleData = filteredPromotions.slice(0, visibleCount);
-  const hasMore = visibleCount < filteredPromotions.length;
+  const allVisibleSelected = visible.length > 0 && visible.every((p) => selected.has(p._id));
+  const toggleAllVisible = () =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visible.forEach((p) => next.delete(p._id));
+      else visible.forEach((p) => next.add(p._id));
+      return next;
+    });
 
   return (
     <Layout>
       <div className="page-container">
         <div className="page-content">
-        {/* Header */}
-        <div className="page-header flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-3">
-            <h1 className="page-title">Promotions</h1>
-            <span className="theme-badge-soft text-xs px-2 py-1 rounded-full font-medium">
-              HELP
-            </span>
-          </div>
-          <Link
-            href="/manage/add-promotion"
-            className="btn-action-primary w-full sm:w-auto text-center"
-          >
-            + Add Promotion
-          </Link>
-        </div>
-
-        {/* Filters and Search */}
-        <div className="content-card mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            {/* Filter by Promotion Type */}
-            <div className="form-group">
-              <label className="form-label">
-                Filter by Promotion Type
-              </label>
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value)}
-                className="form-select"
-              >
-                <option>* Show All</option>
-                <option>Percentage Discount</option>
-                <option>Fixed Price</option>
-                <option>Bundle Deal</option>
-                <option>Buy N Get M</option>
-              </select>
-            </div>
-
-            {/* Filter by Customer Type */}
+          {/* Header */}
+          <div className="page-header flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <label className="text-sm font-semibold text-gray-700 block mb-2">
-                Filter by Customer Type
-              </label>
-              <select
-                value={filterCustomer}
-                onChange={(e) => setFilterCustomer(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <h1 className="page-title">Product Promotions</h1>
+              <p className="page-subtitle">Products on a promo price, and the dates it runs.</p>
+            </div>
+            <Link href="/manage/add-promotion" className="btn-action-primary w-full sm:w-auto text-center">
+              + Add Promotion
+            </Link>
+          </div>
+
+          {/* Summary */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            {["running", "scheduled", "ended"].map((key) => (
+              <button
+                key={key}
+                onClick={() => setStatusFilter(statusFilter === key ? "all" : key)}
+                className={`content-card text-left transition-shadow hover:shadow-md ${statusFilter === key ? "ring-2 ring-sky-500" : ""}`}
               >
-                <option>* Show All</option>
-                <option>Retail</option>
-                <option>Wholesale</option>
-                <option>VIP</option>
+                <p className="text-sm text-gray-500">{STATUS_STYLES[key].label}</p>
+                <p className="text-2xl font-bold text-gray-900">{counts[key] || 0}</p>
+              </button>
+            ))}
+          </div>
+
+          {/* Search and filter */}
+          <div className="content-card mb-6">
+            <div className="flex flex-col md:flex-row gap-3">
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  placeholder="Search by product name or barcode"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setVisibleCount(PAGE_SIZE);
+                  }}
+                  className="form-input pl-10"
+                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setVisibleCount(PAGE_SIZE);
+                }}
+                className="form-select md:w-48"
+              >
+                <option value="all">All promotions</option>
+                <option value="running">Running</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="ended">Ended</option>
               </select>
+              {selected.size > 0 && (
+                <button
+                  onClick={() => endPromotions([...selected], `${selected.size} product${selected.size === 1 ? "" : "s"}`)}
+                  className="border border-red-600 text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap"
+                >
+                  End selected ({selected.size})
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Search Bar */}
-          <div className="flex gap-2">
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                placeholder="Search by Name or Description"
-                value={searchTerm}
-                onChange={handleSearchChange}
-                className="w-full border border-gray-300 rounded-lg p-3 pl-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-            </div>
-            <button
-              onClick={handleSearch}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
-            >
-              SEARCH
-            </button>
-          </div>
-        </div>
-
-        {/* Promotions Table */}
-        <div className="overflow-x-auto bg-white rounded-lg shadow-md border border-gray-200">
-          <table className="w-full text-sm">
-            <thead className="table-header-gradient text-white sticky top-0">
-              <tr>
-                <th className="px-6 py-4 text-left font-semibold">NAME</th>
-                <th className="px-6 py-4 text-left font-semibold">DESCRIPTION</th>
-                <th className="px-6 py-4 text-center font-semibold">START DATE</th>
-                <th className="px-6 py-4 text-center font-semibold">END DATE</th>
-                <th className="px-6 py-4 text-center font-semibold">DEAL</th>
-                <th className="px-6 py-4 text-center font-semibold">TYPE</th>
-                <th className="px-6 py-4 text-center font-semibold">REQUIRED QUANTITY</th>
-                <th className="px-6 py-4 text-center font-semibold">AMOUNT</th>
-                <th className="px-6 py-4 text-center font-semibold">MIX AND MATCH</th>
-                <th className="px-6 py-4 text-center font-semibold">NOT USED IN CONJUNCTION</th>
-                <th className="px-6 py-4 text-center font-semibold">ENABLED</th>
-                <th className="px-6 py-4 text-center font-semibold">DAYS ENABLED</th>
-                <th className="px-6 py-4 text-center font-semibold">CUSTOMER TYPE</th>
-                <th className="px-6 py-4 text-center font-semibold">ACTIONS</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {visibleData.length > 0 ? (
-                visibleData.map((promo, index) => (
-                  <tr
-                    key={promo._id}
-                    className="hover:bg-blue-50 transition-colors"
-                  >
-                    <td className="px-6 py-4 font-semibold text-gray-900">
-                      {editIndex === index ? (
-                        <input
-                          type="text"
-                          name="name"
-                          value={editablePromotion.name || ""}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        />
-                      ) : (
-                        promo.name
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-gray-700">
-                      {editIndex === index ? (
-                        <input
-                          type="text"
-                          name="description"
-                          value={editablePromotion.description || ""}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        />
-                      ) : (
-                        promo.description || "-"
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700">
-                      {editIndex === index ? (
-                        <input
-                          type="date"
-                          name="promoStart"
-                          value={editablePromotion.promoStart || ""}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        />
-                      ) : (
-                        promo.promoStart
-                          ? new Date(promo.promoStart).toLocaleDateString("en-GB")
-                          : "-"
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700">
-                      {editIndex === index ? (
-                        <input
-                          type="date"
-                          name="promoEnd"
-                          value={editablePromotion.promoEnd || ""}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        />
-                      ) : (
-                        promo.promoEnd
-                          ? new Date(promo.promoEnd).toLocaleDateString("en-GB")
-                          : "-"
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {editIndex === index ? (
-                        <select
-                          name="dealType"
-                          value={editablePromotion.dealType || "X For N"}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        >
-                          <option>X For N</option>
-                          <option>Percentage Off</option>
-                          <option>Fixed Discount</option>
-                        </select>
-                      ) : (
-                        <span className="theme-badge-soft px-3 py-1 rounded-full text-xs font-semibold">
-                          {promo.dealType || "X For N"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700">
-                      {editIndex === index ? (
-                        <select
-                          name="promoType"
-                          value={editablePromotion.promoType || "Sales"}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        >
-                          <option>Sales</option>
-                          <option>Bundle</option>
-                          <option>Seasonal</option>
-                        </select>
-                      ) : (
-                        promo.promoType || "Sales"
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700">
-                      {editIndex === index ? (
-                        <input
-                          type="number"
-                          name="requiredQuantity"
-                          value={editablePromotion.requiredQuantity || ""}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        />
-                      ) : (
-                        promo.requiredQuantity || "-"
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700">
-                      {editIndex === index ? (
-                        <input
-                          type="number"
-                          name="promoPrice"
-                          value={editablePromotion.promoPrice || ""}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        />
-                      ) : (
-                        formatCurrency(promo.promoPrice || 0)
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {editIndex === index ? (
-                        <input
-                          type="checkbox"
-                          name="mixAndMatch"
-                          checked={editablePromotion.mixAndMatch || false}
-                          onChange={(e) =>
-                            setEditablePromotion((prev) => ({
-                              ...prev,
-                              mixAndMatch: e.target.checked,
-                            }))
-                          }
-                          className="w-4 h-4"
-                        />
-                      ) : promo.mixAndMatch ? (
-                        <span className="text-green-600 font-bold"></span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700">
-                      {editIndex === index ? (
-                        <input
-                          type="checkbox"
-                          name="notUsedInConjunction"
-                          checked={editablePromotion.notUsedInConjunction || false}
-                          onChange={(e) =>
-                            setEditablePromotion((prev) => ({
-                              ...prev,
-                              notUsedInConjunction: e.target.checked,
-                            }))
-                          }
-                          className="w-4 h-4"
-                        />
-                      ) : promo.notUsedInConjunction ? (
-                        <span className="text-green-600 font-bold"></span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {editIndex === index ? (
-                        <input
-                          type="checkbox"
-                          name="enabled"
-                          checked={editablePromotion.enabled !== false}
-                          onChange={(e) =>
-                            setEditablePromotion((prev) => ({
-                              ...prev,
-                              enabled: e.target.checked,
-                            }))
-                          }
-                          className="w-4 h-4"
-                        />
-                      ) : promo.enabled !== false ? (
-                        <span className="text-green-600 font-bold">Enabled</span>
-                      ) : (
-                        <span className="text-red-600 font-semibold">Disabled</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700 text-xs">
-                      {editIndex === index ? (
-                        <input
-                          type="text"
-                          name="daysEnabled"
-                          value={editablePromotion.daysEnabled || ""}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        />
-                      ) : (
-                        promo.daysEnabled ||
-                        "Mon, Tue, Wed, Thu, Fri, Sat, Sun"
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-700">
-                      {editIndex === index ? (
-                        <select
-                          name="customerType"
-                          value={editablePromotion.customerType || "All"}
-                          onChange={handleChange}
-                          className="border border-gray-300 rounded px-2 py-1 w-full"
-                        >
-                          <option>All</option>
-                          <option>Retail</option>
-                          <option>Wholesale</option>
-                          <option>VIP</option>
-                        </select>
-                      ) : (
-                        promo.customerType || "All"
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex gap-2 justify-center">
-                        {editIndex === index ? (
-                          <>
-                            <button
-                              onClick={() => handleUpdateClick(promo._id)}
-                              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-semibold transition-colors"
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={handleCancelClick}
-                              className="bg-gray-400 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs font-semibold transition-colors"
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => handleEditClick(index, promo)}
-                              className="border border-blue-600 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded text-xs font-semibold transition-colors"
-                            >
-                              EDIT
-                            </button>
-                            <button
-                              onClick={() => handleDeleteClick(promo._id)}
-                              className="border border-red-600 text-red-600 hover:bg-red-50 px-3 py-1 rounded text-xs font-semibold transition-colors"
-                            >
-                              
-                            </button>
-                          </>
-                        )}
-                      </div>
+          {/* Table */}
+          <div className="data-table-container">
+            <table className="data-table min-w-[900px]">
+              <thead>
+                <tr>
+                  <th className="w-10">
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all shown" />
+                  </th>
+                  <th>Product</th>
+                  <th className="text-right">Normal price</th>
+                  <th className="text-right">Promo price</th>
+                  <th className="text-right">Saving</th>
+                  <th>Starts</th>
+                  <th>Ends</th>
+                  <th className="text-center">Status</th>
+                  <th className="text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {error ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-red-600">
+                      Promotions could not be loaded. {error.response?.data?.message || ""}
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan="14"
-                    className="px-6 py-8 text-center text-gray-500"
-                  >
-                    No promotions found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Load More Button */}
-        {hasMore && (
-          <div className="text-center mt-6">
-            <button
-              onClick={handleLoadMore}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-lg font-semibold transition-colors"
-            >
-              Load More
-            </button>
+                ) : isLoading ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">Loading promotions…</td>
+                  </tr>
+                ) : visible.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-10 text-center text-gray-500">
+                      {promotions.length === 0 ? (
+                        <>
+                          No product is on promotion.{" "}
+                          <Link href="/manage/add-promotion" className="theme-link font-medium">Add one</Link>.
+                        </>
+                      ) : (
+                        "No promotion matches that search."
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  visible.map((promo) => {
+                    const editing = editingId === promo._id;
+                    const save = saving(promo);
+                    const status = STATUS_STYLES[promo.status] || STATUS_STYLES.running;
+                    return (
+                      <tr key={promo._id}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(promo._id)}
+                            onChange={() => toggleSelected(promo._id)}
+                            aria-label={`Select ${promo.name}`}
+                          />
+                        </td>
+                        <td>
+                          <p className="font-semibold text-gray-900">{promo.name}</p>
+                          {promo.barcode && <p className="text-xs text-gray-500">{promo.barcode}</p>}
+                        </td>
+                        <td className="text-right font-mono">{formatCurrency(promo.salePriceIncTax || 0)}</td>
+                        <td className="text-right font-mono">
+                          {editing ? (
+                            <input
+                              type="number"
+                              min="0"
+                              value={draft.promoPrice}
+                              onChange={(e) => setDraft((d) => ({ ...d, promoPrice: e.target.value }))}
+                              className="form-input w-28 text-right"
+                            />
+                          ) : (
+                            <span className="font-semibold text-emerald-700">{formatCurrency(promo.promoPrice || 0)}</span>
+                          )}
+                        </td>
+                        <td className="text-right text-sm">
+                          {save ? (
+                            <>
+                              {formatCurrency(save.amount)} <span className="text-gray-500">({save.percent}%)</span>
+                            </>
+                          ) : (
+                            <span className="text-amber-700">Not below normal price</span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          {editing ? (
+                            <input
+                              type="date"
+                              value={draft.start}
+                              onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))}
+                              className="form-input w-40"
+                            />
+                          ) : (
+                            formatDayKey(dayOf(promo.promoStart)) || "—"
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          {editing ? (
+                            <input
+                              type="date"
+                              value={draft.end}
+                              min={draft.start || undefined}
+                              onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))}
+                              className="form-input w-40"
+                            />
+                          ) : (
+                            formatDayKey(dayOf(promo.promoEnd)) || "—"
+                          )}
+                        </td>
+                        <td className="text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${status.className}`}>{status.label}</span>
+                        </td>
+                        <td className="text-center">
+                          <div className="flex gap-2 justify-center">
+                            {editing ? (
+                              <>
+                                <button
+                                  onClick={() => saveEdit(promo)}
+                                  disabled={saving_}
+                                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-semibold disabled:opacity-50"
+                                >
+                                  {saving_ ? "Saving…" : "Save"}
+                                </button>
+                                <button
+                                  onClick={() => setEditingId(null)}
+                                  className="bg-gray-400 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs font-semibold"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => startEdit(promo)}
+                                  className="border border-blue-600 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded text-xs font-semibold"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => endPromotions([promo._id], promo.name)}
+                                  className="border border-red-600 text-red-600 hover:bg-red-50 px-3 py-1 rounded text-xs font-semibold"
+                                >
+                                  End
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+
+          {filtered.length > visibleCount && (
+            <div className="text-center mt-6">
+              <button onClick={() => setVisibleCount((n) => n + PAGE_SIZE)} className="btn-action-secondary">
+                Show more ({filtered.length - visibleCount} left)
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </Layout>
