@@ -90,6 +90,12 @@ async function disableExpiredPromotions() {
         promoPrice: null,
         promoStart: null,
         promoEnd: null,
+        promoName: "",
+        promoType: "price",
+        promoBuyQty: 1,
+        promoPercent: null,
+        promoDays: [],
+        promoCustomerTypes: [],
       },
     }
   );

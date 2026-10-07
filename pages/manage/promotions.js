@@ -1,12 +1,10 @@
 "use client";
 
 /**
- * Product Promotions: products on a promo price, and when.
+ * Product Promotions: every product on a deal, what the deal is, and when it runs.
  *
- * This page used to list only the promotions among the first 100 products, show columns for deal
- * types, quantities, days and customer types that were never saved, filter on nothing, and save an
- * edit by sending the whole product back — which could put back a stock count that had moved.
- * It now shows every promotion with what it really holds, and changes only the promotion.
+ * The till applies these at the sale and prints the promotion's name on the receipt
+ * (lib/promotionRules.js). Changing one opens it in the promotion form.
  */
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
@@ -16,7 +14,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
-import { dayKeyOf, formatDayKey } from "@/lib/tradingDay";
+import { PROMOTION_DAY_LABELS } from "@/lib/promotionRules";
 
 const fetcher = (url) => axios.get(url).then((r) => r.data);
 
@@ -26,17 +24,15 @@ const STATUS_STYLES = {
   ended: { label: "Ended", className: "bg-gray-200 text-gray-700" },
 };
 
+const CUSTOMER_TYPE_LABELS = { REGULAR: "Regular", VIP: "VIP", NEW: "New", BULK_BUYER: "Bulk buyer", ONLINE: "Online", CREDIT: "Credit" };
+
 const PAGE_SIZE = 25;
 
-/** The day a stored promotion date falls on, in Lagos, as the date picker wants it. */
-const dayOf = (value) => (value ? dayKeyOf(value) || "" : "");
-
-function saving(promo) {
-  const normal = Number(promo.salePriceIncTax) || 0;
-  const price = Number(promo.promoPrice) || 0;
-  if (!normal || !price || price >= normal) return null;
-  return { amount: normal - price, percent: Math.round(((normal - price) / normal) * 100) };
-}
+/** "07 Oct, 08:00" in the shop's time. */
+const shopMoment = (value) =>
+  value
+    ? new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" })
+    : "—";
 
 export default function Promotions() {
   const { data, error, isLoading, mutate } = useSWR("/api/products/promotions", fetcher, { revalidateOnFocus: true });
@@ -45,9 +41,6 @@ export default function Promotions() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [editingId, setEditingId] = useState(null);
-  const [draft, setDraft] = useState({ promoPrice: "", start: "", end: "" });
-  const [saving_, setSaving] = useState(false);
   const [selected, setSelected] = useState(new Set());
 
   const counts = useMemo(
@@ -60,46 +53,11 @@ export default function Promotions() {
     return promotions.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
       if (!term) return true;
-      return String(p.name || "").toLowerCase().includes(term) || String(p.barcode || "").toLowerCase().includes(term);
+      return [p.name, p.barcode, p.promoName].some((field) => String(field || "").toLowerCase().includes(term));
     });
   }, [promotions, searchTerm, statusFilter]);
 
   const visible = filtered.slice(0, visibleCount);
-
-  const startEdit = (promo) => {
-    setEditingId(promo._id);
-    setDraft({ promoPrice: String(promo.promoPrice ?? ""), start: dayOf(promo.promoStart), end: dayOf(promo.promoEnd) });
-  };
-
-  const saveEdit = async (promo) => {
-    setSaving(true);
-    try {
-      const res = await axios.put("/api/products/promotions", {
-        productIds: [promo._id],
-        promoPrice: Number(draft.promoPrice),
-        start: draft.start,
-        end: draft.end,
-      });
-      if (!res.data?.success) {
-        await showAlertDialog({
-          title: "Not saved",
-          message: res.data?.skipped?.[0]?.reason || res.data?.message || "The promotion could not be saved.",
-          tone: "warning",
-        });
-        return;
-      }
-      setEditingId(null);
-      await mutate();
-    } catch (err) {
-      await showAlertDialog({
-        title: "Not saved",
-        message: err.response?.data?.message || "The promotion could not be saved.",
-        tone: "danger",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const endPromotions = async (ids, label) => {
     const confirmed = await showConfirmDialog({
@@ -148,7 +106,7 @@ export default function Promotions() {
           <div className="page-header flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h1 className="page-title">Product Promotions</h1>
-              <p className="page-subtitle">Products on a promo price, and the dates it runs.</p>
+              <p className="page-subtitle">Deals the till applies by itself, named on the customer&apos;s receipt.</p>
             </div>
             <Link href="/manage/add-promotion" className="btn-action-primary w-full sm:w-auto text-center">
               + Add Promotion
@@ -175,7 +133,7 @@ export default function Promotions() {
               <div className="flex-1 relative">
                 <input
                   type="text"
-                  placeholder="Search by product name or barcode"
+                  placeholder="Search by promotion, product name or barcode"
                   value={searchTerm}
                   onChange={(e) => {
                     setSearchTerm(e.target.value);
@@ -211,18 +169,18 @@ export default function Promotions() {
 
           {/* Table */}
           <div className="data-table-container">
-            <table className="data-table min-w-[900px]">
+            <table className="data-table min-w-[1000px]">
               <thead>
                 <tr>
                   <th className="w-10">
                     <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="Select all shown" />
                   </th>
+                  <th>Promotion</th>
                   <th>Product</th>
                   <th className="text-right">Normal price</th>
-                  <th className="text-right">Promo price</th>
-                  <th className="text-right">Saving</th>
-                  <th>Starts</th>
-                  <th>Ends</th>
+                  <th>Runs</th>
+                  <th>Days</th>
+                  <th>Customers</th>
                   <th className="text-center">Status</th>
                   <th className="text-center">Actions</th>
                 </tr>
@@ -253,8 +211,6 @@ export default function Promotions() {
                   </tr>
                 ) : (
                   visible.map((promo) => {
-                    const editing = editingId === promo._id;
-                    const save = saving(promo);
                     const status = STATUS_STYLES[promo.status] || STATUS_STYLES.running;
                     return (
                       <tr key={promo._id}>
@@ -267,94 +223,43 @@ export default function Promotions() {
                           />
                         </td>
                         <td>
-                          <p className="font-semibold text-gray-900">{promo.name}</p>
+                          <p className="font-semibold text-gray-900">{promo.promoName || "—"}</p>
+                          <p className="text-xs text-emerald-700 font-medium">{promo.deal}</p>
+                        </td>
+                        <td>
+                          <p className="text-gray-900">{promo.name}</p>
                           {promo.barcode && <p className="text-xs text-gray-500">{promo.barcode}</p>}
                         </td>
                         <td className="text-right font-mono">{formatCurrency(promo.salePriceIncTax || 0)}</td>
-                        <td className="text-right font-mono">
-                          {editing ? (
-                            <input
-                              type="number"
-                              min="0"
-                              value={draft.promoPrice}
-                              onChange={(e) => setDraft((d) => ({ ...d, promoPrice: e.target.value }))}
-                              className="form-input w-28 text-right"
-                            />
-                          ) : (
-                            <span className="font-semibold text-emerald-700">{formatCurrency(promo.promoPrice || 0)}</span>
-                          )}
+                        <td className="whitespace-nowrap text-sm">
+                          {shopMoment(promo.promoStart)}
+                          <span className="block text-gray-500">to {shopMoment(promo.promoEnd)}</span>
                         </td>
-                        <td className="text-right text-sm">
-                          {save ? (
-                            <>
-                              {formatCurrency(save.amount)} <span className="text-gray-500">({save.percent}%)</span>
-                            </>
-                          ) : (
-                            <span className="text-amber-700">Not below normal price</span>
-                          )}
+                        <td className="text-sm">
+                          {promo.promoDays?.length ? promo.promoDays.map((d) => PROMOTION_DAY_LABELS[d]).join(", ") : "Every day"}
                         </td>
-                        <td className="whitespace-nowrap">
-                          {editing ? (
-                            <input
-                              type="date"
-                              value={draft.start}
-                              onChange={(e) => setDraft((d) => ({ ...d, start: e.target.value }))}
-                              className="form-input w-40"
-                            />
-                          ) : (
-                            formatDayKey(dayOf(promo.promoStart)) || "—"
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap">
-                          {editing ? (
-                            <input
-                              type="date"
-                              value={draft.end}
-                              min={draft.start || undefined}
-                              onChange={(e) => setDraft((d) => ({ ...d, end: e.target.value }))}
-                              className="form-input w-40"
-                            />
-                          ) : (
-                            formatDayKey(dayOf(promo.promoEnd)) || "—"
-                          )}
+                        <td className="text-sm">
+                          {promo.promoCustomerTypes?.length
+                            ? promo.promoCustomerTypes.map((t) => CUSTOMER_TYPE_LABELS[t] || t).join(", ")
+                            : "Everyone"}
                         </td>
                         <td className="text-center">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${status.className}`}>{status.label}</span>
                         </td>
                         <td className="text-center">
                           <div className="flex gap-2 justify-center">
-                            {editing ? (
-                              <>
-                                <button
-                                  onClick={() => saveEdit(promo)}
-                                  disabled={saving_}
-                                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-semibold disabled:opacity-50"
-                                >
-                                  {saving_ ? "Saving…" : "Save"}
-                                </button>
-                                <button
-                                  onClick={() => setEditingId(null)}
-                                  className="bg-gray-400 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs font-semibold"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => startEdit(promo)}
-                                  className="border border-blue-600 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded text-xs font-semibold"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => endPromotions([promo._id], promo.name)}
-                                  className="border border-red-600 text-red-600 hover:bg-red-50 px-3 py-1 rounded text-xs font-semibold"
-                                >
-                                  End
-                                </button>
-                              </>
-                            )}
+                            <Link
+                              href={`/manage/add-promotion?productId=${promo._id}`}
+                              className="border border-blue-600 text-blue-600 hover:bg-blue-50 px-3 py-1 rounded text-xs font-semibold"
+                            >
+                              Change
+                            </Link>
+                            <button
+                              onClick={() => endPromotions([promo._id], promo.name)}
+                              className="border border-red-600 text-red-600 hover:bg-red-50 px-3 py-1 rounded text-xs font-semibold"
+                            >
+                              End
+                            </button>
                           </div>
                         </td>
                       </tr>

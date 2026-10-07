@@ -20,6 +20,8 @@ import { getPackSize, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
 import AIPriceSuggestion from "@/components/AIPriceSuggestion";
 import ProductPackLinks from "@/components/ProductPackLinks";
 import { dayKeyOf } from "@/lib/tradingDay";
+import { describePromotion, promotionLabel, promotionOf, PROMOTION_DAY_LABELS } from "@/lib/promotionRules";
+import Link from "next/link";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -32,6 +34,16 @@ function toDateInputValue(v) {
     return "";
   }
 }
+
+/** Does a stored promotion start (or end) on a day boundary, as a date-only promotion does? */
+function onDayBoundary(value, isEnd) {
+  if (!value) return true;
+  const iso = new Date(value).toISOString();
+  return isEnd ? /T(22:59:59\.999|23:59:59\.999|00:00:00\.000)Z$/.test(iso) : /T(23:00:00\.000|00:00:00\.000)Z$/.test(iso);
+}
+
+const promoMoment = (value) =>
+  value ? new Date(value).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" }) : "";
 
 function todayInputValue() {
   const d = new Date();
@@ -110,6 +122,7 @@ export default function ProductForm(props) {
     toDateInputValue(props.promoStart)
   );
   const [promoEnd, setPromoEnd] = useState(toDateInputValue(props.promoEnd));
+  const [promoName, setPromoName] = useState(props.promoName || "");
   const [expiryDate, setExpiryDate] = useState(toDateInputValue(props.expiryDate || ""));
 
   const [isSaving, setIsSaving] = useState(false);
@@ -158,6 +171,7 @@ export default function ProductForm(props) {
     setPromoPrice(props.promoPrice ?? "");
     setPromoStart(toDateInputValue(props.promoStart));
     setPromoEnd(toDateInputValue(props.promoEnd));
+    setPromoName(props.promoName || "");
     setExpiryDate(toDateInputValue(props.expiryDate || ""));
     setDescriptionEdited(Boolean(props.description));
   }, [props]);
@@ -209,9 +223,24 @@ export default function ProductForm(props) {
     }
   }, [isPromotion]);
 
+  /*
+   * A promotion set up on the Promotions page with more than a price for whole days — a multi-buy,
+   * a % discount, set days, customer types, or times of day — is shown here but changed there. This
+   * form only knows a price and two dates, so saving it would have flattened the rest.
+   */
+  const savedPromotion = promotionOf(props);
+  const advancedPromotion =
+    Boolean(savedPromotion) &&
+    (savedPromotion.type !== "price" ||
+      savedPromotion.days.length > 0 ||
+      savedPromotion.customerTypes.length > 0 ||
+      !onDayBoundary(props.promoStart, false) ||
+      !onDayBoundary(props.promoEnd, true));
+  const showAdvancedPromotion = advancedPromotion && isPromotion;
+
   // --- Effective Price ---
   const effectivePrice =
-    isPromotion && promoPrice ? promoPrice : salePriceIncTax;
+    isPromotion && promoPrice && !showAdvancedPromotion ? promoPrice : salePriceIncTax;
 
   // --- Pricing logic: cost → margin → price before VAT → VAT → sale price ---
   const taxRate = applyTax ? VAT_RATE : 0;
@@ -289,10 +318,11 @@ export default function ProductForm(props) {
     isPromotion && promoPriceNumber > 0 ? getPriceBreakdown(costPrice, promoPriceNumber, taxRate) : null;
   const promoDiscountPercent =
     promoBreakdown && salePriceNumber > 0 ? ((salePriceNumber - promoPriceNumber) / salePriceNumber) * 100 : null;
+  // Both days count: a promotion that starts and ends on the same day runs one day
   const promoDays =
-    promoStart && promoEnd ? Math.round((new Date(promoEnd) - new Date(promoStart)) / DAY_MS) : null;
+    promoStart && promoEnd ? Math.round((new Date(promoEnd) - new Date(promoStart)) / DAY_MS) + 1 : null;
   const promoIssues = [];
-  if (isPromotion) {
+  if (isPromotion && !showAdvancedPromotion) {
     if (!promoPriceNumber || !promoStart || !promoEnd) {
       promoIssues.push({ tone: "info", text: "Promo price, start date and end date are all required." });
     }
@@ -309,7 +339,7 @@ export default function ProductForm(props) {
       });
     }
     if (promoDays !== null && promoDays <= 0) {
-      promoIssues.push({ tone: "danger", text: "End date must be after the start date." });
+      promoIssues.push({ tone: "danger", text: "The end date can't be before the start date." });
     }
   }
 
@@ -353,10 +383,21 @@ export default function ProductForm(props) {
       // Only send qty when it was typed here, so a stale value never overwrites stock changed by sales
       quantity: quantityEdited && quantity !== "" ? Number(quantity) : undefined,
       expiryDate,
-      isPromotion,
-      promoPrice: isPromotion ? promoPrice : "",
-      promoStart: isPromotion ? promoStart : "",
-      promoEnd: isPromotion ? promoEnd : "",
+      // A promotion set up on the Promotions page is left exactly as it is
+      ...(showAdvancedPromotion
+        ? {}
+        : {
+            isPromotion,
+            promoPrice: isPromotion ? promoPrice : "",
+            promoStart: isPromotion ? promoStart : "",
+            promoEnd: isPromotion ? promoEnd : "",
+            promoType: "price",
+            promoName: isPromotion ? promoName.trim() : "",
+            promoBuyQty: 1,
+            promoPercent: null,
+            promoDays: [],
+            promoCustomerTypes: [],
+          }),
       effectivePrice, // ✅ enforce effective price
       vendors: selectedVendors,
       locations: selectedLocations,
@@ -627,7 +668,9 @@ export default function ProductForm(props) {
                 <dd className="font-medium text-gray-900">{stockSummary}</dd>
                 <dt className="text-gray-500">Promotion</dt>
                 <dd className="font-medium text-gray-900">
-                  {isPromotion && promoPriceNumber > 0
+                  {showAdvancedPromotion
+                    ? `${promotionLabel(savedPromotion)} until ${promoMoment(props.promoEnd)}`
+                    : isPromotion && promoPriceNumber > 0
                     ? `${formatCurrency(promoPriceNumber)}${promoEnd ? ` until ${formatShortDate(promoEnd)}` : ""}`
                     : "Off"}
                 </dd>
@@ -913,8 +956,32 @@ export default function ProductForm(props) {
               description={isPromotion ? "A temporary price for a set period." : "No promotion is running."}
               action={<Toggle checked={isPromotion} onChange={handlePromotionToggle} label="Promotion" showState />}
             >
-              {isPromotion && (
+              {showAdvancedPromotion && (
+                <div className="space-y-2 text-sm">
+                  <p className="font-semibold text-gray-900">
+                    {promotionLabel(savedPromotion)}
+                    <span className="ml-2 font-normal text-gray-600">{describePromotion(savedPromotion)}</span>
+                  </p>
+                  <p className="text-gray-600">
+                    {promoMoment(props.promoStart)} → {promoMoment(props.promoEnd)}
+                    {savedPromotion.days.length > 0 && ` · ${savedPromotion.days.map((d) => PROMOTION_DAY_LABELS[d]).join(", ")}`}
+                    {savedPromotion.customerTypes.length > 0 && ` · ${savedPromotion.customerTypes.join(", ")} customers`}
+                  </p>
+                  {props._id && (
+                    <Link href={`/manage/add-promotion?productId=${props._id}`} className="theme-link font-medium">
+                      Change it on the Promotions page
+                    </Link>
+                  )}
+                </div>
+              )}
+              {isPromotion && !showAdvancedPromotion && (
                 <div className="space-y-4">
+                  <InputField
+                    label="Name on the receipt (optional)"
+                    value={promoName}
+                    setValue={setPromoName}
+                    hint="Printed under the item on the receipt, e.g. Weekend Malt Deal"
+                  />
                   <div className="grid gap-4 sm:grid-cols-3">
                     <InputField
                       label="Promo price"
