@@ -110,6 +110,133 @@ function formatStockTakeQuantity(value) {
   return String(parseFloat(numberValue.toFixed(2)));
 }
 
+function formatVarianceQuantity(item) {
+  if (!item || item.countedQty === null || item.countedQty === undefined) return null;
+  const variance = Number(item.variance || 0);
+  return `${variance > 0 ? "+" : ""}${formatStockTakeQuantity(variance)}`;
+}
+
+function varianceTone(item) {
+  const variance = Number(item?.variance || 0);
+  if (item?.countedQty === null || item?.countedQty === undefined) return "text-gray-300";
+  return variance > 0 ? "font-bold text-green-600" : variance < 0 ? "font-bold text-red-600" : "font-semibold text-gray-500";
+}
+
+// The quantity columns of the count tables. Numbers sit to the right, under their heading, and
+// every row keeps the same label slot, blank on a plain product and "Pack"/"Each" on a pack +
+// each one. Each line is an input's height, so a pack line runs straight across the row.
+function QuantityLines({ lines }) {
+  return (
+    <div className="ml-auto w-fit">
+      {lines.map((line) => (
+        <div key={line.key} className="flex h-9 items-center justify-end gap-1.5">
+          <span className="w-8 shrink-0 text-right text-[11px] font-semibold text-gray-400">
+            {line.label}
+          </span>
+          <div className={`flex w-16 justify-end text-sm tabular-nums ${line.className || ""}`}>{line.content}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function quantityLinesFor(group, render) {
+  const hasPackAndLoose = Boolean(group.standard && group.loose);
+  if (!hasPackAndLoose) return [{ key: "one", label: "", ...render(group.standard || group.primary, "standard") }];
+  return [
+    { key: "pack", label: "Pack", ...render(group.standard, "standard") },
+    { key: "each", label: "Each", ...render(group.loose, "loose") },
+  ];
+}
+
+function countedTone(item, kind) {
+  if (item.countedQty === null || item.countedQty === undefined) return "text-gray-300";
+  return kind === "loose" ? "font-semibold text-orange-700" : "font-semibold text-gray-900";
+}
+
+// Over or short, by value: a pack and its loose units are counted in different units, so the
+// quantities alone cannot say it once a product has both
+function varianceSign(group) {
+  return Math.sign(Number(group.varianceValue || 0)) || Math.sign(Number(group.variance || 0));
+}
+
+function varianceValueTone(group) {
+  return varianceSign(group) > 0 ? "text-green-600" : "text-red-600";
+}
+
+function countRowTint(group) {
+  if (!group.hasVariance) return "";
+  return varianceSign(group) > 0 ? "bg-green-50/40" : "bg-red-50/40";
+}
+
+function BarcodeCell({ barcode }) {
+  const codes = String(barcode || "").split(/[,;\s|]+/).filter(Boolean);
+  if (codes.length === 0) return <span className="text-gray-300">—</span>;
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5" title={codes.join("\n")}>
+      <span className="truncate font-mono text-xs text-gray-600">{codes[0]}</span>
+      {codes.length > 1 && (
+        <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">
+          +{codes.length - 1}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function CountStatus({ group }) {
+  const status = group.isCounted
+    ? { label: "Counted", dot: "bg-green-500", text: "text-green-700" }
+    : group.isPartiallyCounted
+    ? { label: "Partial", dot: "bg-yellow-400", text: "text-yellow-700" }
+    : { label: "Pending", dot: "bg-gray-300", text: "text-gray-500" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${status.text}`}>
+      <span className={`h-2 w-2 shrink-0 rounded-full ${status.dot}`} />
+      {status.label}
+    </span>
+  );
+}
+
+function ProductCell({ group }) {
+  const hasPackAndLoose = Boolean(group.standard && group.loose);
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium leading-snug text-gray-900">
+        <span>{group.productName}</span>
+        {hasPackAndLoose && (
+          <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
+            Pack + each
+          </span>
+        )}
+      </div>
+      {hasPackAndLoose && (
+        <div className="mt-0.5 text-xs text-gray-500">
+          {group.loose.qtyPerPack || group.standard.qtyPerPack || 1} each per pack
+        </div>
+      )}
+    </>
+  );
+}
+
+// The headings of both count tables: one width a column, so neither wraps nor moves with a row
+function CountTableHead({ quantityLabel, countLabel }) {
+  return (
+    <thead>
+      <tr>
+        <th className="w-12 whitespace-nowrap px-3 py-3 text-left">#</th>
+        <th className="px-3 py-3 text-left">Product</th>
+        <th className="hidden w-40 whitespace-nowrap px-3 py-3 text-left md:table-cell">Barcode</th>
+        <th className="w-32 whitespace-nowrap px-3 py-3 text-right">{quantityLabel}</th>
+        <th className="w-32 whitespace-nowrap px-3 py-3 text-right">{countLabel}</th>
+        <th className="w-32 whitespace-nowrap px-3 py-3 text-right">Variance</th>
+        <th className="hidden w-36 whitespace-nowrap px-3 py-3 text-right lg:table-cell">Variance Value</th>
+        <th className="w-28 whitespace-nowrap px-3 py-3 text-left">Status</th>
+      </tr>
+    </thead>
+  );
+}
+
 export default function StockTakeDetail() {
   const router = useRouter();
   const { id } = router.query;
@@ -933,23 +1060,10 @@ export default function StockTakeDetail() {
               </div>
 
               <div className="content-card overflow-x-auto">
-                <table className="w-full min-w-[980px] text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-gray-200 text-left">
-                      <th className="py-2 px-2 font-semibold text-gray-600 w-8">#</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600">Product</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 hidden md:table-cell">Barcode</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center">Expected Stock</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center">Actual Stock</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center">Variance</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-right hidden lg:table-cell">Variance Value</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center">Status</th>
-                    </tr>
-                  </thead>
+                <table className="w-full min-w-[1040px] text-sm">
+                  <CountTableHead quantityLabel="Expected Stock" countLabel="Actual Stock" />
                   <tbody>
                     {reviewItemGroups.map((group, index) => {
-                      const standardItem = group.standard || group.primary;
-                      const looseItem = group.loose;
                       const hasPackAndLoose = Boolean(group.standard && group.loose);
                       const discrepantItems = group.items.filter((item) => (
                         item.countedQty !== null && item.countedQty !== undefined && Number(item.variance || 0) !== 0
@@ -957,77 +1071,45 @@ export default function StockTakeDetail() {
 
                       return (
                         <Fragment key={group.key}>
-                          <tr className={`border-b border-gray-100 transition-colors ${
-                            group.hasVariance
-                              ? group.variance > 0
-                                ? "bg-green-50/40"
-                                : "bg-red-50/40"
-                              : "hover:bg-gray-50"
-                          }`}>
-                            <td className="py-2 px-2 text-gray-400 text-xs">{index + 1}</td>
-                            <td className="py-2 px-2">
-                              <div className="font-medium text-gray-900 text-sm">
-                                {group.productName}
-                                {hasPackAndLoose && (
-                                  <span className="ml-2 rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
-                                    Pack + each
-                                  </span>
-                                )}
-                              </div>
-                              {hasPackAndLoose && (
-                                <div className="mt-1 text-xs text-gray-500">
-                                  {looseItem.qtyPerPack || standardItem.qtyPerPack || 1} each per pack
-                                </div>
-                              )}
+                          <tr className={`border-b border-gray-100 transition-colors ${countRowTint(group)}`}>
+                            <td className="px-3 py-2 align-middle text-xs text-gray-400">{index + 1}</td>
+                            <td className="px-3 py-2 align-middle"><ProductCell group={group} /></td>
+                            <td className="hidden px-3 py-2 align-middle md:table-cell"><BarcodeCell barcode={group.barcode} /></td>
+                            <td className="px-3 py-2 align-middle">
+                              <QuantityLines lines={quantityLinesFor(group, (item, kind) => ({
+                                content: formatStockTakeQuantity(item.systemQty),
+                                className: kind === "loose" ? "font-semibold text-orange-700" : "font-semibold text-gray-700",
+                              }))} />
                             </td>
-                            <td className="py-2 px-2 font-mono text-xs text-gray-500 hidden md:table-cell">{group.barcode || "—"}</td>
-                            <td className="py-2 px-2 text-center font-medium text-gray-700">
-                              {hasPackAndLoose ? (
-                                <div className="space-y-1 text-xs">
-                                  <div>Pack: {formatStockTakeQuantity(standardItem.systemQty)}</div>
-                                  <div>Each: {formatStockTakeQuantity(looseItem.systemQty)}</div>
-                                </div>
-                              ) : formatStockTakeQuantity(group.primary.systemQty)}
+                            <td className="px-3 py-2 align-middle">
+                              <QuantityLines lines={quantityLinesFor(group, (item, kind) => ({
+                                content: item.countedQty ?? "—",
+                                className: countedTone(item, kind),
+                              }))} />
                             </td>
-                            <td className="py-2 px-2 text-center font-medium text-gray-900">
-                              {hasPackAndLoose ? (
-                                <div className="space-y-1 text-xs">
-                                  <div>Pack: {standardItem.countedQty ?? "—"}</div>
-                                  <div>Each: {looseItem.countedQty ?? "—"}</div>
-                                </div>
-                              ) : group.primary.countedQty ?? "—"}
+                            <td className="px-3 py-2 align-middle">
+                              <QuantityLines lines={quantityLinesFor(group, (item) => ({
+                                content: formatVarianceQuantity(item) ?? "—",
+                                className: varianceTone(item),
+                              }))} />
                             </td>
-                            <td className="py-2 px-2 text-center">
-                              {group.isPartiallyCounted ? (
-                                <span className={`font-bold ${
-                                  group.variance > 0 ? "text-green-600" : group.variance < 0 ? "text-red-600" : "text-gray-500"
-                                }`}>
-                                  {group.variance > 0 ? "+" : ""}
-                                  {formatStockTakeQuantity(group.variance)}
-                                </span>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-2 text-right hidden lg:table-cell">
+                            <td className="hidden px-3 py-2 text-right align-middle tabular-nums lg:table-cell">
                               {group.hasVariance ? (
-                                <span className={group.variance > 0 ? "text-green-600" : "text-red-600"}>
+                                <span className={`font-semibold ${varianceValueTone(group)}`}>
                                   {formatCurrency(Math.abs(group.varianceValue || 0))}
                                 </span>
                               ) : (
                                 <span className="text-gray-300">—</span>
                               )}
                             </td>
-                            <td className="py-2 px-2 text-center">
-                              <span className={`inline-flex w-2 h-2 rounded-full ${group.isCounted ? "bg-green-500" : group.isPartiallyCounted ? "bg-yellow-500" : "bg-gray-300"}`} />
-                            </td>
+                            <td className="px-3 py-2 align-middle"><CountStatus group={group} /></td>
                           </tr>
                           {discrepantItems.length > 0 && (
                             <tr className="bg-gray-50/80 border-b border-gray-100">
-                              <td colSpan={3} className="px-2 py-3 text-sm text-gray-500 text-right">
+                              <td colSpan={3} className="px-3 py-3 text-sm text-gray-500 text-right align-middle">
                                 The reason for the difference is
                               </td>
-                              <td colSpan={5} className="px-2 py-3">
+                              <td colSpan={5} className="px-3 py-3">
                                 <div className="flex flex-col items-end gap-2">
                                   {discrepantItems.map((item) => (
                                     <div key={item._id} className="flex w-full max-w-md items-center gap-2">
@@ -1147,158 +1229,74 @@ export default function StockTakeDetail() {
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm text-gray-500">{filteredItemGroups.length} count entr{filteredItemGroups.length === 1 ? "y" : "ies"} shown</p>
                 </div>
-                <table className="w-full min-w-[980px] text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-gray-200 text-left">
-                      <th className="py-2 px-2 font-semibold text-gray-600 w-8">#</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600">Product</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 hidden md:table-cell">Barcode</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center">System Qty</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center w-44 min-w-[11rem]">Counted</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center">Variance</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-right hidden lg:table-cell">Variance Value</th>
-                      <th className="py-2 px-2 font-semibold text-gray-600 text-center">Status</th>
-                    </tr>
-                  </thead>
+                <table className="w-full min-w-[1040px] text-sm">
+                  <CountTableHead quantityLabel="System Qty" countLabel="Counted" />
                   <tbody>
                     {filteredItemGroups.map((group, index) => {
-                      const standardItem = group.standard || group.primary;
-                      const looseItem = group.loose;
                       const hasPackAndLoose = Boolean(group.standard && group.loose);
                       const nextGroup = filteredItemGroups[index + 1];
                       const nextFocusId = nextGroup?.standard?._id || nextGroup?.primary?._id;
+                      const focusCount = (focusId) => {
+                        const input = focusId && countInputRefs.current[focusId];
+                        if (!input) return;
+                        input.focus();
+                        input.select();
+                      };
 
                       return (
-                        <tr key={group.key} className={`border-b border-gray-100 transition-colors ${
-                          group.isPartiallyCounted && group.variance !== 0
-                            ? group.variance > 0
-                              ? "bg-green-50/40"
-                              : "bg-red-50/40"
-                            : "hover:bg-gray-50"
-                        }`}>
-                          <td className="py-2 px-2 text-gray-400 text-xs">{index + 1}</td>
-                          <td className="py-2 px-2 align-top">
-                            <div className="flex flex-wrap items-center gap-2 font-medium text-gray-900 text-sm leading-snug">
-                              <span>{group.productName}</span>
-                              {hasPackAndLoose && (
-                                <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
-                                  Pack + each
-                                </span>
-                              )}
-                            </div>
-                            {hasPackAndLoose && (
-                              <div className="mt-1 text-xs text-gray-500">
-                                {looseItem.qtyPerPack || standardItem.qtyPerPack || 1} each per pack
-                              </div>
-                            )}
+                        <tr key={group.key} className={`border-b border-gray-100 transition-colors ${countRowTint(group)}`}>
+                          <td className="px-3 py-2 align-middle text-xs text-gray-400">{index + 1}</td>
+                          <td className="px-3 py-2 align-middle"><ProductCell group={group} /></td>
+                          <td className="hidden px-3 py-2 align-middle md:table-cell"><BarcodeCell barcode={group.barcode} /></td>
+                          <td className="px-3 py-2 align-middle">
+                            <QuantityLines lines={quantityLinesFor(group, (item, kind) => ({
+                              content: formatStockTakeQuantity(item.systemQty),
+                              className: kind === "loose" ? "font-semibold text-orange-700" : "font-semibold text-gray-700",
+                            }))} />
                           </td>
-                          <td className="py-2 px-2 font-mono text-xs text-gray-500 hidden md:table-cell">{group.barcode || "—"}</td>
-                          <td className="py-2 px-2 text-center font-medium text-gray-700">
-                            {hasPackAndLoose ? (
-                              <div className="mx-auto grid w-28 grid-cols-[3.25rem_1fr] gap-x-2 gap-y-1 text-xs leading-tight">
-                                <span className="text-right text-gray-500">Pack</span>
-                                <span className="text-left font-semibold text-gray-800">{formatStockTakeQuantity(standardItem.systemQty)}</span>
-                                <span className="text-right text-gray-500">Each</span>
-                                <span className="text-left font-semibold text-orange-700">{formatStockTakeQuantity(looseItem.systemQty)}</span>
-                              </div>
-                            ) : (
-                              formatStockTakeQuantity(standardItem.systemQty)
-                            )}
+                          <td className="px-3 py-2 align-middle">
+                            <QuantityLines lines={quantityLinesFor(group, (item, kind) => (isEditable ? {
+                              content: (
+                                <input
+                                  ref={(element) => {
+                                    if (element) countInputRefs.current[item._id] = element;
+                                  }}
+                                  type="number"
+                                  min="0"
+                                  value={item.countedQty ?? ""}
+                                  onChange={(e) => handleCountChange(item._id, e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") return;
+                                    focusCount(hasPackAndLoose && kind === "standard" ? group.loose._id : nextFocusId);
+                                  }}
+                                  aria-label={`${group.productName}${hasPackAndLoose ? (kind === "loose" ? ", each" : ", packs") : ""} counted`}
+                                  className={`h-8 w-16 rounded-md border px-2 py-0 text-right text-sm tabular-nums focus:border-transparent focus:ring-2 ${
+                                    kind === "loose" ? "border-orange-200 focus:ring-orange-300" : "border-gray-300 focus:ring-blue-400"
+                                  }`}
+                                  placeholder="0"
+                                />
+                              ),
+                            } : {
+                              content: item.countedQty ?? "—",
+                              className: countedTone(item, kind),
+                            }))} />
                           </td>
-                          <td className="py-2 px-2 text-center">
-                            {isEditable ? (
-                              <div className={hasPackAndLoose ? "mx-auto grid w-36 grid-cols-[3.25rem_5rem] items-center gap-x-2 gap-y-2" : "flex justify-center"}>
-                                <label className={hasPackAndLoose ? "contents text-xs text-gray-500" : ""}>
-                                  {hasPackAndLoose && <span className="text-right text-xs text-gray-500">Pack</span>}
-                                  <input
-                                    ref={(element) => {
-                                      if (element) countInputRefs.current[standardItem._id] = element;
-                                    }}
-                                    type="number"
-                                    min="0"
-                                    value={standardItem.countedQty ?? ""}
-                                    onChange={(e) => handleCountChange(standardItem._id, e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        const focusId = hasPackAndLoose ? looseItem._id : nextFocusId;
-                                        if (focusId && countInputRefs.current[focusId]) {
-                                          countInputRefs.current[focusId].focus();
-                                          countInputRefs.current[focusId].select();
-                                        }
-                                      }
-                                    }}
-                                    className="w-20 text-center border border-gray-300 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-blue-400 focus:border-transparent"
-                                    placeholder="0"
-                                  />
-                                </label>
-                                {hasPackAndLoose && (
-                                  <label className="contents text-xs text-gray-500">
-                                    <span className="text-right text-xs text-gray-500">Each</span>
-                                    <input
-                                      ref={(element) => {
-                                        if (element) countInputRefs.current[looseItem._id] = element;
-                                      }}
-                                      type="number"
-                                      min="0"
-                                      value={looseItem.countedQty ?? ""}
-                                      onChange={(e) => handleCountChange(looseItem._id, e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter" && nextFocusId && countInputRefs.current[nextFocusId]) {
-                                          countInputRefs.current[nextFocusId].focus();
-                                          countInputRefs.current[nextFocusId].select();
-                                        }
-                                      }}
-                                      className="w-20 text-center border border-orange-200 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-orange-300 focus:border-transparent"
-                                      placeholder="0"
-                                    />
-                                  </label>
-                                )}
-                              </div>
-                            ) : (
-                              <div className={hasPackAndLoose ? "mx-auto grid w-28 grid-cols-[3.25rem_1fr] gap-x-2 gap-y-1 text-xs font-medium" : "font-medium"}>
-                                {hasPackAndLoose ? (
-                                  <>
-                                    <span className="text-right text-gray-500">Pack</span>
-                                    <span className="text-left text-gray-900">{standardItem.countedQty ?? "—"}</span>
-                                    <span className="text-right text-gray-500">Each</span>
-                                    <span className="text-left text-orange-700">{looseItem.countedQty ?? "—"}</span>
-                                  </>
-                                ) : (
-                                  standardItem.countedQty ?? "—"
-                                )}
-                              </div>
-                            )}
+                          <td className="px-3 py-2 align-middle">
+                            <QuantityLines lines={quantityLinesFor(group, (item) => ({
+                              content: formatVarianceQuantity(item) ?? "—",
+                              className: varianceTone(item),
+                            }))} />
                           </td>
-                          <td className="py-2 px-2 text-center">
-                            {group.isPartiallyCounted ? (
-                              <span className={`font-bold ${
-                                group.variance > 0 ? "text-green-600" : group.variance < 0 ? "text-red-600" : "text-gray-500"
-                              }`}>
-                                {group.variance > 0 ? "+" : ""}
-                                {formatStockTakeQuantity(group.variance)}
-                              </span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-2 text-right hidden lg:table-cell">
-                            {group.isPartiallyCounted && group.variance !== 0 ? (
-                              <span className={group.variance > 0 ? "text-green-600" : "text-red-600"}>
+                          <td className="hidden px-3 py-2 text-right align-middle tabular-nums lg:table-cell">
+                            {group.hasVariance ? (
+                              <span className={`font-semibold ${varianceValueTone(group)}`}>
                                 {formatCurrency(Math.abs(group.varianceValue || 0))}
                               </span>
                             ) : (
                               <span className="text-gray-300">—</span>
                             )}
                           </td>
-                          <td className="py-2 px-2 text-center">
-                            {group.isCounted ? (
-                              <span className="inline-flex w-2 h-2 rounded-full bg-green-500" title="Counted" />
-                            ) : group.isPartiallyCounted ? (
-                              <span className="inline-flex w-2 h-2 rounded-full bg-yellow-400" title="Partially counted" />
-                            ) : (
-                              <span className="inline-flex w-2 h-2 rounded-full bg-gray-300" title="Pending" />
-                            )}
-                          </td>
+                          <td className="px-3 py-2 align-middle"><CountStatus group={group} /></td>
                         </tr>
                       );
                     })}

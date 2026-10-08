@@ -471,7 +471,7 @@ export default function VendorsPage() {
       await apiClient.post("/api/stock-orders", payload);
         await showAlertDialog({
           title: "Order submitted",
-          message: "Stock order submitted. It is now in Submitted Stock Orders, where it can be merged and received.",
+          message: "Stock order submitted. It waits in Submitted Stock Orders until it is received.",
           tone: "success",
         });
       setOrders([]);

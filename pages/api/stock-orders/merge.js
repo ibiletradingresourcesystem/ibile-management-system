@@ -10,7 +10,7 @@
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import StockOrder, { isOnOrder } from "@/models/StockOrder";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { authMiddleware, isStaff, isBasicStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import { generateOrderRef, sumTotals } from "@/lib/purchaseOrders";
 
@@ -69,6 +69,8 @@ export default async function handler(req, res) {
   if (!isStaff(req)) return res.status(403).json({ error: "Insufficient permissions" });
 
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  // As with receiving and deleting, merging orders is a manager's call
+  if (isBasicStaff(req)) return res.status(403).json({ error: "Merging stock orders is for a manager." });
 
   await mongooseConnect();
 

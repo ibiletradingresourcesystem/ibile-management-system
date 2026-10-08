@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { pageTitleFor } from '@/lib/navigation';
+import { isBasicStaffRole } from '@/lib/permission-utils';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faStore, faRightFromBracket, faBell } from '@fortawesome/free-solid-svg-icons';
 
@@ -16,6 +17,8 @@ const TopBar = ({ user, logout }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
   const [isOnline, setIsOnline] = useState(true);
+  // Stock, expiry and credit alerts are a manager's: basic staff get no bell (lib/permission-utils.js)
+  const showBell = Boolean(user) && !isBasicStaffRole(user.role);
 
   useEffect(() => {
     const updateStatus = () => setIsOnline(navigator.onLine);
@@ -29,6 +32,7 @@ const TopBar = ({ user, logout }) => {
   }, []);
 
   useEffect(() => {
+    if (!showBell) return undefined;
     // Fetch notifications data periodically
     const fetchNotifications = async () => {
       try {
@@ -103,7 +107,7 @@ const TopBar = ({ user, logout }) => {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", refreshIfDue);
     };
-  }, []);
+  }, [showBell]);
 
   // Function to get initials
   const getInitials = (name) =>
@@ -185,6 +189,7 @@ const TopBar = ({ user, logout }) => {
         </div>
 
         {/* Unified Notification Icon */}
+        {showBell && (
         <div className="relative">
           <button
             className="relative p-1 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors duration-300"
@@ -319,6 +324,7 @@ const TopBar = ({ user, logout }) => {
             </div>
           )}
         </div>
+        )}
 
         {/* Profile Section - Compact on mobile */}
         <div className="flex items-center gap-1 sm:gap-2 md:gap-4 pl-1 sm:pl-2 md:pl-6 border-l border-gray-200">

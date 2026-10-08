@@ -689,12 +689,18 @@ a:active,
 }
 
 .form-input {
-  @apply w-full px-3 py-2.5 border
+  @apply w-full border
     focus:outline-none focus:border-transparent
          transition-all duration-200;
   border-color: var(--border-subtle);
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.94);
+}
+
+/* Its padding with no weight of its own: this file comes after Tailwind's utilities, so a plain
+   rule here would beat the pl-10 / pr-10 a search or password box sets to clear its icon */
+:where(.form-input) {
+  padding: 0.625rem 0.75rem;
 }
 
 .form-select {

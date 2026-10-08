@@ -6,7 +6,7 @@ import AccessDeniedState from "@/components/AccessDeniedState";
 import { useAuth } from "@/lib/useAuth";
 import { apiClient } from "@/lib/api-client";
 import { showToastMessage } from "@/lib/toast-state";
-import { Plus, Edit, Trash2, X, Check, UserPlus, Users, Eye, EyeOff, Shield } from "lucide-react";
+import { Plus, Edit, Trash2, X, Check, UserPlus, Users, Eye, EyeOff, Shield, IdCard, MapPin } from "lucide-react";
 
 const ALL_PERMISSIONS = [
   { key: "dashboard", label: "Dashboard", description: "Home dashboard access" },
@@ -126,8 +126,23 @@ export default function UsersPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [showPin, setShowPin] = useState(false);
 
-  const emptyForm = { name: "", email: "", password: "", role: "staff", permissions: [], isActive: true };
+  const emptyForm = { name: "", email: "", password: "", role: "staff", permissions: [], isActive: true, staffId: "" };
   const [form, setForm] = useState(emptyForm);
+  // Staff members (Manage Staff) a user can be linked to
+  const [staffMembers, setStaffMembers] = useState([]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    apiClient
+      .get("/api/staff")
+      .then(({ data }) => {
+        const list = Array.isArray(data) ? data : data?.data || data?.staff || [];
+        setStaffMembers([...list].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))));
+      })
+      .catch(() => setStaffMembers([]));
+  }, [isAdmin]);
+
+  const staffLocation = (member) => String(member?.location || member?.locationName || "");
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -227,7 +242,7 @@ export default function UsersPage() {
 
     setSaving(true);
     try {
-      const payload = { ...form };
+      const payload = { ...form, staffId: form.staffId || null };
       if (!payload.password) delete payload.password;
 
       if (editingUser) {
@@ -258,6 +273,7 @@ export default function UsersPage() {
       role: u.role,
       permissions: u.permissions || [],
       isActive: u.isActive,
+      staffId: u.staffId || "",
     });
     setShowPin(false);
     setShowForm(true);
@@ -331,7 +347,22 @@ export default function UsersPage() {
               <tbody>
                 {users.map((u) => (
                   <tr key={u._id} className="border-b border-gray-100 hover:bg-gray-50 transition">
-                    <td className="px-4 py-3 font-medium text-gray-900">{u.name}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900">{u.name}</p>
+                      {u.linkedStaff && (
+                        <p
+                          className={`mt-0.5 flex items-center gap-1 text-xs ${u.linkedStaff.isActive ? "text-gray-500" : "text-amber-600"}`}
+                          title="Their entries fill in this staff member and where they work"
+                        >
+                          <IdCard size={12} className="shrink-0" aria-hidden="true" />
+                          <span className="truncate">
+                            {u.linkedStaff.name}
+                            {u.linkedStaff.location ? ` · ${u.linkedStaff.location}` : ""}
+                            {!u.linkedStaff.isActive ? " (inactive)" : ""}
+                          </span>
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-600">{u.email}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${ROLE_COLORS[u.role] || "bg-gray-100 text-gray-700"}`}>
@@ -474,6 +505,50 @@ export default function UsersPage() {
                       {ROLES.find(r => r.value === form.role)?.description}
                     </p>
                   </div>
+                </div>
+
+                {/* The staff member this sign-in is */}
+                <div>
+                  <label htmlFor="user-staff" className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2">
+                    <IdCard size={16} aria-hidden="true" /> Staff Member
+                  </label>
+                  <select
+                    id="user-staff"
+                    value={form.staffId}
+                    onChange={(e) => {
+                      const member = staffMembers.find((s) => String(s._id) === e.target.value);
+                      setForm((prev) => ({ ...prev, staffId: e.target.value, name: prev.name || member?.name || "" }));
+                    }}
+                    className="form-select"
+                  >
+                    <option value="">Not linked to a staff member</option>
+                    {staffMembers.map((member) => (
+                      <option key={member._id} value={member._id}>
+                        {member.name}
+                        {staffLocation(member) ? ` — ${staffLocation(member)}` : ""}
+                        {member.isActive === false ? " (inactive)" : ""}
+                      </option>
+                    ))}
+                    {form.staffId && !staffMembers.some((s) => String(s._id) === form.staffId) && (
+                      <option value={form.staffId}>{editingUser?.linkedStaff?.name || "Linked staff member"}</option>
+                    )}
+                  </select>
+                  {(() => {
+                    const member = staffMembers.find((s) => String(s._id) === form.staffId);
+                    if (!form.staffId) {
+                      return <p className="text-xs text-gray-400 mt-1">Link one and this user&apos;s entries fill in that staff member and where they work.</p>;
+                    }
+                    return (
+                      <p className="text-xs text-gray-500 mt-1 flex items-start gap-1">
+                        <MapPin size={12} className="mt-0.5 shrink-0" aria-hidden="true" />
+                        <span>
+                          Stock movements, stock takes, expenses and stock orders this user makes are filled in as{" "}
+                          <strong className="text-gray-700">{member?.name || editingUser?.linkedStaff?.name || "this staff member"}</strong>
+                          {staffLocation(member) ? <> at <strong className="text-gray-700">{staffLocation(member)}</strong></> : " (no location set in Manage Staff)"}.
+                        </span>
+                      </p>
+                    );
+                  })()}
                 </div>
 
                 {/* Active toggle */}

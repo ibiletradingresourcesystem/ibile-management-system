@@ -7,6 +7,8 @@ import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency } from "@/lib/format";
 import { getCachedSetup } from "@/lib/setupCache";
+import { useAuth } from "@/lib/useAuth";
+import { useLinkedStaff } from "@/lib/useLinkedStaff";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
@@ -72,6 +74,41 @@ export default function StockTakeList() {
   const [error, setError] = useState("");
 
   const suggestedTitle = useMemo(() => getSuggestedTitle(form), [form]);
+
+  // The signed-in user's own staff record (Setup → Users) fills in who counts and where
+  const { user } = useAuth();
+  const { linkedStaff } = useLinkedStaff(user?.id);
+  const staffChoices = useMemo(
+    () =>
+      linkedStaff?._id && !staffMembers.some((member) => String(member._id) === linkedStaff._id)
+        ? [...staffMembers, { _id: linkedStaff._id, name: linkedStaff.name }]
+        : staffMembers,
+    [staffMembers, linkedStaff]
+  );
+  const linkedForm = useMemo(() => {
+    if (!linkedStaff?._id) return EMPTY_CREATE_FORM;
+    const wantedName = String(linkedStaff.locationName || "").toLowerCase();
+    const location =
+      locations.find((loc) => linkedStaff.locationId && String(loc._id) === linkedStaff.locationId) ||
+      locations.find((loc) => wantedName && String(loc.name || "").toLowerCase() === wantedName);
+    return {
+      staffId: linkedStaff._id,
+      staffName: linkedStaff.name,
+      locationId: location ? String(location._id) : "",
+      locationName: location?.name || "",
+    };
+  }, [linkedStaff, locations]);
+
+  // Into the empty fields of the form when it opens, or when the details arrive after it did
+  useEffect(() => {
+    if (!showCreateForm) return;
+    setForm((current) => ({
+      staffId: current.staffId || linkedForm.staffId,
+      staffName: current.staffId ? current.staffName : linkedForm.staffName,
+      locationId: current.locationId || linkedForm.locationId,
+      locationName: current.locationId ? current.locationName : linkedForm.locationName,
+    }));
+  }, [showCreateForm, linkedForm]);
 
   const fetchStockTakes = useCallback(async () => {
     try {
@@ -232,7 +269,7 @@ export default function StockTakeList() {
                   <select
                     value={form.staffId}
                     onChange={(e) => {
-                      const selectedStaff = staffMembers.find((member) => String(member._id) === e.target.value);
+                      const selectedStaff = staffChoices.find((member) => String(member._id) === e.target.value);
                       setForm((current) => ({
                         ...current,
                         staffId: selectedStaff?._id ? String(selectedStaff._id) : "",
@@ -242,7 +279,7 @@ export default function StockTakeList() {
                     className="form-select"
                   >
                     <option value="">No Staff Member Selected</option>
-                    {staffMembers.map((member) => (
+                    {staffChoices.map((member) => (
                       <option key={member._id} value={member._id}>{member.name}</option>
                     ))}
                   </select>

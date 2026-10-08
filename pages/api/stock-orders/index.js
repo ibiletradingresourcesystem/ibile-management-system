@@ -17,6 +17,7 @@ import Vendor from "@/models/Vendor";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { generateOrderRef, normalizeOrderProducts, sumTotals } from "@/lib/purchaseOrders";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
+import { linkedStaffForUser } from "@/lib/linkedStaff";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -107,19 +108,25 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Every product line needs a name" });
       }
 
+      // Placed by a user linked to a staff member (Setup → Users): the order names that staff
+      // member, and is for where they work unless it says otherwise
+      const linkedStaff = await linkedStaffForUser(req.user?.id).catch(() => null);
+      const placedBy = linkedStaff?.isActive ? linkedStaff : null;
+      const useStaffLocation = !location && !locationId && placedBy?.locationName;
+
       const order = await StockOrder.create({
         orderRef: generateOrderRef("SO"),
         date: date || new Date(),
         vendor,
         supplier: vendorDoc.companyName,
         contact: sanitizePlainText(contact || vendorDoc.repPhone || ""),
-        location: sanitizePlainText(location || ""),
-        locationId: locationId || null,
+        location: sanitizePlainText((useStaffLocation ? placedBy.locationName : location) || ""),
+        locationId: (useStaffLocation ? placedBy.locationId : locationId) || null,
         mainProduct: sanitizePlainText(mainProduct || vendorDoc.mainProduct || ""),
         products: normalizedProducts,
         grandTotal: Number(grandTotal) || sumTotals(normalizedProducts),
-        staff: req.user?.id || null,
-        staffName: req.user?.name || "",
+        staff: placedBy?._id || req.user?.id || null,
+        staffName: placedBy?.name || req.user?.name || "",
         notes: sanitizeMultilineText(notes || ""),
         stage: "Submitted",
       });

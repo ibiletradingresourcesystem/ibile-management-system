@@ -15,6 +15,9 @@ const UserSchema = new mongoose.Schema({
     default: [],
     // Possible values: setup, manage, stock, reporting, expenses, support, staff, assets, users
   },
+  // The staff member this sign-in is (Manage Staff). Their name and location fill in the
+  // staff and location of the entries this user makes (lib/linkedStaff.js).
+  staffId: { type: mongoose.Schema.Types.ObjectId, ref: "Staff", default: null },
 }, { timestamps: true });
 
 export default mongoose.models.User || mongoose.model("User", UserSchema);

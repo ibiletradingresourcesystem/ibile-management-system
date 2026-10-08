@@ -2,6 +2,7 @@ import User from "@/models/User";
 import bcrypt from "bcryptjs";
 import { connectToDatabase } from "@/lib/mongodb";
 import { getTokenFromRequest, verifyToken } from "@/lib/jwt";
+import { resolveStaffLink } from "@/lib/linkedStaff";
 
 function requireAdmin(req) {
   const token = getTokenFromRequest(req);
@@ -29,6 +30,13 @@ export default async function handler(req, res) {
       if (name) updateData.name = name;
       if (email) updateData.email = String(email).trim().toLowerCase();
       if (typeof isActive === "boolean") updateData.isActive = isActive;
+
+      // Sent only by the edit form: the Active switch on the list leaves the link alone
+      if (Object.prototype.hasOwnProperty.call(req.body, "staffId")) {
+        const staffLink = await resolveStaffLink(req.body.staffId);
+        if (staffLink.error) return res.status(400).json({ error: staffLink.error });
+        updateData.staffId = staffLink.staffId;
+      }
 
       const allowedRoles = ["admin", "sub-admin", "inventory", "account", "manager", "staff", "viewer"];
       if (role && allowedRoles.includes(role)) {

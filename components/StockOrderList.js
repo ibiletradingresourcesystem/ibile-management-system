@@ -29,9 +29,12 @@ const receivableCount = (order) =>
  */
 export default function StockOrderList({ orders = [], loading = false, onChanged }) {
   const router = useRouter();
-  // Receiving and deleting are for a manager; basic staff see and edit orders (lib/permission-utils.js)
+  // Receiving, deleting and merging are for a manager; basic staff see and edit orders
+  // (lib/permission-utils.js). Without merging there is nothing to tick, so no checkboxes either.
   const { user } = useAuth();
   const canReceive = !isBasicStaffRole(user?.role);
+  const canMerge = canReceive;
+  const columnCount = canMerge ? 7 : 6;
   const [selected, setSelected] = useState(new Set());
   const [expandedId, setExpandedId] = useState(null);
   const [draftLines, setDraftLines] = useState(null); // edits to the expanded order
@@ -283,12 +286,12 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
           <span className="text-sm text-gray-500">Worth {formatCurrency(total)}</span>
         )}
         <div className="ml-auto flex flex-wrap gap-2">
-          {selected.size >= 2 && (
+          {canMerge && selected.size >= 2 && (
             <button onClick={() => merge("selected")} disabled={merging} className="btn-action btn-action-primary btn-sm disabled:opacity-50">
               {merging ? "Merging…" : `Merge ${selected.size} selected`}
             </button>
           )}
-          {orders.length >= 2 && (
+          {canMerge && orders.length >= 2 && (
             <button onClick={() => merge("all")} disabled={merging} className="btn-action btn-action-secondary btn-sm inline-flex items-center gap-1.5 disabled:opacity-50">
               <Layers className="w-3.5 h-3.5" aria-hidden="true" /> Merge all by vendor
             </button>
@@ -307,9 +310,11 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
           <table className="w-full min-w-[760px] text-sm">
             <thead>
               <tr className="border-b theme-border-soft text-gray-600 text-xs uppercase">
-                <th className="py-3 px-2 w-8">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all orders" className="h-4 w-4 p-0" />
-                </th>
+                {canMerge && (
+                  <th className="py-3 px-2 w-8">
+                    <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all orders" className="h-4 w-4 p-0" />
+                  </th>
+                )}
                 <th className="py-3 px-2 text-left whitespace-nowrap">Date</th>
                 <th className="py-3 px-2 text-left">Vendor</th>
                 <th className="py-3 px-2 text-left">Contact</th>
@@ -327,15 +332,17 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                 return (
                   <Fragment key={order._id}>
                     <tr className="hover:bg-gray-50 transition align-top">
-                      <td className="py-3 px-2">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(order._id)}
-                          onChange={() => toggle(order._id)}
-                          aria-label={`Select ${order.supplier || "order"}`}
-                          className="h-4 w-4 p-0"
-                        />
-                      </td>
+                      {canMerge && (
+                        <td className="py-3 px-2">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(order._id)}
+                            onChange={() => toggle(order._id)}
+                            aria-label={`Select ${order.supplier || "order"}`}
+                            className="h-4 w-4 p-0"
+                          />
+                        </td>
+                      )}
                       <td className="py-3 px-2 whitespace-nowrap text-gray-700">{formatOrderDate(order.date || order.createdAt)}</td>
                       <td className="py-3 px-2">
                         <p className="font-medium text-gray-800">{order.supplier || order.vendor?.companyName || "—"}</p>
@@ -402,7 +409,7 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
 
                     {isOpen && draftLines && (
                       <tr>
-                        <td colSpan={7} className="bg-gray-50 px-4 py-4">
+                        <td colSpan={columnCount} className="bg-gray-50 px-4 py-4">
                           {draftLines.length === 0 && (
                             <p className="mb-3 text-sm text-amber-700">
                               No products on this order yet. Add the products that were ordered below.

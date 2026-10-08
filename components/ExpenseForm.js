@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PlusCircle } from "lucide-react";
 import { showAlertDialog } from "@/lib/dialogs";
 import { Loader } from "@/components/ui";
+import { useAuth } from "@/lib/useAuth";
+import { useLinkedStaff } from "@/lib/useLinkedStaff";
 
 export default function ExpenseForm({ onSaved, className = "" }) {
+  const { user } = useAuth();
+  const { linkedStaff } = useLinkedStaff(user?.id);
   const [formData, setFormData] = useState({
     title: "",
     amount: "",
@@ -65,6 +69,28 @@ export default function ExpenseForm({ onSaved, className = "" }) {
     }
     fetchData();
   }, []);
+
+  // The signed-in user's own staff record (Setup → Users) fills in the staff member and where
+  // they work, on the empty form and again after each save
+  const staffOptions = useMemo(
+    () =>
+      linkedStaff?._id && !staff.some((member) => String(member._id) === linkedStaff._id)
+        ? [...staff, { _id: linkedStaff._id, name: linkedStaff.name }]
+        : staff,
+    [staff, linkedStaff]
+  );
+  const linkedLocation = locations.find(
+    (loc) => linkedStaff?.locationName && String(loc.name || "").toLowerCase() === linkedStaff.locationName.toLowerCase()
+  )?.name || "";
+  const linkedDefaults = { staff: linkedStaff?._id || "", location: linkedLocation };
+
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...prev,
+      staff: prev.staff || linkedStaff?._id || "",
+      location: prev.location || linkedLocation,
+    }));
+  }, [linkedStaff, linkedLocation]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -141,7 +167,7 @@ export default function ExpenseForm({ onSaved, className = "" }) {
     // Get staff name
     let staffName = "";
     if (formData.staff) {
-      const selectedStaff = staff.find(s => s._id === formData.staff);
+      const selectedStaff = staffOptions.find(s => s._id === formData.staff);
       staffName = selectedStaff?.name || formData.staff;
     }
 
@@ -175,7 +201,7 @@ export default function ExpenseForm({ onSaved, className = "" }) {
     });
 
     if (res.ok) {
-      setFormData({ title: "", amount: "", category: "", description: "", location: "", staff: "", asset: "" });
+      setFormData({ title: "", amount: "", category: "", description: "", location: linkedDefaults.location, staff: linkedDefaults.staff, asset: "" });
       setCustomCategory("");
       setIsOtherCategory(false);
       setIsMaintenanceCategory(false);
@@ -322,7 +348,7 @@ export default function ExpenseForm({ onSaved, className = "" }) {
           className="form-select"
         >
           <option value="">Select Staff Member</option>
-          {staff.map((s) => (
+          {staffOptions.map((s) => (
             <option key={s._id} value={s._id}>
               {s.name}
             </option>

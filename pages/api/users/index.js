@@ -2,6 +2,7 @@ import User from "@/models/User";
 import bcrypt from "bcryptjs";
 import { connectToDatabase } from "@/lib/mongodb";
 import { getTokenFromRequest, verifyToken } from "@/lib/jwt";
+import { resolveStaffLink } from "@/lib/linkedStaff";
 
 function requireAdmin(req) {
   const token = getTokenFromRequest(req);
@@ -21,8 +22,20 @@ export default async function handler(req, res) {
   // GET - List all users
   if (req.method === "GET") {
     try {
-      const users = await User.find({}, "-password").sort({ createdAt: -1 }).lean();
-      return res.status(200).json({ users });
+      // With the linked staff member's name and location, for the list
+      const users = await User.find({}, "-password -emailChangeTokenHash")
+        .populate({ path: "staffId", select: "name location locationName isActive", model: "Staff" })
+        .sort({ createdAt: -1 })
+        .lean();
+      return res.status(200).json({
+        users: users.map(({ staffId, ...user }) => ({
+          ...user,
+          staffId: staffId?._id ? String(staffId._id) : null,
+          linkedStaff: staffId?._id
+            ? { _id: String(staffId._id), name: staffId.name || "", location: staffId.location || staffId.locationName || "", isActive: staffId.isActive !== false }
+            : null,
+        })),
+      });
     } catch (err) {
       return res.status(500).json({ error: "Failed to fetch users" });
     }
@@ -31,7 +44,7 @@ export default async function handler(req, res) {
   // POST - Create a new user
   if (req.method === "POST") {
     try {
-      const { name, email, password, role, permissions } = req.body;
+      const { name, email, password, role, permissions, staffId } = req.body;
       const normalizedEmail = String(email || "").trim().toLowerCase();
 
       if (!normalizedEmail || !password || !name) {
@@ -49,6 +62,9 @@ export default async function handler(req, res) {
       if (existing) {
         return res.status(400).json({ error: "Email already registered" });
       }
+
+      const staffLink = await resolveStaffLink(staffId);
+      if (staffLink.error) return res.status(400).json({ error: staffLink.error });
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -85,11 +101,12 @@ export default async function handler(req, res) {
         role: safeRole,
         permissions: safePermissions,
         isActive: true,
+        staffId: staffLink.staffId,
       });
 
       return res.status(201).json({
         success: true,
-        user: { id: user._id, name: user.name, email: user.email, role: user.role, permissions: user.permissions, isActive: user.isActive },
+        user: { id: user._id, name: user.name, email: user.email, role: user.role, permissions: user.permissions, isActive: user.isActive, staffId: user.staffId },
       });
     } catch (err) {
       console.error("Create user error:", err);

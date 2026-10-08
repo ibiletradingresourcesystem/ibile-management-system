@@ -7,6 +7,7 @@ import { Loader } from "@/components/ui";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/useAuth";
+import { useLinkedStaff } from "@/lib/useLinkedStaff";
 import { BASIC_STAFF_MOVEMENT_REASON, isBasicStaffRole } from "@/lib/permission-utils";
 import { formatVendorMovementLabel } from "@/lib/vendorDisplay";
 import {
@@ -22,6 +23,7 @@ import { normalizeSupplyPackSize } from "@/lib/supplyPacks";
 
 /** Reasons that take stock out of a location, and so can run it short. */
 const OUTBOUND_REASONS = new Set(["Transfer", "Return", "Adjustment", "Operational Loss"]);
+const WHERE_YOU_WORK = "Where you work, from your staff profile";
 
 let lineCounter = 0;
 /** Stable identity for a line, so removing one never shifts another's inputs. */
@@ -334,6 +336,62 @@ export default function StockMovementAdd() {
   useEffect(() => {
     if (isOperationalLoss) setToLocation("");
   }, [isOperationalLoss]);
+
+  /* ─── The signed-in user's own staff record (Setup → Users) ───── */
+
+  // Fills in who is responsible, and where they work: the source of what leaves (a loss, a
+  // transfer, a return), the destination of a restock. Only into an empty field, or one it
+  // filled itself, so a choice made on the form is never overwritten.
+  const { linkedStaff } = useLinkedStaff(user?.id);
+  // The linked staff member is always one to pick, even if the staff list leaves them out
+  const staffOptions = useMemo(
+    () =>
+      linkedStaff?._id && !staffList.some((member) => String(member._id) === linkedStaff._id)
+        ? [...staffList, { _id: linkedStaff._id, name: linkedStaff.name }]
+        : staffList,
+    [staffList, linkedStaff]
+  );
+  const formRef = useRef({});
+  formRef.current = { fromLocation, toLocation, staff };
+  const autoFilled = useRef({ from: "", to: "", staff: "" });
+
+  useEffect(() => {
+    if (!linkedStaff?._id) return;
+    const { staff: current } = formRef.current;
+    if (!current || current === autoFilled.current.staff) {
+      setStaff(linkedStaff._id);
+      autoFilled.current.staff = linkedStaff._id;
+    }
+  }, [linkedStaff]);
+
+  useEffect(() => {
+    const home = linkedStaff?.locationId;
+    if (!home || !locations.some((loc) => String(loc._id) === home)) return;
+    const { fromLocation: from, toLocation: to } = formRef.current;
+    const ownedFrom = !from || from === autoFilled.current.from;
+    const ownedTo = !to || to === autoFilled.current.to;
+
+    if (reason === "Restock") {
+      if (ownedTo) {
+        setToLocation(home);
+        autoFilled.current.to = home;
+      }
+      // A restock comes from a vendor, not from the store it is going into
+      if (from && from === autoFilled.current.from) {
+        setFromLocation("");
+        autoFilled.current.from = "";
+      }
+      return;
+    }
+    if (ownedFrom) {
+      setFromLocation(home);
+      autoFilled.current.from = home;
+    }
+    if (to && to === autoFilled.current.to) {
+      setToLocation("");
+      autoFilled.current.to = "";
+    }
+  }, [linkedStaff, locations, reason]);
 
   /* ─── Product search ──────────────────────────────────────────── */
 
@@ -737,11 +795,19 @@ export default function StockMovementAdd() {
                       : [{ _id: "vendor", name: formatVendorMovementLabel(poRef?.vendorName) }, ...locations]
                   }
                   required
+                  hint={fromLocation && fromLocation === linkedStaff?.locationId ? WHERE_YOU_WORK : ""}
                 />
 
                 {requiresDestination ? (
                   <div>
-                    <Dropdown label="To Location" value={toLocation} onChange={setToLocation} options={locations} required />
+                    <Dropdown
+                      label="To Location"
+                      value={toLocation}
+                      onChange={setToLocation}
+                      options={locations}
+                      required
+                      hint={toLocation && toLocation === linkedStaff?.locationId ? WHERE_YOU_WORK : ""}
+                    />
                     {sameLocation && (
                       <p className="text-xs text-red-600 mt-1">A transfer needs two different locations.</p>
                     )}
@@ -755,7 +821,14 @@ export default function StockMovementAdd() {
                   </div>
                 )}
 
-                <Dropdown label="Responsible Staff" value={staff} onChange={setStaff} options={staffList} required />
+                <Dropdown
+                  label="Responsible Staff"
+                  value={staff}
+                  onChange={setStaff}
+                  options={staffOptions}
+                  required
+                  hint={staff && staff === linkedStaff?._id ? "You, from your staff profile" : ""}
+                />
 
                 {lossOnly ? (
                   <div className="form-group">
@@ -1277,7 +1350,7 @@ function PriceField({ label, value, onChange, step = "0.01" }) {
   );
 }
 
-function Dropdown({ label, value, onChange, options, required = false }) {
+function Dropdown({ label, value, onChange, options, required = false, hint = "" }) {
   return (
     <div className="form-group">
       <label className="form-label">
@@ -1291,6 +1364,7 @@ function Dropdown({ label, value, onChange, options, required = false }) {
           </option>
         ))}
       </select>
+      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
     </div>
   );
 }
