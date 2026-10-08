@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
+import { pageTitleFor } from '@/lib/navigation';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faStore, faRightFromBracket, faBell } from '@fortawesome/free-solid-svg-icons';
 
 const TopBar = ({ user, logout }) => {
+  const router = useRouter();
+  // On a phone the bar says which page this is: the menu is behind a button there
+  const pageTitle = pageTitleFor(router.pathname);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [expiringCount, setExpiringCount] = useState(0);
   const [creditCount, setCreditCount] = useState(0);
@@ -150,14 +155,15 @@ const TopBar = ({ user, logout }) => {
         <h2 className="text-gray-900 text-lg md:text-2xl font-bold tracking-tight">Ibile Inventory</h2>
       </div>
 
-      {/* Mobile Logo Icon - Shown only on mobile */}
-      <div className="md:hidden flex-shrink-0">
+      {/* Phone: the logo and the name of this page */}
+      <div className="md:hidden flex items-center gap-2.5 min-w-0 flex-1">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shadow-md"
+          className="w-8 h-8 rounded-lg flex items-center justify-center shadow-md flex-shrink-0"
           style={brandAccentStyle}
         >
           <FontAwesomeIcon icon={faStore} className="w-4 h-4 text-white" />
         </div>
+        <span className="truncate text-base font-bold text-gray-900">{pageTitle || 'Ibile Inventory'}</span>
       </div>
 
       {/* Right Section: Profile and Icons */}
@@ -194,7 +200,7 @@ const TopBar = ({ user, logout }) => {
           </button>
 
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 md:w-96 rounded-xl border z-50 overflow-hidden" style={dropdownSurfaceStyle}>
+            <div className="fixed left-2 right-2 top-14 md:absolute md:left-auto md:top-auto md:right-0 md:mt-2 md:w-96 rounded-xl border z-50 overflow-hidden" style={dropdownSurfaceStyle}>
               <div className="text-white px-4 py-3" style={dropdownHeaderStyle}>
                 <p className="font-semibold text-sm flex items-center gap-2">
                   Notifications
@@ -334,7 +340,7 @@ const TopBar = ({ user, logout }) => {
           {/* Logout Button - Icon on mobile, icon+text on md+ */}
           <button
             onClick={logout}
-            className="flex items-center gap-0.5 sm:gap-1 md:gap-2 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 text-xs md:text-sm px-1.5 sm:px-2 md:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm transition duration-200 font-medium border border-red-200 hover:border-red-300 flex-shrink-0 whitespace-nowrap"
+            className="hidden sm:flex items-center gap-0.5 sm:gap-1 md:gap-2 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 text-xs md:text-sm px-1.5 sm:px-2 md:px-4 py-1.5 sm:py-2 rounded-lg shadow-sm transition duration-200 font-medium border border-red-200 hover:border-red-300 flex-shrink-0 whitespace-nowrap"
           >
             <FontAwesomeIcon icon={faRightFromBracket} className="w-3 h-3 md:w-4 md:h-4" />
             <span className="hidden sm:inline md:inline">Log Out</span>

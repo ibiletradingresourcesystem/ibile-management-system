@@ -5,7 +5,7 @@ import StockMovement from "@/models/StockMovement";
 import Product from "@/models/Product";
 import { deriveChildQty } from "@/lib/syncPackQty";
 import { childQtyToParentQty, isDerivedChild } from "@/lib/packUnits";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { authMiddleware, isStaff, isBasicStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import Store from "@/models/Store";
 import StockOrder from "@/models/StockOrder";
@@ -112,6 +112,9 @@ export default async function handler(req, res) {
 
       // Confirm received → auto-create stock movement
       if (action === "confirm-received") {
+        if (isBasicStaff(req)) {
+          return res.status(403).json({ error: "Receiving stock is for a manager. Ask one to book this order in." });
+        }
         if (order.receivedStatus === "Received") {
           return res.status(400).json({ error: "Order already received" });
         }

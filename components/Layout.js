@@ -1,15 +1,34 @@
 import { Inter } from "next/font/google";
+import { createContext, useContext } from "react";
 import { useRouter } from "next/router";
 import { useAuth } from "@/lib/useAuth";
 import Nav from "@/components/Nav";
 import NavBar from "@/components/NavBar";
 import Loader from "@/components/Loader";
 import AccessDeniedState from "@/components/AccessDeniedState";
-import { getRequiredPermission } from "@/lib/navigation";
+import { getRequiredPermission, isRouteBlockedForUser } from "@/lib/navigation";
 
 const inter = Inter({ subsets: ["latin"] });
 
-export default function Layout({ children, title = "Dashboard" }) {
+/**
+ * True inside the app shell. _app.js wraps every page in the shell, and most pages wrap
+ * themselves in <Layout> as well: two top bars, two menus (two floating Menu buttons on a
+ * phone), twice the padding, and every notification and sign-in check fetched twice. A Layout
+ * inside another now just renders its page.
+ */
+const InsideLayout = createContext(false);
+
+export default function Layout(props) {
+  const nested = useContext(InsideLayout);
+  if (nested) return props.children;
+  return (
+    <InsideLayout.Provider value={true}>
+      <AppShell {...props} />
+    </InsideLayout.Provider>
+  );
+}
+
+function AppShell({ children, title = "Dashboard" }) {
   const router = useRouter();
   const { user, token, loading, isAuthenticated, isAdmin, hasPermission, getFirstAccessiblePage, logout } = useAuth();
   const accessiblePath = getFirstAccessiblePage() || "/";
@@ -32,11 +51,11 @@ export default function Layout({ children, title = "Dashboard" }) {
 
   // CHECK PAGE PERMISSIONS
   const requiredPermission = getRequiredPermission(router.pathname);
-  const hasAccess = !requiredPermission || isAdmin || (
+  const hasAccess = (!requiredPermission || isAdmin || (
     Array.isArray(requiredPermission)
       ? requiredPermission.some((permission) => hasPermission(permission))
       : hasPermission(requiredPermission)
-  );
+  )) && !isRouteBlockedForUser(user, router.pathname);
 
   // Dashboard access control: only admin or users with "dashboard" permission
   const isDashboard = router.pathname === "/";
@@ -68,7 +87,7 @@ export default function Layout({ children, title = "Dashboard" }) {
         {/* Main Content Area */}
         <div className="w-full flex-1 overflow-hidden">
           <div
-            className="w-full min-h-[calc(100vh-56px)] md:min-h-[calc(100vh-64px)] px-3 md:px-6 overflow-y-auto"
+            className="w-full min-h-[calc(100vh-56px)] md:min-h-[calc(100vh-64px)] px-0 sm:px-3 md:px-6 pb-28 md:pb-0 overflow-y-auto"
             style={{ backgroundColor: "var(--page-bg, #f9fafb)" }}
           >
             {hasAccess ? children : (

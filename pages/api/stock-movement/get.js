@@ -6,7 +6,7 @@ import StockMovement from "@/models/StockMovement";
 import Product from "@/models/Product";
 import Staff from "@/models/Staff";
 import { buildLocationCache, resolveLocationName } from "@/lib/serverLocationHelper";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { authMiddleware, isStaff, isBasicStaff } from "@/lib/auth-middleware";
 import { formatVendorMovementLabel } from "@/lib/vendorDisplay";
 
 export default async function handler(req, res) {
@@ -15,6 +15,10 @@ export default async function handler(req, res) {
 
   if (!isStaff(req)) {
     return res.status(403).json({ error: "Insufficient permissions" });
+  }
+  // The stock movement history is for managers; staff record losses only (lib/permission-utils.js)
+  if (isBasicStaff(req)) {
+    return res.status(403).json({ error: "The stock movement history is for a manager." });
   }
 
   if (req.method !== "GET") {

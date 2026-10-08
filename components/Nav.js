@@ -1,17 +1,31 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronRight, faBars, faTimes } from "@fortawesome/free-solid-svg-icons";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { faChevronRight, faBars, faTimes, faRightFromBracket, faArrowUpRightFromSquare } from "@fortawesome/free-solid-svg-icons";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Loader from "@/components/Loader";
 import { useAuth } from "@/lib/useAuth";
 import {
-  MENU,
+  menuFor,
   sectionPermissions,
   isSectionActive,
   isItemActive,
 } from "@/lib/navigation";
 
+const initialsOf = (name) =>
+  String(name || "")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "U";
+
+/**
+ * The sidebar: a rail of sections with flyouts on a computer, a slide-out drawer on a phone
+ * (opened by the floating Menu button). Both are drawn from lib/navigation.js, and from the
+ * menu as this user sees it: basic staff get a short flat list of their own pages.
+ */
 export default function Sidebar() {
   const [openMenu, setOpenMenu] = useState(null);
   const [openGroup, setOpenGroup] = useState(null);
@@ -21,7 +35,8 @@ export default function Sidebar() {
   const sidebarRef = useRef(null);
   const router = useRouter();
   const { pathname } = router;
-  const { isAdmin, hasPermission } = useAuth();
+  const { isAdmin, hasPermission, user, logout } = useAuth();
+  const menu = useMemo(() => menuFor(user), [user]);
 
   /* ─── Permissions ─────────────────────────────────────────── */
 
@@ -41,6 +56,12 @@ export default function Sidebar() {
       return sectionPermissions(section).some((key) => hasPermission(key));
     },
     [isAdmin, hasPermission]
+  );
+
+  /** A flat entry lights up like its page; a section, for any page inside it. */
+  const isActive = useCallback(
+    (section) => (section.flatItem ? isItemActive(section.href, pathname) || pathname.startsWith(`${section.href}/`) : isSectionActive(section, pathname)),
+    [pathname]
   );
 
   /* ─── Responsive state ────────────────────────────────────── */
@@ -66,17 +87,33 @@ export default function Sidebar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [openMenu, isMobile]);
 
-  // Open the section that matches the current route
+  // Open the section that matches the current route: the flyout on a computer, and the drawer's
+  // section on a phone when the drawer opens
   useEffect(() => {
-    if (isMobile) return;
-    const section = MENU.find((s) => s.items && isSectionActive(s, pathname));
+    if (isMobile && !isMobileMenuOpen) return;
+    const section = menu.find((s) => s.items && isSectionActive(s, pathname));
     if (!section) return;
     setOpenMenu(section.key);
     const group = (section.groups || []).find((g) =>
       (g.match || []).some((prefix) => pathname.startsWith(prefix))
     );
     setOpenGroup(group ? group.key : null);
-  }, [pathname, isMobile]);
+  }, [pathname, isMobile, isMobileMenuOpen, menu]);
+
+  // The page behind an open drawer does not scroll
+  useEffect(() => {
+    if (!isMobileMenuOpen) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event) => {
+      if (event.key === "Escape") setIsMobileMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [isMobileMenuOpen]);
 
   const closeMenu = useCallback(() => {
     setOpenMenu(null);
@@ -117,17 +154,15 @@ export default function Sidebar() {
   const railActive =
     "px-2 py-4 nav-active-gradient flex items-center justify-center flex-col text-xs cursor-pointer font-semibold border-l-4 transition-all duration-200 hidden md:flex shadow-md";
 
-  const mobileBase =
-    "px-4 py-3 text-gray-700 transition-all duration-200 border-l-4 border-transparent flex items-center gap-3 text-sm nav-rail-item";
-  const mobileActive =
-    "px-4 py-3 border-l-4 nav-active-gradient flex items-center gap-3 text-sm font-semibold";
-
   /* ─── Renderers ───────────────────────────────────────────── */
 
   const visibleItems = (section, group = null) =>
     (section.items || []).filter(
       (item) => (item.group || null) === group && canAccess(item.permission)
     );
+
+  const hasAnyItem = (section) =>
+    visibleItems(section, null).length > 0 || (section.groups || []).some((g) => visibleItems(section, g.key).length > 0);
 
   const renderSubItem = (item, { indent = false } = {}) => {
     const active = isItemActive(item.href, pathname);
@@ -144,7 +179,7 @@ export default function Sidebar() {
     );
   };
 
-  const renderGroup = (section, group, { mobile = false } = {}) => {
+  const renderGroup = (section, group) => {
     const items = visibleItems(section, group.key);
     if (items.length === 0) return null;
     const open = openGroup === group.key;
@@ -182,9 +217,9 @@ export default function Sidebar() {
     );
   };
 
-  const renderSubmenu = (section, { mobile = false } = {}) => {
+  const renderSubmenu = (section) => {
     const rootItems = visibleItems(section, null);
-    const groups = (section.groups || []).map((g) => renderGroup(section, g, { mobile })).filter(Boolean);
+    const groups = (section.groups || []).map((g) => renderGroup(section, g)).filter(Boolean);
     return (
       <>
         {rootItems.map((item) => renderSubItem(item))}
@@ -197,13 +232,13 @@ export default function Sidebar() {
 
   const renderRailSection = (section) => {
     if (!canAccessSection(section)) return null;
-    const active = isSectionActive(section, pathname);
+    const active = isActive(section);
 
     if (section.href) {
       const inner = (
-        <div className="flex flex-col items-center justify-center">
+        <div className="flex flex-col items-center justify-center text-center">
           <FontAwesomeIcon icon={section.icon} className="w-6 h-6" />
-          <span className="text-xs mt-1">{section.label}</span>
+          <span className="text-xs mt-1 leading-tight">{section.label}</span>
         </div>
       );
       return (
@@ -221,9 +256,7 @@ export default function Sidebar() {
       );
     }
 
-    if (visibleItems(section, null).length === 0 && (section.groups || []).every((g) => visibleItems(section, g.key).length === 0)) {
-      return null;
-    }
+    if (!hasAnyItem(section)) return null;
 
     const open = openMenu === section.key;
     return (
@@ -261,69 +294,96 @@ export default function Sidebar() {
     );
   };
 
-  /* ─── Mobile drawer ───────────────────────────────────────── */
+  /* ─── Phone drawer ────────────────────────────────────────── */
 
-  const renderMobileSection = (section) => {
+  const drawerLink = (href, label, { active = false, icon = null, external = false, sub = false } = {}) => {
+    const className = `nav-drawer-link ${sub ? "is-sub" : ""} ${active ? "is-active" : ""}`;
+    const content = (
+      <>
+        {icon ? (
+          <span className="nav-drawer-icon">
+            <FontAwesomeIcon icon={icon} className="w-4 h-4" />
+          </span>
+        ) : (
+          <span className="nav-dot" />
+        )}
+        <span className="flex-1 min-w-0 truncate">{label}</span>
+        {external && <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="w-3 h-3 opacity-60" />}
+      </>
+    );
+    return external ? (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={className} onClick={() => setIsMobileMenuOpen(false)}>
+        {content}
+      </a>
+    ) : (
+      <Link href={href} className={className} aria-current={active ? "page" : undefined} onClick={() => setIsMobileMenuOpen(false)}>
+        {content}
+      </Link>
+    );
+  };
+
+  const renderDrawerSection = (section) => {
     if (!canAccessSection(section)) return null;
-    const active = isSectionActive(section, pathname);
+    const active = isActive(section);
 
     if (section.href) {
-      const inner = (
-        <>
-          <FontAwesomeIcon icon={section.icon} className="w-5 h-5" />
-          <span>{section.label}</span>
-        </>
-      );
       return (
-        <li key={section.key} onClick={closeMenu}>
-          {section.external ? (
-            <a href={section.href} target="_blank" rel="noopener noreferrer" className={`block ${mobileBase}`}>
-              {inner}
-            </a>
-          ) : (
-            <Link href={section.href} className={`block ${active ? mobileActive : mobileBase}`}>
-              {inner}
-            </Link>
-          )}
+        <li key={section.key}>
+          {drawerLink(section.href, section.label, { active, icon: section.icon, external: section.external })}
         </li>
       );
     }
-
-    if (visibleItems(section, null).length === 0 && (section.groups || []).every((g) => visibleItems(section, g.key).length === 0)) {
-      return null;
-    }
+    if (!hasAnyItem(section)) return null;
 
     const open = openMenu === section.key;
+    const rootItems = visibleItems(section, null);
+    const groups = (section.groups || [])
+      .map((group) => ({ group, items: visibleItems(section, group.key) }))
+      .filter(({ items }) => items.length > 0);
     return (
       <li key={section.key}>
         <button
           type="button"
           onClick={() => toggleMenu(section.key)}
-          className={`w-full ${active ? mobileActive : mobileBase} justify-between`}
+          className={`nav-drawer-link w-full ${active ? "is-current" : ""}`}
           aria-expanded={open}
         >
-          <span className="flex items-center gap-3">
-            <FontAwesomeIcon icon={section.icon} className="w-5 h-5" />
-            <span>{section.label}</span>
+          <span className="nav-drawer-icon">
+            <FontAwesomeIcon icon={section.icon} className="w-4 h-4" />
           </span>
-          <FontAwesomeIcon
-            icon={faChevronRight}
-            className={`w-4 h-4 transition-transform duration-200 ${open ? "rotate-90" : ""}`}
-          />
+          <span className="flex-1 min-w-0 text-left">{section.label}</span>
+          <FontAwesomeIcon icon={faChevronRight} className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
         </button>
-        {open && <ul className="nav-mobile-submenu">{renderSubmenu(section, { mobile: true })}</ul>}
+        {open && (
+          <ul className="nav-drawer-sub">
+            {rootItems.map((item) => (
+              <li key={item.href}>{drawerLink(item.href, item.label, { active: isItemActive(item.href, pathname), sub: true })}</li>
+            ))}
+            {groups.map(({ group, items }) => (
+              <li key={group.key}>
+                <p className="nav-drawer-group">{group.label}</p>
+                <ul>
+                  {items.map((item) => (
+                    <li key={item.href}>{drawerLink(item.href, item.label, { active: isItemActive(item.href, pathname), sub: true })}</li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        )}
       </li>
     );
   };
 
   return (
     <>
-      {/* Floating menu button (mobile) */}
+      {/* Floating menu button (phone) */}
       {isMobile && !isMobileMenuOpen && (
         <button
           onClick={() => setIsMobileMenuOpen(true)}
-          className="md:hidden fixed bottom-6 right-6 w-16 h-16 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-110 z-40"
+          className="md:hidden fixed right-5 w-16 h-16 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all z-40"
           style={{
+            bottom: "calc(1.25rem + env(safe-area-inset-bottom))",
             background: "var(--sidebar-active-bg, #2563eb)",
             color: "var(--sidebar-active-ink, #ffffff)",
           }}
@@ -336,17 +396,10 @@ export default function Sidebar() {
         </button>
       )}
 
-      {isMobileMenuOpen && isMobile && (
-        <div
-          className="md:hidden fixed inset-0 bg-black bg-opacity-50 z-30"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
       {/* Desktop rail */}
       <aside ref={sidebarRef} className="nav-rail hidden md:block">
         <nav className="mt-6 h-full overflow-visible">
-          <ul className="space-y-1">{MENU.map(renderRailSection)}</ul>
+          <ul className="space-y-1">{menu.map(renderRailSection)}</ul>
         </nav>
       </aside>
 
@@ -356,23 +409,38 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Mobile drawer */}
-      {isMobileMenuOpen && isMobile && (
-        <nav className="fixed inset-0 w-full shadow-2xl z-40 overflow-y-auto" style={{ background: "var(--surface-card, #fff)" }}>
+      {/* Phone drawer: in front of the top bar, so its own header and close button show */}
+      {isMobile && (
+        <>
           <div
-            className="sticky top-0 px-4 py-4 flex items-center justify-between z-10"
-            style={{
-              background: "var(--sidebar-active-bg, #2563eb)",
-              color: "var(--sidebar-active-ink, #ffffff)",
-            }}
+            className={`md:hidden fixed inset-0 z-[60] bg-black/50 transition-opacity duration-200 ${isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
+          <nav
+            aria-label="Main menu"
+            aria-hidden={!isMobileMenuOpen}
+            className={`nav-drawer md:hidden ${isMobileMenuOpen ? "is-open" : ""}`}
           >
-            <span className="text-lg font-bold">Menu</span>
-            <button onClick={() => setIsMobileMenuOpen(false)} className="text-2xl transition-all" aria-label="Close menu">
-              <FontAwesomeIcon icon={faTimes} />
-            </button>
-          </div>
-          <ul className="pb-24">{MENU.map(renderMobileSection)}</ul>
-        </nav>
+            <div className="nav-drawer-head">
+              <span className="nav-drawer-avatar">{initialsOf(user?.name)}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-semibold truncate">{user?.name || "User"}</span>
+                <span className="block text-xs opacity-80 capitalize">{user?.role || "staff"}</span>
+              </span>
+              <button type="button" onClick={() => setIsMobileMenuOpen(false)} className="nav-drawer-close" aria-label="Close menu">
+                <FontAwesomeIcon icon={faTimes} className="w-5 h-5" />
+              </button>
+            </div>
+            <ul className="nav-drawer-list">{isMobileMenuOpen && menu.map(renderDrawerSection)}</ul>
+            <div className="nav-drawer-foot">
+              <button type="button" onClick={logout} className="nav-drawer-signout">
+                <FontAwesomeIcon icon={faRightFromBracket} className="w-4 h-4" />
+                Sign out
+              </button>
+            </div>
+          </nav>
+        </>
       )}
     </>
   );

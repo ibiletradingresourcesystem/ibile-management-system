@@ -5,6 +5,8 @@ import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
 import { Loader } from "@/components/ui";
+import { useAuth } from "@/lib/useAuth";
+import { isBasicStaffRole } from "@/lib/permission-utils";
 
 /** "08 Oct 2026": the same everywhere, and never read as the 10th of August. */
 const formatOrderDate = (value) =>
@@ -27,6 +29,9 @@ const receivableCount = (order) =>
  */
 export default function StockOrderList({ orders = [], loading = false, onChanged }) {
   const router = useRouter();
+  // Receiving and deleting are for a manager; basic staff see and edit orders (lib/permission-utils.js)
+  const { user } = useAuth();
+  const canReceive = !isBasicStaffRole(user?.role);
   const [selected, setSelected] = useState(new Set());
   const [expandedId, setExpandedId] = useState(null);
   const [draftLines, setDraftLines] = useState(null); // edits to the expanded order
@@ -371,6 +376,7 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                           <button onClick={() => openOrder(order)} className="btn-action btn-action-secondary btn-sm whitespace-nowrap">
                             {isOpen ? "Close" : "View / Edit"}
                           </button>
+                          {canReceive && (
                           <button
                             onClick={() => receive(order)}
                             disabled={busy}
@@ -378,6 +384,8 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                           >
                             {busy ? "…" : order.receiving ? "Continue receiving" : "Receive"}
                           </button>
+                          )}
+                          {canReceive && (
                           <button
                             onClick={() => remove(order)}
                             disabled={busy}
@@ -387,6 +395,7 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                           >
                             <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </button>
+                          )}
                         </div>
                       </td>
                     </tr>

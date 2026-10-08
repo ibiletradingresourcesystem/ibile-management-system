@@ -7,6 +7,7 @@ import { Loader } from "@/components/ui";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { useAuth } from "@/lib/useAuth";
+import { BASIC_STAFF_MOVEMENT_REASON, isBasicStaffRole } from "@/lib/permission-utils";
 import { formatVendorMovementLabel } from "@/lib/vendorDisplay";
 import {
   childQtyToParentQty,
@@ -92,7 +93,12 @@ async function resolveStockTarget(product, qty) {
 
 export default function StockMovementAdd() {
   const router = useRouter();
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
+  // Basic staff record losses only: no restock, transfer, return or adjustment, and no receiving
+  const lossOnly = isBasicStaffRole(user?.role);
+  const lossOnlyRef = useRef(lossOnly);
+  lossOnlyRef.current = lossOnly;
+  const RECEIVING_IS_FOR_MANAGERS = "Receiving stock is for a manager. Ask one to book this order in.";
 
   const [locations, setLocations] = useState([]);
   const [staffList, setStaffList] = useState([]);
@@ -155,10 +161,16 @@ export default function StockMovementAdd() {
    * replaced by whatever the search returned first.
    */
   const loadPurchaseOrder = useCallback(async (poId) => {
+    if (lossOnlyRef.current) {
+      setPoError(RECEIVING_IS_FOR_MANAGERS);
+      return;
+    }
     setPoLoading(true);
     setPoError("");
     try {
       const res = await apiClient.get(`/api/purchase-orders/${poId}`);
+      // Signed in as basic staff while it loaded: a delivery is not theirs to book in
+      if (lossOnlyRef.current) throw new Error(RECEIVING_IS_FOR_MANAGERS);
       const order = res.data?.order || res.data;
       if (!order?._id && !order?.orderRef) throw new Error("The purchase order was not found.");
       setPoRef({ id: poId, orderRef: order.orderRef, vendorName: order.vendorName, receivedStatus: order.receivedStatus });
@@ -305,6 +317,19 @@ export default function StockMovementAdd() {
     if (router.query.reason) setReason(String(router.query.reason));
     if (router.query.lossNote) setMovementNotes(String(router.query.lossNote));
   }, [router.isReady, router.query.reason, router.query.lossNote]);
+
+  useEffect(() => {
+    if (lossOnly && reason !== BASIC_STAFF_MOVEMENT_REASON) setReason(BASIC_STAFF_MOVEMENT_REASON);
+  }, [lossOnly, reason]);
+
+  useEffect(() => {
+    if (!lossOnly || !router.query.poId) return;
+    setPoRef(null);
+    setLines([]);
+    setUnmatchedProducts([]);
+    setZeroQuantityProducts([]);
+    setPoError(RECEIVING_IS_FOR_MANAGERS);
+  }, [lossOnly, router.query.poId]);
 
   useEffect(() => {
     if (isOperationalLoss) setToLocation("");
@@ -660,7 +685,7 @@ export default function StockMovementAdd() {
             <div className="border border-red-200 bg-red-50 text-red-800 rounded-lg p-4 mb-4 flex flex-wrap items-start justify-between gap-3">
               <p className="text-sm">{poError}</p>
               <div className="flex gap-2 shrink-0">
-                {router.query.poId && poRef?.receivedStatus !== "Received" && (
+                {router.query.poId && poRef?.receivedStatus !== "Received" && !lossOnly && (
                   <button type="button" onClick={() => loadPurchaseOrder(String(router.query.poId))} className="btn-action btn-action-secondary btn-sm">
                     Try again
                   </button>
@@ -732,13 +757,21 @@ export default function StockMovementAdd() {
 
                 <Dropdown label="Responsible Staff" value={staff} onChange={setStaff} options={staffList} required />
 
-                <Dropdown
-                  label="Movement Reason"
-                  value={reason}
-                  onChange={setReason}
-                  options={reasons.map((r) => ({ name: r, _id: r }))}
-                  required
-                />
+                {lossOnly ? (
+                  <div className="form-group">
+                    <span className="form-label">Movement Reason</span>
+                    <p className="form-input bg-gray-50 text-gray-700">{BASIC_STAFF_MOVEMENT_REASON}</p>
+                    <p className="text-xs text-gray-500">Restocks, transfers, returns and adjustments are done by a manager.</p>
+                  </div>
+                ) : (
+                  <Dropdown
+                    label="Movement Reason"
+                    value={reason}
+                    onChange={setReason}
+                    options={reasons.map((r) => ({ name: r, _id: r }))}
+                    required
+                  />
+                )}
 
                 <div className="md:col-span-2">
                   <label className="form-label">Notes</label>

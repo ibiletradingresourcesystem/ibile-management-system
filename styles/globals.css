@@ -1311,3 +1311,179 @@ tbody tr.is-selected {
 .theme-border-accent {
   border-color: var(--accent, #0284c7) !important;
 }
+
+/* ===================================================================
+   Phone drawer (components/Nav.js)
+   Slides in from the left, above the top bar, so its own header and
+   close button are never hidden behind it.
+   =================================================================== */
+
+.nav-drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 61;
+  width: min(86vw, 22rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-card, #ffffff);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+  transform: translateX(-102%);
+  visibility: hidden;
+  transition: transform 0.22s ease, visibility 0.22s;
+}
+
+.nav-drawer.is-open {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.nav-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: calc(1rem + env(safe-area-inset-top)) 1rem 1rem;
+  background: var(--sidebar-active-bg, #2563eb);
+  color: var(--sidebar-active-ink, #ffffff);
+}
+
+.nav-drawer-avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.nav-drawer-close {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.nav-drawer-list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 0;
+}
+
+.nav-drawer-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3rem;
+  padding: 0.6rem 1rem;
+  border-left: 3px solid transparent;
+  color: var(--text-strong, #0f172a);
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-align: left;
+}
+
+.nav-drawer-link:active {
+  background: var(--accent-soft-bg, #f0f9ff);
+}
+
+.nav-drawer-link.is-current {
+  color: var(--accent-text, #0369a1);
+  font-weight: 700;
+}
+
+.nav-drawer-link.is-active {
+  background: var(--accent-soft-bg, #f0f9ff);
+  border-left-color: var(--accent, #0284c7);
+  color: var(--accent-text, #0369a1);
+  font-weight: 700;
+}
+
+.nav-drawer-link.is-sub {
+  min-height: 2.75rem;
+  padding-left: 2.85rem;
+  font-size: 0.9rem;
+}
+
+.nav-drawer-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 0.6rem;
+  background: var(--surface-card-alt, #f3f4f6);
+  color: var(--text-muted, #6b7280);
+}
+
+.nav-drawer-link.is-active .nav-drawer-icon,
+.nav-drawer-link.is-current .nav-drawer-icon {
+  background: var(--accent, #0284c7);
+  color: #ffffff;
+}
+
+.nav-drawer-sub {
+  padding-bottom: 0.35rem;
+  background: var(--surface-card-alt, #f8fafc);
+}
+
+.nav-drawer-group {
+  padding: 0.6rem 1rem 0.2rem 4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #6b7280);
+}
+
+.nav-drawer-foot {
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-subtle, #e5e7eb);
+}
+
+.nav-drawer-signout {
+  width: 100%;
+  min-height: 2.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+/* ===================================================================
+   Phones: page headers that start at the left and fit, and text boxes
+   at 16px (smaller makes iPhones zoom the page in when one is tapped)
+   =================================================================== */
+
+@media (max-width: 639px) {
+  .page-container {
+    padding: 0.75rem;
+  }
+
+  .page-header {
+    align-items: stretch;
+    margin-bottom: 1rem;
+  }
+
+  .page-title {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

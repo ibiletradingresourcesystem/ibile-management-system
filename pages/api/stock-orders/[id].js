@@ -14,7 +14,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import StockOrder, { isOnOrder, receivableLines } from "@/models/StockOrder";
 import PurchaseOrder from "@/models/PurchaseOrder";
-import { authMiddleware, isStaff, isAdmin } from "@/lib/auth-middleware";
+import { authMiddleware, isStaff, isAdmin, isBasicStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import {
   createPurchaseOrderFromStockOrder,
@@ -52,6 +52,9 @@ export default async function handler(req, res) {
       const { action } = req.body || {};
 
       if (action === "receive") {
+        if (isBasicStaff(req)) {
+          return res.status(403).json({ error: "Receiving stock orders is for a manager. Ask one to receive this order." });
+        }
         if (!stillOnOrder) {
           return res.status(400).json({ error: "This order has already been received" });
         }
@@ -131,6 +134,9 @@ export default async function handler(req, res) {
 
   if (req.method === "DELETE") {
     try {
+      if (isBasicStaff(req)) {
+        return res.status(403).json({ error: "Deleting stock orders is for a manager." });
+      }
       if (!stillOnOrder && !isAdmin(req)) {
         return res.status(403).json({ error: "Only an administrator can delete a received order" });
       }

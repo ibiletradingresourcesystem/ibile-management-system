@@ -5,7 +5,8 @@ import StockMovement from "@/models/StockMovement";
 import { deriveChildQty } from "@/lib/syncPackQty";
 import { childQtyToParentQty, isDerivedChild } from "@/lib/packUnits";
 import { isValidObjectId } from "mongoose";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { authMiddleware, isStaff, isBasicStaff } from "@/lib/auth-middleware";
+import { BASIC_STAFF_MOVEMENT_REASON } from "@/lib/permission-utils";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
 
 export default async function handler(req, res) {
@@ -21,6 +22,9 @@ export default async function handler(req, res) {
   }
 
   const { fromLocationId, toLocationId, staffId, reason, products, notes, vendorName } = req.body;
+  if (isBasicStaff(req) && reason !== BASIC_STAFF_MOVEMENT_REASON) {
+    return res.status(403).json({ message: "Staff can record an operational loss only. Restocks, transfers, returns and adjustments are for a manager." });
+  }
   const isOperationalLoss = reason === "Operational Loss";
 
   /* =========================

@@ -706,7 +706,7 @@ export default function Products() {
               />
             </div>
             <select
-              className="form-select max-w-xs"
+              className="form-select w-full sm:max-w-xs"
               value={selectedCategory}
               onChange={handleCategoryFilterChange}
             >
@@ -718,7 +718,7 @@ export default function Products() {
               ))}
             </select>
             <select
-              className="form-select max-w-xs"
+              className="form-select w-full sm:max-w-xs"
               value={selectedLocation}
               onChange={handleLocationFilterChange}
             >
@@ -733,8 +733,58 @@ export default function Products() {
           </div>
         </div>
 
+        {/* On a phone: one card a product, tapped to open it. The table's fourteen columns
+            only fit a phone sideways, a screen at a time. */}
+        <div className="md:hidden space-y-2.5">
+          {productsLoading ? (
+            <div className="content-card text-center">
+              <Loader size="sm" text="Loading product list..." />
+            </div>
+          ) : visibleProducts.length === 0 ? (
+            <div className="content-card text-center text-gray-500 italic">No products found.</div>
+          ) : (
+            visibleProducts.map((p) => {
+              const marginValue = Number(p.margin);
+              return (
+                <Link
+                  key={p._id}
+                  href={`/products/edit/${p._id}`}
+                  onClick={() => {
+                    rememberListPosition();
+                    sessionStorage.setItem("products:highlight", p._id);
+                  }}
+                  className={`block rounded-xl border bg-white p-3.5 shadow-sm active:bg-gray-50 ${highlightedId === p._id ? "ring-2 ring-blue-200" : "theme-border-soft"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 leading-snug break-words">{p.name}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {p.packType === "pack" && <Badge tone="purple">Pack of {p.qtyPerPack}</Badge>}
+                        {p.isChildProduct && p.packType !== "pack" && <Badge tone="blue">From pack</Badge>}
+                        {p.isPromotion && <Badge tone="green">Promotion</Badge>}
+                        {categoryMap[p.category] && <span className="text-xs text-gray-500">{categoryMap[p.category]}</span>}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-base font-bold text-gray-900 whitespace-nowrap">{formatCurrency(p.salePriceIncTax)}</p>
+                      <p className="text-xs text-gray-500 whitespace-nowrap">Cost {formatCurrency(p.costPrice)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                    {p.barcode && <span className="font-mono">{String(p.barcode).split(/[,;\s|]+/)[0]}</span>}
+                    {Number.isFinite(marginValue) && (
+                      <span className={marginValue < 0 ? "font-medium text-red-600" : ""}>Margin {marginValue.toFixed(1)}%</span>
+                    )}
+                    {Number(p.minStock) > 0 && <span>Min stock {p.minStock}</span>}
+                  </div>
+                </Link>
+              );
+            })
+          )}
+        </div>
+
         {/* Table - Responsive wrapper */}
-        <div className="data-table-container">
+        <div className="data-table-container hidden md:block">
           <table className="data-table">
             <thead>
               <tr>
