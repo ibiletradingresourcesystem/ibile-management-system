@@ -1,16 +1,29 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import { Layers, Plus, Trash2, AlertTriangle, PackageCheck } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
 import { Loader } from "@/components/ui";
 
+/** "08 Oct 2026": the same everywhere, and never read as the 10th of August. */
+const formatOrderDate = (value) =>
+  value
+    ? new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Lagos" })
+    : "—";
+
+/** Lines that bring stock in: a name and a quantity above 0. */
+const receivableCount = (order) =>
+  (order.products || []).filter((line) => String(line.name || "").trim() && Number(line.quantity) > 0).length;
+
 /**
  * Orders placed with vendors that have not been received yet.
  *
  * This is the step between placing an order and paying for it: orders wait here, can be
- * merged so a vendor gets one order instead of five, and are received here — which
- * raises the purchase order and takes you to the receive screen to book the stock in.
+ * merged so a vendor gets one order instead of five, and are received here, which raises
+ * the purchase order and takes you to the receive screen to book the stock in. An order
+ * stays here until its stock is booked; if the receive screen is left or fails, Receive
+ * picks up where it stopped.
  */
 export default function StockOrderList({ orders = [], loading = false, onChanged }) {
   const router = useRouter();
@@ -19,6 +32,8 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
   const [draftLines, setDraftLines] = useState(null); // edits to the expanded order
   const [busyId, setBusyId] = useState("");
   const [merging, setMerging] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState([]);
 
   const total = useMemo(
     () => orders.reduce((sum, order) => sum + (Number(order.grandTotal) || 0), 0),
@@ -46,6 +61,48 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
     onChanged?.();
   };
 
+  /* ─── Adding a product to the order being edited ─────────────── */
+
+  useEffect(() => {
+    const term = productSearch.trim();
+    if (!expandedId || term.length < 2) {
+      setProductResults([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await apiClient.get(`/api/products?search=${encodeURIComponent(term)}&limit=8`);
+        if (!cancelled) setProductResults(data?.data || (Array.isArray(data) ? data : []));
+      } catch {
+        if (!cancelled) setProductResults([]);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [productSearch, expandedId]);
+
+  const addLine = (product) => {
+    setDraftLines((prev) => [
+      ...(prev || []),
+      {
+        productId: product._id,
+        name: product.name,
+        quantity: 1,
+        price: Number(product.costPrice) || 0,
+        total: Number(product.costPrice) || 0,
+        supplyPackSize: 1,
+        supplyPackLabel: "",
+      },
+    ]);
+    setProductSearch("");
+    setProductResults([]);
+  };
+
+  const removeLine = (index) => setDraftLines((prev) => prev.filter((_, i) => i !== index));
+
   /* ─── Actions ─────────────────────────────────────────────────── */
 
   const merge = async (scope) => {
@@ -58,7 +115,7 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
       title: "Merge orders?",
       message:
         scope === "all"
-          ? "Every order still on order will be merged into one per vendor. Lines for the same product are added together."
+          ? "Every order still on order will be merged into one per vendor. Lines for the same product are added together. Orders already being received are left as they are."
           : `${selected.size} orders will be merged into one per vendor (${vendorsInSelection.size} vendor${vendorsInSelection.size === 1 ? "" : "s"}). Lines for the same product are added together.`,
       confirmLabel: "Merge",
     });
@@ -85,13 +142,28 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
   };
 
   const receive = async (order) => {
-    const ok = await showConfirmDialog({
-      title: `Receive ${order.supplier || "this order"}?`,
-      message:
-        "This raises the purchase order for payment tracking and opens the receive screen, where you confirm quantities, expiry dates and the location. Stock changes only when you confirm there.",
-      confirmLabel: "Receive",
-    });
-    if (!ok) return;
+    // Nothing to book in: the receive screen would open empty
+    if (receivableCount(order) === 0) {
+      await showAlertDialog({
+        title: "Nothing to receive yet",
+        message:
+          (order.products || []).length === 0
+            ? "This order has a total but no products on it. Open View / Edit, add the products that came, then receive it."
+            : "Every product on this order has a quantity of 0. Open View / Edit and enter the quantities that came, then receive it.",
+        tone: "warning",
+      });
+      return;
+    }
+
+    if (!order.receiving) {
+      const ok = await showConfirmDialog({
+        title: `Receive ${order.supplier || "this order"}?`,
+        message:
+          "This raises the purchase order for payment tracking and opens the receive screen, where you confirm quantities, expiry dates and the location. The order stays here until the stock is booked in there.",
+        confirmLabel: "Receive",
+      });
+      if (!ok) return;
+    }
 
     setBusyId(order._id);
     try {
@@ -111,7 +183,9 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
   const remove = async (order) => {
     const ok = await showConfirmDialog({
       title: "Delete this order?",
-      message: `${order.supplier || "This order"} — ${formatCurrency(order.grandTotal)}. This cannot be undone.`,
+      message: `${order.supplier || "This order"}: ${formatCurrency(order.grandTotal)}.${
+        order.receiving ? " Receiving had started; its purchase order is removed too, since no stock was booked." : ""
+      } This cannot be undone.`,
       confirmLabel: "Delete",
       tone: "danger",
     });
@@ -133,6 +207,8 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
   };
 
   const openOrder = (order) => {
+    setProductSearch("");
+    setProductResults([]);
     if (expandedId === order._id) {
       setExpandedId(null);
       setDraftLines(null);
@@ -154,6 +230,10 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
   };
 
   const saveLines = async (order) => {
+    if (!draftLines || draftLines.length === 0) {
+      await showAlertDialog({ title: "Add a product", message: "An order needs at least one product.", tone: "warning" });
+      return;
+    }
     setBusyId(order._id);
     try {
       await apiClient.put(`/api/stock-orders/${order._id}`, {
@@ -204,8 +284,8 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
             </button>
           )}
           {orders.length >= 2 && (
-            <button onClick={() => merge("all")} disabled={merging} className="btn-action btn-action-secondary btn-sm disabled:opacity-50">
-              🧩 Merge all by vendor
+            <button onClick={() => merge("all")} disabled={merging} className="btn-action btn-action-secondary btn-sm inline-flex items-center gap-1.5 disabled:opacity-50">
+              <Layers className="w-3.5 h-3.5" aria-hidden="true" /> Merge all by vendor
             </button>
           )}
         </div>
@@ -219,67 +299,93 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead>
               <tr className="border-b theme-border-soft text-gray-600 text-xs uppercase">
                 <th className="py-3 px-2 w-8">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all orders" />
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all orders" className="h-4 w-4 p-0" />
                 </th>
-                <th className="py-3 px-3 text-left">Date</th>
-                <th className="py-3 px-3 text-left">Vendor</th>
-                <th className="py-3 px-3 text-left">Contact</th>
-                <th className="py-3 px-3 text-center">Products</th>
-                <th className="py-3 px-3 text-right">Total</th>
-                <th className="py-3 px-3 text-center">Action</th>
+                <th className="py-3 px-2 text-left whitespace-nowrap">Date</th>
+                <th className="py-3 px-2 text-left">Vendor</th>
+                <th className="py-3 px-2 text-left">Contact</th>
+                <th className="py-3 px-2 text-center">Products</th>
+                <th className="py-3 px-2 text-right">Total</th>
+                <th className="py-3 px-2 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {orders.map((order) => {
                 const isOpen = expandedId === order._id;
                 const busy = busyId === order._id;
+                const lineCount = order.products?.length || 0;
+                const nothingToReceive = receivableCount(order) === 0;
                 return (
                   <Fragment key={order._id}>
-                    <tr className="hover:bg-gray-50 transition">
+                    <tr className="hover:bg-gray-50 transition align-top">
                       <td className="py-3 px-2">
                         <input
                           type="checkbox"
                           checked={selected.has(order._id)}
                           onChange={() => toggle(order._id)}
                           aria-label={`Select ${order.supplier || "order"}`}
+                          className="h-4 w-4 p-0"
                         />
                       </td>
-                      <td className="py-3 px-3 whitespace-nowrap text-gray-700">
-                        {order.date ? new Date(order.date).toLocaleDateString() : "—"}
-                      </td>
-                      <td className="py-3 px-3 font-medium text-gray-800">
-                        {order.supplier || order.vendor?.companyName || "—"}
-                        {order.mergedFrom?.length > 0 && (
-                          <span className="ml-2 theme-badge-soft text-[10px] px-2 py-0.5 rounded-full">
-                            merged from {order.mergedFrom.length}
-                          </span>
+                      <td className="py-3 px-2 whitespace-nowrap text-gray-700">{formatOrderDate(order.date || order.createdAt)}</td>
+                      <td className="py-3 px-2">
+                        <p className="font-medium text-gray-800">{order.supplier || order.vendor?.companyName || "—"}</p>
+                        {(order.mergedFrom?.length > 0 || order.receiving) && (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {order.mergedFrom?.length > 0 && (
+                              <span className="theme-badge-soft text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap">
+                                Merged from {order.mergedFrom.length} orders
+                              </span>
+                            )}
+                            {order.receiving && (
+                              <span
+                                className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+                                title="Receive was started but the stock was not booked in. Continue receiving to finish it."
+                              >
+                                <PackageCheck className="w-3 h-3" aria-hidden="true" /> Receiving: stock not booked yet
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
-                      <td className="py-3 px-3 text-xs text-gray-500">{order.contact || "—"}</td>
-                      <td className="py-3 px-3 text-center text-gray-600">{order.products?.length || 0}</td>
-                      <td className="py-3 px-3 text-right whitespace-nowrap font-semibold">{formatCurrency(order.grandTotal)}</td>
-                      <td className="py-3 px-3">
-                        <div className="flex flex-wrap justify-center gap-2">
-                          <button onClick={() => openOrder(order)} className="btn-action btn-action-secondary btn-sm">
+                      <td className="py-3 px-2 text-xs text-gray-500 max-w-[9rem] break-words">{order.contact || "—"}</td>
+                      <td className="py-3 px-2 text-center">
+                        {nothingToReceive ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-amber-700 font-medium"
+                            title={lineCount === 0 ? "No products on this order yet" : "Every product is ordered as 0"}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" /> {lineCount}
+                          </span>
+                        ) : (
+                          <span className="text-gray-600">{lineCount}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-right whitespace-nowrap font-semibold">{formatCurrency(order.grandTotal)}</td>
+                      <td className="py-3 px-2">
+                        <div className="flex flex-nowrap justify-end gap-2">
+                          <button onClick={() => openOrder(order)} className="btn-action btn-action-secondary btn-sm whitespace-nowrap">
                             {isOpen ? "Close" : "View / Edit"}
                           </button>
                           <button
                             onClick={() => receive(order)}
                             disabled={busy}
-                            className="btn-action btn-action-success btn-sm disabled:opacity-50"
+                            className="btn-action btn-action-success btn-sm whitespace-nowrap disabled:opacity-50"
                           >
-                            {busy ? "…" : "Receive"}
+                            {busy ? "…" : order.receiving ? "Continue receiving" : "Receive"}
                           </button>
                           <button
                             onClick={() => remove(order)}
                             disabled={busy}
-                            className="btn-action btn-action-danger btn-sm disabled:opacity-50"
+                            aria-label={`Delete the order for ${order.supplier || "this vendor"}`}
+                            title="Delete this order"
+                            className="btn-action btn-action-danger btn-sm inline-flex items-center justify-center disabled:opacity-50"
                           >
-                            Delete
+                            <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </button>
                         </div>
                       </td>
@@ -288,6 +394,11 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                     {isOpen && draftLines && (
                       <tr>
                         <td colSpan={7} className="bg-gray-50 px-4 py-4">
+                          {draftLines.length === 0 && (
+                            <p className="mb-3 text-sm text-amber-700">
+                              No products on this order yet. Add the products that were ordered below.
+                            </p>
+                          )}
                           <div className="overflow-x-auto">
                             <table className="w-full text-sm">
                               <thead>
@@ -296,6 +407,7 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                                   <th className="text-right py-2 w-28">Quantity</th>
                                   <th className="text-right py-2 w-32">Unit price</th>
                                   <th className="text-right py-2 w-32">Total</th>
+                                  <th className="w-10" aria-label="Remove" />
                                 </tr>
                               </thead>
                               <tbody>
@@ -306,9 +418,12 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                                       {(line.supplyPackSize || 1) > 1 && (
                                         <span className="block text-xs text-gray-500">
                                           ordered by the {(line.supplyPackLabel || "pack").toLowerCase()} of{" "}
-                                          {line.supplyPackSize} — {((Number(line.quantity) || 0) * line.supplyPackSize).toLocaleString()} units
+                                          {line.supplyPackSize}: {((Number(line.quantity) || 0) * line.supplyPackSize).toLocaleString()} units
                                           into stock
                                         </span>
+                                      )}
+                                      {!(Number(line.quantity) > 0) && (
+                                        <span className="block text-xs text-amber-700">Quantity 0: nothing of this is received</span>
                                       )}
                                     </td>
                                     <td className="py-2">
@@ -335,6 +450,16 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                                     <td className="py-2 text-right font-medium">
                                       {formatCurrency((Number(line.quantity) || 0) * (Number(line.price) || 0))}
                                     </td>
+                                    <td className="py-2 text-right">
+                                      <button
+                                        type="button"
+                                        onClick={() => removeLine(index)}
+                                        aria-label={`Remove ${line.name}`}
+                                        className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                      >
+                                        <Trash2 className="w-4 h-4" aria-hidden="true" />
+                                      </button>
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -344,10 +469,45 @@ export default function StockOrderList({ orders = [], loading = false, onChanged
                                     Order total
                                   </td>
                                   <td className="py-2 text-right font-bold text-gray-900">{formatCurrency(draftTotal)}</td>
+                                  <td />
                                 </tr>
                               </tfoot>
                             </table>
                           </div>
+
+                          {/* Add a product line */}
+                          <div className="relative mt-3 max-w-md">
+                            <div className="flex items-center gap-2">
+                              <Plus className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+                              <input
+                                type="text"
+                                value={productSearch}
+                                onChange={(e) => setProductSearch(e.target.value)}
+                                placeholder="Add a product: type its name or barcode"
+                                className="form-input !py-1.5 text-sm"
+                                aria-label="Add a product to this order"
+                              />
+                            </div>
+                            {productResults.length > 0 && (
+                              <div className="absolute z-10 left-6 right-0 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                                {productResults.map((product) => (
+                                  <button
+                                    key={product._id}
+                                    type="button"
+                                    onClick={() => addLine(product)}
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-100 last:border-0"
+                                  >
+                                    <span className="font-medium text-gray-800">{product.name}</span>
+                                    <span className="block text-xs text-gray-500">
+                                      Cost {formatCurrency(Number(product.costPrice) || 0)}
+                                      {product.barcode ? ` · ${product.barcode}` : ""}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
                           <div className="flex justify-end gap-2 mt-3">
                             <button onClick={() => openOrder(order)} className="btn-action btn-action-secondary btn-sm">
                               Cancel

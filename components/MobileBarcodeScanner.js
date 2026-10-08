@@ -397,6 +397,17 @@ export default function MobileBarcodeScanner({
     }
   };
 
+  /** A tap on the picture asks the camera to focus again, where it can be told to. */
+  const refocus = () => {
+    const track = streamRef.current?.getVideoTracks?.()[0];
+    const modes = track?.getCapabilities?.().focusMode || [];
+    if (!track || !modes.includes("single-shot")) return;
+    track
+      .applyConstraints({ advanced: [{ focusMode: "single-shot" }] })
+      .then(() => (modes.includes("continuous") ? track.applyConstraints({ advanced: [{ focusMode: "continuous" }] }) : null))
+      .catch(() => {});
+  };
+
   /** Some browsers only show the picture after a tap. */
   const startPicture = () => {
     videoRef.current?.play()?.catch?.(() => {});
@@ -453,7 +464,7 @@ export default function MobileBarcodeScanner({
           <p>{cameraError}</p>
         </div>
       ) : (
-        <div className="mbs__stage" ref={stageRef}>
+        <div className="mbs__stage" ref={stageRef} onClick={refocus}>
           <video ref={videoRef} className="mbs__video" playsInline muted autoPlay />
           <div className={`mbs__frame ${flash ? "is-hit" : ""} ${busy ? "is-busy" : ""}`}>
             <span className="mbs__corner mbs__corner--tl" />

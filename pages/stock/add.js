@@ -114,7 +114,9 @@ export default function StockMovementAdd() {
 
   const [poRef, setPoRef] = useState(null);
   const [poLoading, setPoLoading] = useState(false);
+  const [poError, setPoError] = useState("");
   const [unmatchedProducts, setUnmatchedProducts] = useState([]);
+  const [zeroQuantityProducts, setZeroQuantityProducts] = useState([]);
   const [savingPrices, setSavingPrices] = useState({});
 
   const searchInputRef = useRef(null);
@@ -145,31 +147,49 @@ export default function StockMovementAdd() {
 
   /* ─── Arriving from a purchase order ──────────────────────────── */
 
-  useEffect(() => {
-    if (!router.isReady || !router.query.poId) return;
-    const poId = router.query.poId;
+  /**
+   * Fill the screen from the purchase order. A failure used to leave a blank form with nothing
+   * said; it now says why, with a retry. Lines ordered as 0 used to be read as 1 and are left
+   * out (and listed); a product is looked up by its id, else by exact or close name, and never
+   * replaced by whatever the search returned first.
+   */
+  const loadPurchaseOrder = useCallback(async (poId) => {
     setPoLoading(true);
+    setPoError("");
+    try {
+      const res = await apiClient.get(`/api/purchase-orders/${poId}`);
+      const order = res.data?.order || res.data;
+      if (!order?._id && !order?.orderRef) throw new Error("The purchase order was not found.");
+      setPoRef({ id: poId, orderRef: order.orderRef, vendorName: order.vendorName, receivedStatus: order.receivedStatus });
+      setFromLocation("vendor");
+      setReason("Restock");
+      if (order.receivedStatus === "Received") {
+        setPoError("This purchase order has already been received; its stock is in. Nothing more to book.");
+        return;
+      }
 
-    (async () => {
-      try {
-        const res = await apiClient.get(`/api/purchase-orders/${poId}`);
-        const order = res.data?.order || res.data;
-        if (!order) return;
-        setPoRef({ id: poId, orderRef: order.orderRef, vendorName: order.vendorName });
-        setFromLocation("vendor");
-        setReason("Restock");
+      const zero = [];
+      const wanted = [];
+      for (const poProduct of order.products || []) {
+        if (!poProduct.name && !poProduct.productId) continue;
+        const orderedQty = Number(poProduct.quantity) || 0;
+        if (orderedQty <= 0) {
+          zero.push(poProduct.name || "Unnamed product");
+          continue;
+        }
+        wanted.push(poProduct);
+      }
 
-        const matched = [];
-        const unmatched = [];
-        for (const poProduct of order.products || []) {
-          if (!poProduct.name && !poProduct.productId) continue;
+      // Each line is looked up on its own; together, not one after another
+      const resolved = await Promise.all(
+        wanted.map(async (poProduct) => {
           // Ordered by the vendor's pack (a carton of 30) but kept in units: what
           // arrives is units. A product that is a pack in its own right has a pack
           // size of 1 here and is received as before.
-          const orderedQty = Number(poProduct.quantity) || 1;
+          const orderedQty = Number(poProduct.quantity) || 0;
           const supplyPackSize = normalizeSupplyPackSize(poProduct.supplyPackSize);
           const poQty = orderedQty * supplyPackSize;
-
+          const unmatchedLine = { name: poProduct.name || "Unknown", quantity: poQty, price: poProduct.price || 0 };
           try {
             let found = null;
 
@@ -184,55 +204,75 @@ export default function StockMovementAdd() {
               }
             }
 
-            // 2. Otherwise match by name
+            // 2. Otherwise match by name: exactly, or one name containing the other
             if (!found && poProduct.name) {
               const pRes = await apiClient.get(
                 `/api/products?search=${encodeURIComponent(poProduct.name)}&excludeChild=true`
               );
               const list = pRes.data?.data || (Array.isArray(pRes.data) ? pRes.data : []);
-              const wanted = poProduct.name.toLowerCase();
+              const name = poProduct.name.toLowerCase();
               found =
-                list.find((p) => p.name.toLowerCase() === wanted) ||
-                list.find((p) => p.name.toLowerCase().includes(wanted) || wanted.includes(p.name.toLowerCase())) ||
-                list[0] ||
+                list.find((p) => p.name.toLowerCase() === name) ||
+                list.find((p) => p.name.toLowerCase().includes(name) || name.includes(p.name.toLowerCase())) ||
                 null;
             }
 
-            if (!found) {
-              unmatched.push({ name: poProduct.name || "Unknown", quantity: poQty, price: poProduct.price || 0 });
-              continue;
-            }
+            if (!found) return { unmatched: unmatchedLine };
 
             // A child ordered as singles is received into its pack, converted. It used
             // to be carried over unconverted: 12 singles became 12 cartons.
             const target = await resolveStockTarget(found, poQty);
-            const existing = matched.find((line) => line._id === target.product._id && !line.expiryDate);
-            if (existing) {
-              existing.quantity += target.quantity;
-            } else {
-              const packNote =
-                supplyPackSize > 1
-                  ? `${orderedQty} × ${(poProduct.supplyPackLabel || "pack").toLowerCase()} of ${supplyPackSize}`
-                  : "";
-              matched.push(
-                makeLine(target.product, target.quantity, "", {
-                  receivedAs: [packNote, target.from ? `${poQty} × ${target.from.name}` : ""].filter(Boolean).join(" · "),
-                })
-              );
-            }
+            const packNote =
+              supplyPackSize > 1
+                ? `${orderedQty} × ${(poProduct.supplyPackLabel || "pack").toLowerCase()} of ${supplyPackSize}`
+                : "";
+            return {
+              target,
+              receivedAs: [packNote, target.from ? `${poQty} × ${target.from.name}` : ""].filter(Boolean).join(" · "),
+            };
           } catch {
-            unmatched.push({ name: poProduct.name || "Unknown", quantity: poQty, price: poProduct.price || 0 });
+            return { unmatched: unmatchedLine };
           }
+        })
+      );
+
+      const matched = [];
+      const unmatched = [];
+      for (const result of resolved) {
+        if (result.unmatched) {
+          unmatched.push(result.unmatched);
+          continue;
         }
-        if (matched.length > 0) setLines(matched);
-        if (unmatched.length > 0) setUnmatchedProducts(unmatched);
-      } catch (err) {
-        console.error("Error loading PO:", err);
-      } finally {
-        setPoLoading(false);
+        const { target, receivedAs } = result;
+        const existing = matched.find((line) => line._id === target.product._id && !line.expiryDate);
+        if (existing) existing.quantity += target.quantity;
+        else matched.push(makeLine(target.product, target.quantity, "", { receivedAs }));
       }
-    })();
-  }, [router.isReady]);
+
+      setLines(matched);
+      setUnmatchedProducts(unmatched);
+      setZeroQuantityProducts(zero);
+      if (matched.length === 0 && unmatched.length === 0) {
+        setPoError(
+          zero.length > 0
+            ? "Every product on this order has a quantity of 0, so there is nothing to book in. Go back to Submitted Stock Orders, enter the quantities that came, and receive it again."
+            : "This order has no products on it, so there is nothing to book in. Go back to Submitted Stock Orders, add its products, and receive it again."
+        );
+      }
+    } catch (err) {
+      console.error("Error loading PO:", err);
+      setPoError(
+        `The purchase order could not be loaded: ${err.response?.data?.error || err.message}. The order is still in Submitted Stock Orders; try again.`
+      );
+    } finally {
+      setPoLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!router.isReady || !router.query.poId) return;
+    loadPurchaseOrder(String(router.query.poId));
+  }, [router.isReady, router.query.poId, loadPurchaseOrder]);
 
   /* ─── Arriving from the expiration report ─────────────────────── */
 
@@ -615,7 +655,22 @@ export default function StockMovementAdd() {
               <Loader size="sm" text="Loading purchase order details..." />
             </div>
           )}
-          {poRef && !poLoading && (
+          {poError && !poLoading && (
+            <div className="border border-red-200 bg-red-50 text-red-800 rounded-lg p-4 mb-4 flex flex-wrap items-start justify-between gap-3">
+              <p className="text-sm">{poError}</p>
+              <div className="flex gap-2 shrink-0">
+                {router.query.poId && poRef?.receivedStatus !== "Received" && (
+                  <button type="button" onClick={() => loadPurchaseOrder(String(router.query.poId))} className="btn-action btn-action-secondary btn-sm">
+                    Try again
+                  </button>
+                )}
+                <button type="button" onClick={() => router.push("/manage/vendors")} className="btn-action btn-action-secondary btn-sm">
+                  Back to stock orders
+                </button>
+              </div>
+            </div>
+          )}
+          {poRef && !poLoading && !poError && (
             <div className="theme-note-primary border rounded-lg p-4 mb-4">
               <p className="text-sm font-semibold">
                 Receiving Purchase Order: {poRef.orderRef} from {poRef.vendorName}
@@ -623,6 +678,11 @@ export default function StockMovementAdd() {
               <p className="text-xs mt-1 opacity-80">
                 Products have been pre-populated. Review quantities and expiry dates before submitting.
               </p>
+              {zeroQuantityProducts.length > 0 && (
+                <p className="text-xs mt-2 text-amber-700">
+                  Left out, ordered as 0: {zeroQuantityProducts.join(", ")}.
+                </p>
+              )}
               {unmatchedProducts.length > 0 && (
                 <div className="mt-3 pt-3 border-t theme-border-soft">
                   <p className="text-xs font-semibold text-amber-700 mb-1">Unmatched PO items (add manually):</p>

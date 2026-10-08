@@ -19,12 +19,39 @@ import { formatCurrency } from "@/lib/format";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Plus, Edit, Trash2, X, Phone, Mail, MapPin,
-  ShoppingCart, Package, User, ChevronDown,
+  ShoppingCart, Package, User, ChevronDown, Boxes,
 } from "lucide-react";
 
 function getToday() {
   const d = new Date();
   return d.toISOString().split("T")[0];
+}
+
+const capitalise = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : text);
+
+/**
+ * How a vendor supplies a product, as a badge: a pack in the catalogue ("Pack of 12"), a unit
+ * product this vendor sells by its own pack ("Carton of 24"), or by the unit.
+ */
+function SupplyBadge({ vendorProduct: vp, compact = false }) {
+  const base = `inline-flex items-center gap-1 rounded-full font-semibold ${compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]"}`;
+  if (isCataloguePack(vp)) {
+    return (
+      <span className={`${base} bg-purple-100 text-purple-700`} title="A pack in the product list, ordered as itself">
+        <Package size={compact ? 10 : 11} /> Pack of {vp.qtyPerPack}
+      </span>
+    );
+  }
+  const size = normalizeSupplyPackSize(vp?.supplyPackSize);
+  if (size > 1) {
+    const label = capitalise(String(vp?.supplyPackLabel || "pack").trim().toLowerCase());
+    return (
+      <span className={`${base} bg-blue-100 text-blue-700`} title={`A unit product this vendor supplies by the ${label.toLowerCase()}: one = ${size} units`}>
+        <Boxes size={compact ? 10 : 11} /> {label} of {size}
+      </span>
+    );
+  }
+  return <span className={`${base} bg-gray-100 text-gray-600`}>Unit</span>;
 }
 
 function createEmptyVendorProduct({ isNewProductCard = false } = {}) {
@@ -332,6 +359,10 @@ export default function VendorsPage() {
             price: p.price || 0,
             packType: p.packType || "unit",
             qtyPerPack: p.qtyPerPack || 1,
+            // How this vendor supplies it. Left out, a unit product registered as a carton of 24
+            // opened as a single unit, and saving the vendor wiped the carton.
+            supplyPackSize: normalizeSupplyPackSize(p.supplyPackSize),
+            supplyPackLabel: p.supplyPackLabel || "",
             isNewProductCard: false,
           }))
         : [createEmptyVendorProduct()],
@@ -611,20 +642,28 @@ export default function VendorsPage() {
                                 <div className="mt-3 bg-gray-50 rounded-lg p-3">
                                   <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Supplied Products</h4>
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                    {vendor.products.map((p, i) => (
-                                      <div key={i} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-200 text-xs">
-                                        <span className="font-medium text-gray-700 truncate">
-                                          {p.productName || p.product?.name || "Unnamed"}
-                                          {p.packType === "pack" && <span className="ml-1 text-purple-600">({p.qtyPerPack || 1}/pack)</span>}
-                                        </span>
-                                        <div className="flex items-center gap-2 shrink-0 ml-2">
-                                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${p.packType === "pack" ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
-                                            {p.packType === "pack" ? "Pack" : "Unit"}
+                                    {vendor.products.map((p, i) => {
+                                      const byVendorPack = !isCataloguePack(p) && normalizeSupplyPackSize(p.supplyPackSize) > 1;
+                                      return (
+                                        <div
+                                          key={i}
+                                          className={`flex items-center justify-between bg-white rounded-lg px-3 py-2 border text-xs ${byVendorPack ? "border-blue-200" : isCataloguePack(p) ? "border-purple-200" : "border-gray-200"}`}
+                                        >
+                                          <span className="font-medium text-gray-700 truncate" title={p.productName || p.product?.name || ""}>
+                                            {p.productName || p.product?.name || "Unnamed"}
                                           </span>
-                                          {p.price > 0 && <span className="text-blue-600 font-semibold">{formatCurrency(p.price)}</span>}
+                                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                                            <SupplyBadge vendorProduct={p} compact />
+                                            {p.price > 0 && (
+                                              <span className="text-blue-600 font-semibold">
+                                                {formatCurrency(p.price)}
+                                                {byVendorPack && <span className="font-normal text-gray-500">/{String(p.supplyPackLabel || "pack").toLowerCase()}</span>}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               )}
@@ -918,13 +957,18 @@ export default function VendorsPage() {
 
       {/* Vendor Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center pt-10 px-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mb-10">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2 sm:p-6">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[94vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
               <h2 className="text-lg font-bold text-gray-800">{editingVendor ? "Edit Vendor" : "Add Vendor"}</h2>
               <button onClick={() => { setShowForm(false); setEditingVendor(null); }} className="p-1 hover:bg-gray-100 rounded-lg"><X size={20} /></button>
             </div>
-            <form onSubmit={handleSave} className="p-5 space-y-4">
+            {/* The vendor's details stay put on the left; the products they supply scroll on the
+                right, so a vendor with 30 products does not push the details off the screen. On a
+                phone the two stack, and the product list still scrolls in its own box. */}
+            <form onSubmit={handleSave} className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+              <div className="p-5 space-y-4 lg:overflow-y-auto lg:border-r border-gray-200">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
@@ -972,16 +1016,20 @@ export default function VendorsPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <input type="checkbox" id="isActive" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <input type="checkbox" id="isActive" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="h-4 w-4 shrink-0 p-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 <label htmlFor="isActive" className="text-sm text-gray-700">Active Vendor</label>
+              </div>
               </div>
 
               {/* Vendor Products */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Products Supplied</h3>
-                  <button type="button" onClick={addVendorProduct} className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"><Plus size={14} /> Add Product</button>
+              <div className="flex flex-col lg:min-h-0 border-t lg:border-t-0 border-gray-200">
+                <div className="flex items-center justify-between gap-2 px-5 py-3 border-b border-gray-100 bg-gray-50 shrink-0">
+                  <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wide">
+                    Products Supplied <span className="font-medium normal-case text-gray-400">({form.products.filter((p) => p.product || p.productName).length})</span>
+                  </h3>
+                  <button type="button" onClick={addVendorProduct} className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"><Plus size={14} /> Add Product</button>
                 </div>
+                <div className="p-4 max-h-[60vh] overflow-y-auto lg:max-h-none lg:flex-1 lg:min-h-0">
                 {form.products.length === 0 && (
                   <p className="text-xs text-gray-400 mb-2">No products attached yet. Add products this vendor supplies.</p>
                 )}
@@ -1003,9 +1051,16 @@ export default function VendorsPage() {
                         return (
                           <>
                       <div className={`flex items-start justify-between gap-3 rounded-lg border px-3 py-2 ${isNewProductCard ? "border-blue-200 bg-white/80" : "border-gray-200 bg-gray-50"}`}>
-                        <div>
-                          <p className="text-sm font-semibold text-gray-800">Product Card {i + 1}</p>
-                          <p className="text-xs text-gray-500">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-800 truncate" title={vp.productName || ""}>
+                            {vp.productName || `Product ${i + 1}`}
+                          </p>
+                          {(vp.product || vp.productName) && (
+                            <div className="mt-1">
+                              <SupplyBadge vendorProduct={vp} />
+                            </div>
+                          )}
+                          <p className="text-[11px] text-gray-500 mt-1">
                             {isNewProductCard
                               ? "This card can create a brand-new product if it is not already in the main product list."
                               : "Use this card to attach an existing product from the main product list to this vendor."}
@@ -1051,7 +1106,12 @@ export default function VendorsPage() {
                                   }}
                                   className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-100 last:border-0"
                                 >
-                                  <div className="font-medium text-gray-800">{p.name}</div>
+                                  <div className="font-medium text-gray-800 flex items-center gap-1.5 flex-wrap">
+                                    {p.name}
+                                    {isCataloguePack(p) && (
+                                      <span className="text-[10px] font-semibold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded-full">Pack of {p.qtyPerPack}</span>
+                                    )}
+                                  </div>
                                   {p.barcode && <div className="text-xs text-gray-400">Barcode: {p.barcode}</div>}
                                 </button>
                               ))}
@@ -1167,9 +1227,11 @@ export default function VendorsPage() {
                   ))}
                 </div>
                 <div ref={productsEndRef} />
+                </div>
+              </div>
               </div>
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3 px-5 py-3 border-t border-gray-200 bg-white shrink-0">
                 <button type="button" onClick={() => { setShowForm(false); setEditingVendor(null); setProductSearchMap({}); setForm(createEmptyForm()); clearVendorDraftState(); }} className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
                 <button type="submit" disabled={saving} className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition ${saving ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}>
                   {saving ? "Saving..." : editingVendor ? "Update Vendor" : "Add Vendor"}

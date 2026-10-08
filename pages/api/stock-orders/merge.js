@@ -86,7 +86,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Select orders to merge, or ask to merge them all" });
     }
 
-    const pending = orders.filter(isOnOrder);
+    // An order whose receiving has started has a purchase order of its own; it is not merged.
+    const pending = orders.filter((order) => isOnOrder(order) && !order.purchaseOrderId);
     if (pending.length < 2) {
       return res.status(400).json({ error: "There are not two orders on order to merge" });
     }
@@ -109,9 +110,14 @@ export default async function handler(req, res) {
       const { products, grandTotal, repricedProducts } = mergeOrderGroup(group);
       if (products.length === 0) continue;
 
+      // Dated as the newest of the orders it replaces, not the moment of merging, so it keeps
+      // its place in the list.
+      const newestDate = new Date(
+        Math.max(...group.map((order) => new Date(order.date || order.createdAt || Date.now()).getTime()))
+      );
       const merged = await StockOrder.create({
         orderRef: generateOrderRef("SO"),
-        date: new Date(),
+        date: newestDate,
         vendor: newest.vendor,
         supplier: newest.supplier,
         contact: newest.contact,

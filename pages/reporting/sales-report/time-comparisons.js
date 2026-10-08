@@ -14,6 +14,7 @@ import {
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Line } from "react-chartjs-2";
+import { BarChart3, Percent, TrendingDown, TrendingUp } from "lucide-react";
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
   Title, Tooltip, Legend, Filler,
@@ -21,7 +22,7 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
-function MetricCard({ title, value, icon, color }) {
+function MetricCard({ title, value, icon: Icon, color }) {
   const colors = {
     sky: "theme-note-primary",
     emerald: "bg-emerald-50 border-emerald-200 text-emerald-700",
@@ -32,7 +33,11 @@ function MetricCard({ title, value, icon, color }) {
     <div className={`border rounded-xl p-4 shadow-sm ${colors[color] || colors.sky}`}>
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium opacity-80">{title}</span>
-        <span className="text-xl">{icon}</span>
+        {Icon && (
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-white/70 ring-1 ring-black/5">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+        )}
       </div>
       <div className="text-2xl font-bold">{value}</div>
     </div>
@@ -268,10 +273,10 @@ export default function TimeComparisons() {
             <>
               {/* Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <MetricCard title={`Period 1 ${metricLabel}`} value={fmt(data.p1Total)} icon="📊" color="sky" />
-                <MetricCard title={`Period 2 ${metricLabel}`} value={fmt(data.p2Total)} icon="📈" color="purple" />
-                <MetricCard title="Difference" value={fmt(data.diff)} icon={data.diff >= 0 ? "📈" : "📉"} color={data.diff >= 0 ? "emerald" : "amber"} />
-                <MetricCard title="Change %" value={data.diffPercent === "N/A" ? "N/A" : `${data.diffPercent}%`} icon="🔄" color={data.diff >= 0 ? "emerald" : "amber"} />
+                <MetricCard title={`Period 1 ${metricLabel}`} value={fmt(data.p1Total)} icon={BarChart3} color="sky" />
+                <MetricCard title={`Period 2 ${metricLabel}`} value={fmt(data.p2Total)} icon={BarChart3} color="purple" />
+                <MetricCard title="Difference" value={fmt(data.diff)} icon={data.diff >= 0 ? TrendingUp : TrendingDown} color={data.diff >= 0 ? "emerald" : "amber"} />
+                <MetricCard title="Change %" value={data.diffPercent === "N/A" ? "N/A" : `${data.diffPercent}%`} icon={Percent} color={data.diff >= 0 ? "emerald" : "amber"} />
               </div>
 
               {/* Chart */}

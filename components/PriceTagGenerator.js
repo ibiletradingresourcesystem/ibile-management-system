@@ -193,7 +193,29 @@ function buildCategoryIndex(categories, products) {
   };
 }
 
-/** Draw every barcode inside `root` that is not already drawn for its current value. */
+/**
+ * The symbology to print a code in. A retail code (13, 12 or 8 digits) prints as the EAN or UPC
+ * it is: shorter than the same digits in CODE128, with guard bars and a check digit, so a camera
+ * reads it from further away. Anything else is CODE128.
+ */
+function barcodeFormatsFor(value) {
+  if (/^\d{13}$/.test(value)) return ["EAN13", "CODE128"];
+  if (/^\d{12}$/.test(value)) return ["UPC", "CODE128"];
+  if (/^\d{8}$/.test(value)) return ["EAN8", "CODE128"];
+  return ["CODE128"];
+}
+
+/** One bar-width of the drawing; the margin each side is QUIET_ZONE_BARS of them. */
+const BAR_WIDTH = 2;
+const QUIET_ZONE_BARS = 10;
+
+/**
+ * Draw every barcode inside `root` that is not already drawn for its current value.
+ *
+ * Tags used to print CODE128 with no white margin, squeezed into a short strip: a phone camera
+ * at a stock take could seldom read them. Now each code has the white margin a scanner needs on
+ * both sides, and is stretched to the width of its box, which makes every bar wider.
+ */
 async function renderBarcodes(root) {
   if (!root) return;
   let JsBarcode;
@@ -205,11 +227,25 @@ async function renderBarcodes(root) {
   root.querySelectorAll("svg.tag-barcode[data-barcode]").forEach((svg) => {
     const value = svg.getAttribute("data-barcode");
     if (!value || svg.dataset.drawn === value) return;
-    try {
-      JsBarcode(svg, value, { format: "CODE128", height: 24, displayValue: false, margin: 0, width: 1.2 });
-      svg.dataset.drawn = value;
-    } catch {
-      // Invalid barcode value — skip
+    for (const format of barcodeFormatsFor(value)) {
+      try {
+        JsBarcode(svg, value, {
+          format,
+          width: BAR_WIDTH,
+          height: 60,
+          displayValue: false,
+          flat: true,
+          margin: 0,
+          marginLeft: BAR_WIDTH * QUIET_ZONE_BARS,
+          marginRight: BAR_WIDTH * QUIET_ZONE_BARS,
+        });
+        // Fill the box it is given (the drawing keeps its own proportions otherwise)
+        svg.setAttribute("preserveAspectRatio", "none");
+        svg.dataset.drawn = value;
+        return;
+      } catch {
+        // Not valid in this format (a 13-digit code with a wrong check digit): try the next
+      }
     }
   });
 }
@@ -997,7 +1033,7 @@ function PriceTag({ tag, currency, brandName, size, tagIdx }) {
 
       {/* Barcode */}
       <div className="text-center flex flex-col items-center justify-end">
-        <svg className="tag-barcode" style={{ width: "90%", height: "18px" }} data-barcode={barcodeValue} />
+        <svg className="tag-barcode" style={{ width: "100%", height: "9mm", display: "block" }} data-barcode={barcodeValue} />
         <p className="text-[7px] text-gray-600 font-mono mt-0.5 leading-none font-semibold">{barcodeValue}</p>
       </div>
     </article>
@@ -1107,7 +1143,7 @@ function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange
                             <div className="text-center">
                               <svg
                                 className="tag-barcode"
-                                style={{ width: "80%", height: "10px", margin: "0 auto", display: "block" }}
+                                style={{ width: "100%", height: "16px", margin: "0 auto", display: "block" }}
                                 data-barcode={barcodeValue}
                               />
                               <p className="text-[5px] text-gray-600 font-mono font-semibold">{barcodeValue}</p>

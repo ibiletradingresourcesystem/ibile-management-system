@@ -8,6 +8,7 @@ import { childQtyToParentQty, isDerivedChild } from "@/lib/packUnits";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import Store from "@/models/Store";
+import StockOrder from "@/models/StockOrder";
 import { derivePaymentState } from "@/lib/purchaseOrders";
 import { postPurchaseOrderPayment } from "@/lib/accounting";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
@@ -266,6 +267,18 @@ export default async function handler(req, res) {
           await session.endSession();
         }
 
+        // The stock order it came from is received now that its stock is in (not before)
+        if (order.stockOrderId) {
+          try {
+            await StockOrder.updateOne(
+              { _id: order.stockOrderId },
+              { $set: { stage: "Received", receivedAt: new Date(), receivedBy: req.user?.id || null, purchaseOrderId: order._id } }
+            );
+          } catch (stockOrderErr) {
+            console.warn(`⚠️ Could not mark stock order ${order.stockOrderId} received:`, stockOrderErr.message);
+          }
+        }
+
         // 5. Post-transaction: derive child quantities (safe outside transaction)
         for (const item of movementProducts) {
           try {
@@ -309,6 +322,14 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Cannot delete a received order" });
       }
       await PurchaseOrder.deleteOne({ _id: id });
+      // Raised by pressing Receive on a stock order whose stock was never booked: that order
+      // goes back on order instead of staying hidden as received.
+      if (order.stockOrderId) {
+        await StockOrder.updateOne(
+          { _id: order.stockOrderId, purchaseOrderId: order._id },
+          { $set: { stage: "Submitted" }, $unset: { purchaseOrderId: "", receivingStartedAt: "", receivedAt: "", receivedBy: "" } }
+        ).catch(() => {});
+      }
       return res.status(200).json({ success: true, message: "Order deleted" });
     } catch (err) {
       return res.status(500).json({ error: err.message });

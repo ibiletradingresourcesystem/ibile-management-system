@@ -49,7 +49,10 @@ const StockOrderSchema = new Schema(
     },
     receivedAt: Date,
     receivedBy: { type: Schema.Types.ObjectId, ref: "Staff" },
+    // Set when Receive is pressed: the purchase order is raised then, but the order stays on
+    // order until its stock is booked in on the receive screen (see /api/purchase-orders/[id]).
     purchaseOrderId: { type: Schema.Types.ObjectId, ref: "PurchaseOrder" },
+    receivingStartedAt: Date,
 
     // Set on an order made by merging others, listing what it was merged from.
     mergedFrom: [{ type: Schema.Types.ObjectId }],
@@ -77,6 +80,11 @@ const StockOrderSchema = new Schema(
 
 StockOrderSchema.index({ createdAt: -1 });
 StockOrderSchema.index({ vendor: 1, stage: 1 });
+
+/** Lines with something to receive: a name and a quantity above 0. */
+export function receivableLines(order) {
+  return (order?.products || []).filter((line) => String(line?.name || "").trim() && Number(line?.quantity) > 0);
+}
 
 /** True for an order still waiting to be received, including the expense app's own. */
 export function isOnOrder(order) {

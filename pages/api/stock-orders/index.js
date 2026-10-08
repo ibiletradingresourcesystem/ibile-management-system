@@ -5,11 +5,13 @@
  * merged here, and leave here when they are received — which is what creates the
  * purchase order the Vendor Payment Tracker pays against.
  *
- * GET  — the list, newest first. `stage=Received` shows ones already handed on.
+ * GET  — the list, newest order date first. `stage=Received` shows ones already handed on.
+ *        Each order says `receiving` when Receive was pressed but its stock is not booked yet.
  * POST — raise an order for a vendor.
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import StockOrder from "@/models/StockOrder";
+import PurchaseOrder from "@/models/PurchaseOrder";
 import { repayPaymentState } from "@/lib/orderPaymentRepair";
 import Vendor from "@/models/Vendor";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
@@ -42,15 +44,48 @@ export default async function handler(req, res) {
         filter.$or = [{ stage: "Received" }, { reason: "Stock Received" }];
       }
 
-      const orders = await StockOrder.find(filter)
-        .sort({ createdAt: -1 })
+      // By the date the order was placed. It used to be by when the record was made, so an
+      // order merged today went to the top with today's date above an order dated next week.
+      let orders = await StockOrder.find(filter)
+        .sort({ date: -1, createdAt: -1 })
         .limit(Math.min(500, Math.max(1, Number(limit) || 200)))
         .populate("vendor", "companyName repPhone")
         .lean();
 
-      const corrected = await repayPaymentState(StockOrder, orders);
+      if (stage === "Submitted") {
+        // Receive used to mark an order received before any stock was booked. When the receive
+        // screen then failed, or was left, the order vanished and its stock was never booked.
+        // Those orders (purchase order still waiting for stock) come back here to be finished.
+        const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+        const handedOn = await StockOrder.find({
+          stage: "Received",
+          purchaseOrderId: { $ne: null },
+          receivedAt: { $gte: since },
+          ...(vendor ? { vendor } : {}),
+        })
+          .populate("vendor", "companyName repPhone")
+          .lean();
+        if (handedOn.length > 0) {
+          const waiting = await PurchaseOrder.find({
+            _id: { $in: handedOn.map((order) => order.purchaseOrderId) },
+            receivedStatus: { $ne: "Received" },
+          })
+            .select("_id")
+            .lean();
+          const waitingIds = new Set(waiting.map((po) => String(po._id)));
+          const unfinished = handedOn.filter((order) => waitingIds.has(String(order.purchaseOrderId)));
+          if (unfinished.length > 0) {
+            orders = [...orders, ...unfinished].sort(
+              (a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0)
+            );
+          }
+        }
+      }
 
-      return res.status(200).json({ success: true, orders: corrected, total: corrected.length });
+      const corrected = await repayPaymentState(StockOrder, orders);
+      const listed = corrected.map((order) => ({ ...order, receiving: Boolean(order.purchaseOrderId) }));
+
+      return res.status(200).json({ success: true, orders: listed, total: listed.length });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

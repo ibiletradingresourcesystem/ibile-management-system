@@ -6,10 +6,14 @@
  * DELETE — remove an order that was raised in error.
  *
  * Receiving raises the purchase order and hands the id back, so the caller can go on
- * to the receive screen and book the stock in with expiry dates and a location.
+ * to the receive screen and book the stock in with expiry dates and a location. The order
+ * stays on order until that is done: it used to be marked received here, before any stock
+ * was booked, and when the receive screen failed or was left the order simply disappeared.
+ * Pressing Receive again goes back to the same purchase order.
  */
 import { mongooseConnect } from "@/lib/mongodb";
-import StockOrder, { isOnOrder } from "@/models/StockOrder";
+import StockOrder, { isOnOrder, receivableLines } from "@/models/StockOrder";
+import PurchaseOrder from "@/models/PurchaseOrder";
 import { authMiddleware, isStaff, isAdmin } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
 import {
@@ -33,6 +37,11 @@ export default async function handler(req, res) {
   const order = await StockOrder.findById(id);
   if (!order) return res.status(404).json({ error: "Stock order not found" });
 
+  // The purchase order raised when Receive was pressed, while its stock is still to be booked
+  const linkedPo = order.purchaseOrderId ? await PurchaseOrder.findById(order.purchaseOrderId) : null;
+  const stockBooked = linkedPo?.receivedStatus === "Received";
+  const stillOnOrder = !stockBooked && (isOnOrder(order) || Boolean(linkedPo));
+
   if (req.method === "GET") {
     const populated = await StockOrder.findById(id).populate("vendor", "companyName repPhone").lean();
     return res.status(200).json({ success: true, order: populated });
@@ -43,37 +52,55 @@ export default async function handler(req, res) {
       const { action } = req.body || {};
 
       if (action === "receive") {
-        if (!isOnOrder(order)) {
+        if (!stillOnOrder) {
           return res.status(400).json({ error: "This order has already been received" });
         }
         if (!order.vendor) {
           return res.status(400).json({ error: "This order has no vendor, so it cannot be received" });
         }
+        // An order with a total but no product lines (or only lines ordered as 0) has no stock
+        // to book: the receive screen opened empty and the order was gone.
+        if (receivableLines(order).length === 0) {
+          return res.status(400).json({
+            code: "NOTHING_TO_RECEIVE",
+            error:
+              (order.products || []).length === 0
+                ? "This order has no products on it, so there is no stock to receive. Open View / Edit and add the products that came, then receive it."
+                : "Every product on this order has a quantity of 0, so there is no stock to receive. Open View / Edit and enter the quantities that came.",
+          });
+        }
 
-        const purchaseOrder = await createPurchaseOrderFromStockOrder(order, {
-          staffId: req.user?.id,
-          staffName: req.user?.name,
-          notes: `Received from stock order ${order.orderRef || order._id}`,
-        });
+        let purchaseOrder = linkedPo;
+        if (!purchaseOrder) {
+          purchaseOrder = await createPurchaseOrderFromStockOrder(order, {
+            staffId: req.user?.id,
+            staffName: req.user?.name,
+            notes: `Received from stock order ${order.orderRef || order._id}`,
+          });
+        } else {
+          // Receiving again: the lines may have been edited since the first try
+          const products = normalizeOrderProducts(order.products);
+          purchaseOrder.products = products;
+          purchaseOrder.grandTotal = Number(order.grandTotal) || sumTotals(products);
+          Object.assign(purchaseOrder, derivePaymentState(purchaseOrder));
+          await purchaseOrder.save();
+        }
 
-        // Kept as a record rather than deleted, so the order can still be traced back
-        // from the purchase order it became.
-        order.stage = "Received";
-        order.receivedAt = new Date();
-        order.receivedBy = req.user?.id || null;
         order.purchaseOrderId = purchaseOrder._id;
+        order.receivingStartedAt = order.receivingStartedAt || new Date();
         await order.save();
 
         return res.status(200).json({
           success: true,
-          message: "Stock order received and a purchase order raised",
+          message: linkedPo ? "Back to receiving this order" : "Purchase order raised; book the stock in to finish",
           purchaseOrderId: purchaseOrder._id,
           orderRef: purchaseOrder.orderRef,
+          continued: Boolean(linkedPo),
         });
       }
 
       // Plain edit of the order's own details
-      if (!isOnOrder(order)) {
+      if (!stillOnOrder) {
         return res.status(400).json({ error: "A received order can no longer be edited" });
       }
 
@@ -104,8 +131,17 @@ export default async function handler(req, res) {
 
   if (req.method === "DELETE") {
     try {
-      if (!isOnOrder(order) && !isAdmin(req)) {
+      if (!stillOnOrder && !isAdmin(req)) {
         return res.status(403).json({ error: "Only an administrator can delete a received order" });
+      }
+      // Receiving had started: its purchase order goes too, unless money has been recorded on it
+      if (stillOnOrder && linkedPo) {
+        if ((Number(linkedPo.paymentMade) || 0) > 0) {
+          return res.status(400).json({
+            error: `A payment is recorded on its purchase order ${linkedPo.orderRef || ""}. Finish receiving it, or remove the payment in the Vendor Payment Tracker first.`,
+          });
+        }
+        await PurchaseOrder.deleteOne({ _id: linkedPo._id });
       }
       await StockOrder.deleteOne({ _id: id });
       return res.status(200).json({ success: true, message: "Stock order deleted" });
