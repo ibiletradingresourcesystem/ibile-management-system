@@ -12,6 +12,7 @@ import Staff from "@/models/Staff";
 import StockTake from "@/models/StockTake";
 import bcrypt from "bcryptjs";
 import { createToken } from "@/lib/jwt";
+import { normalizeStaffRole } from "@/lib/pos-permissions";
 import crypto from "crypto";
 
 /**
@@ -136,6 +137,8 @@ export default async function handler(req, res) {
         staffName: staff.name,
         stockTakeId: stockTakeId ? String(stockTakeId) : null,
         scope: MOBILE_SCOPE,
+        // Only an admin is shown the system quantity while counting (see ./count.js)
+        role: normalizeStaffRole(staff.role),
       },
       "12h"
     );
@@ -144,6 +147,7 @@ export default async function handler(req, res) {
       success: true,
       token,
       staff: { _id: staff._id, name: staff.name },
+      seesSystemQty: normalizeStaffRole(staff.role) === "admin",
     });
   } catch (err) {
     console.error("Mobile stock take auth error:", err.message);

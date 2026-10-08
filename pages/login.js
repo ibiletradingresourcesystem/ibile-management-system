@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { firstAccessiblePage } from "@/lib/navigation";
 import { useRouter } from "next/router";
 import { apiClient } from "@/lib/api-client";
 import { clearAllAppCaches } from "@/lib/clearAllCaches";
@@ -109,32 +110,8 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
         JSON.stringify({ ...res.data.user, location }),
       );
 
-      // Determine redirect based on user permissions
-      const loggedInUser = res.data.user;
-      const isAdmin = loggedInUser?.role === "admin";
-      const perms = loggedInUser?.permissions || [];
-      const hasDashboard = isAdmin || perms.includes("dashboard");
-
-      if (hasDashboard) {
-        router.push("/");
-      } else {
-        // Find first accessible page
-        const pageMap = [
-          { perm: "manage.products", path: "/manage/products" },
-          { perm: "manage", path: "/manage/products" },
-          { perm: "stock.management", path: "/stock/management" },
-          { perm: "stock", path: "/stock/management" },
-          { perm: "reporting.sales-report", path: "/reporting/reporting" },
-          { perm: "reporting", path: "/reporting/reporting" },
-          { perm: "expenses.entry", path: "/expenses/expenses" },
-          { perm: "expenses", path: "/expenses/expenses" },
-          { perm: "setup.company", path: "/setup/setup" },
-          { perm: "setup", path: "/setup/setup" },
-          { perm: "support", path: "/support" },
-        ];
-        const first = pageMap.find(({ perm }) => perms.includes(perm));
-        router.push(first?.path || "/support");
-      }
+      // Home is the top-most page in the sidebar this user can open (the dashboard, for most)
+      router.push(firstAccessiblePage(res.data.user));
     } catch (err) {
       setError(err.response?.data?.error || err.message);
       setPassword("");
@@ -163,7 +140,7 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
       await clearAllAppCaches();
       localStorage.setItem("auth_token", res.data.token);
       localStorage.setItem("user", JSON.stringify({ ...res.data.user, location: locations?.[0] || "" }));
-      router.push("/");
+      router.push(firstAccessiblePage(res.data.user));
     } catch (err) {
       setError(err.response?.data?.error || err.message);
     } finally {

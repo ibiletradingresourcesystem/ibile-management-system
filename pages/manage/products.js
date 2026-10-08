@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Percent, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import Layout from "@/components/Layout";
 import { formatCurrency as formatCurrencyValue } from "@/lib/format";
 import axios from "axios";
@@ -126,7 +126,6 @@ export default function Products() {
   const [isApplyingChanges, setIsApplyingChanges] = useState(false);
   const [savingProductId, setSavingProductId] = useState(null);
   const [isOpeningAddProduct, setIsOpeningAddProduct] = useState(false);
-  const [applyingMargins, setApplyingMargins] = useState(false);
 
   // AI pricing recommendations cache (loaded once)
   const [aiPriceMap, setAiPriceMap] = useState({});
@@ -457,15 +456,20 @@ export default function Products() {
       };
       const response = await axios.put("/api/products", { ...updatedProduct, _id });
       const saved = response?.data?.data || { ...updatedProduct, _id };
+      // A pack's new cost re-prices the products linked to it; the save lists them
+      const childUpdates = new Map((response?.data?.linkedChildren || []).map((child) => [String(child._id), child]));
+      const applySave = (p) => {
+        if (p._id === _id) return { ...p, ...saved };
+        const child = childUpdates.get(String(p._id));
+        return child ? { ...p, ...child, _id: p._id } : p;
+      };
 
       // update local cached arrays immediately (optimistic update)
-      setFilteredProducts((prev) =>
-        prev.map((p) => (p._id === _id ? { ...p, ...saved } : p))
-      );
-      setAllProducts((prev) => prev.map((p) => (p._id === _id ? { ...p, ...saved } : p)));
+      setFilteredProducts((prev) => prev.map(applySave));
+      setAllProducts((prev) => prev.map(applySave));
 
       // Invalidate IndexedDB cache so next load fetches fresh data
-      await clearCache("products_cache");
+      await Promise.allSettled([clearCache("products_cache"), clearCache("stock_products_cache")]);
 
       // close edit mode & highlight the updated product
       setEditIndex(null);
@@ -641,57 +645,6 @@ export default function Products() {
     );
   }
 
-  /**
-   * Products with a cost and a sale price but no margin (imported, seeded, or priced elsewhere)
-   * get their margin worked out: (sale - cost) / sale. Shows what will change first; prices are
-   * never touched.
-   */
-  const handleApplyMargins = async () => {
-    setApplyingMargins(true);
-    try {
-      const { data } = await apiClient.post("/api/products/apply-margins", { dryRun: true });
-      const count = data.summary?.toChange || 0;
-      if (count === 0) {
-        await showAlertDialog({
-          title: "Margins are up to date",
-          message: "Every product with a cost price and a sale price already shows the right margin.",
-          tone: "success",
-        });
-        return;
-      }
-      const examples = (data.samples || [])
-        .slice(0, 3)
-        .map((s) => `${s.name} ${s.from === null ? "(none)" : `${s.from.toFixed(2)}%`} → ${s.to.toFixed(2)}%`)
-        .join("; ");
-      const parts = [
-        data.summary.missing > 0 ? `${data.summary.missing} have no margin` : "",
-        data.summary.outdated > 0 ? `${data.summary.outdated} have one that no longer matches their prices` : "",
-      ].filter(Boolean);
-      const confirmed = await showConfirmDialog({
-        title: `Apply margins to ${count} product${count === 1 ? "" : "s"}?`,
-        message: `${parts.join(" and ")}. Margin = (sale price − cost) ÷ sale price; prices are not changed. For example: ${examples}${count > 3 ? `, and ${count - 3} more` : ""}.`,
-        confirmLabel: "Apply margins",
-        cancelLabel: "Not now",
-      });
-      if (!confirmed) return;
-      const { data: done } = await apiClient.post("/api/products/apply-margins", { dryRun: false });
-      await refreshProducts();
-      await showAlertDialog({
-        title: "Margins applied",
-        message: `${done.summary?.changed || 0} product margin${done.summary?.changed === 1 ? "" : "s"} worked out from their cost and sale prices.`,
-        tone: "success",
-      });
-    } catch (err) {
-      await showAlertDialog({
-        title: "Margins not applied",
-        message: err.response?.data?.error || "The margins could not be worked out.",
-        tone: "danger",
-      });
-    } finally {
-      setApplyingMargins(false);
-    }
-  };
-
   return (
     <Layout>
       <div className="page-container">
@@ -715,16 +668,6 @@ export default function Products() {
               disabled={isRefreshingList}
             >
                {isRefreshingList ? "Refreshing..." : "Refresh"}
-            </button>
-            <button
-              type="button"
-              onClick={handleApplyMargins}
-              disabled={applyingMargins}
-              className="btn-action-secondary flex items-center gap-2 disabled:opacity-60"
-              title="Work out the margin of every product that has a cost and a sale price but no margin"
-            >
-              <Percent className="w-4 h-4" aria-hidden="true" />
-              {applyingMargins ? "Checking margins..." : "Apply margins"}
             </button>
             <ExportMenu
               title="Product List"

@@ -100,6 +100,11 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
     );
   }
 
+  /** A child takes its cost from the pack, or keeps its own (lib/childPricing.js). */
+  function setCostSource(child, followPack) {
+    runMutation(() => axios.patch("/api/products/links", { childId: child._id, costFromParent: followPack }));
+  }
+
   function saveUnits(child) {
     const draft = unitDrafts[child._id];
     if (draft === undefined || Number(draft) === getUnitsPerChild(child)) return;
@@ -276,7 +281,29 @@ export default function ProductPackLinks({ productId, onRelationsChange }) {
                           )}
                         </td>
                         <td className="px-3 py-2 font-semibold">{formatQty(child.quantity)}</td>
-                        <td className="px-3 py-2">{formatCurrency(child.costPrice)}</td>
+                        <td className="px-3 py-2">
+                          <div>{formatCurrency(child.costPrice)}</div>
+                          {(() => {
+                            const follows = child.costFromParent !== false;
+                            return (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setCostSource(child, !follows)}
+                                title={
+                                  follows
+                                    ? "Its cost is worked out from the pack's, and changes when the pack's does. Click to keep its own cost instead."
+                                    : "It keeps its own cost: a new pack cost does not change it. Click to take its cost from the pack."
+                                }
+                                className={`mt-1 inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                                  follows ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                }`}
+                              >
+                                {follows ? "Follows pack cost" : "Own cost: click to follow pack"}
+                              </button>
+                            );
+                          })()}
+                        </td>
                         <td className="px-3 py-2">{formatCurrency(child.salePriceIncTax)}</td>
                         <td className={`px-3 py-2 tabular-nums ${childMargin < 0 ? "text-red-600" : ""}`}>
                           {childMargin.toFixed(2)}%

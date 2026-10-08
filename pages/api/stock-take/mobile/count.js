@@ -1,23 +1,30 @@
 /**
  * API: GET/PUT /api/stock-take/mobile/count
  *
- * The mobile counter used to pull every line of the stock take in one response.
- * On a full count that is thousands of products on a phone, over whatever
- * connection the shop floor has. Nothing needs them all at once: the counter
- * scans one barcode and enters one quantity.
+ * The phone counter. It loads the count's list once and keeps it on the phone, so a scan is a
+ * lookup on the phone rather than a trip to the server, and counting carries on through a weak
+ * signal. Counts are sent as they are made, or queued on the phone and sent together.
  *
- * GET now answers three narrow questions instead:
- *   ?id=…                    → header and progress totals, no items
- *   ?id=…&barcode=…          → the one item carrying that barcode
- *   ?id=…&search=…           → a short list of name/barcode matches
- *   ?id=…&itemId=…           → one item by id, to refresh after saving
+ * GET
+ *   ?id=…&list=1[&since=…]   the whole list, compact; with `since` (the version the phone holds),
+ *                             only { unchanged: true } when nothing has changed
+ *   ?id=…                    header and progress only
+ *   ?id=…&barcode=…          the line(s) carrying a barcode, for a product whose barcode was added
+ *                             after the count was made (the phone checks its own list first)
+ *   ?id=…&search=…           a short list of name/barcode matches
+ *   ?id=…&itemId=…           one line
  *
- * PUT submits counted quantities, unchanged.
+ * PUT { counts: [{ itemId, countedQty }] }   save counts (a correction is just another count)
+ *     { counts: [{ itemId, clear: true }] }   take a count back off: the line is uncounted again
+ *
+ * The system quantity, and the difference from it, go to an admin only. Anyone else counts
+ * blind: what is on the shelf, not what the system expects to be there.
  */
 import { mongooseConnect } from "@/lib/mongodb";
 import StockTake from "@/models/StockTake";
 import Product from "@/models/Product";
 import { verifyToken } from "@/lib/jwt";
+import { normalizeStaffRole } from "@/lib/pos-permissions";
 
 const MOBILE_SCOPE = "stock-take-mobile";
 
@@ -31,23 +38,30 @@ function parseToken(authHeader) {
   return session && session.scope === MOBILE_SCOPE ? session : null;
 }
 
-/** Only the fields the counting screen shows. */
-function publicItem(item) {
+/** Only an admin is shown what the system holds. A token from before roles were kept is not. */
+const seesSystemQty = (session) => normalizeStaffRole(session?.role || "staff") === "admin";
+
+/** A line as the phone holds it. */
+function publicItem(item, withSystem) {
   if (!item) return null;
-  return {
+  const line = {
     _id: item._id,
     productId: item.productId,
     productName: item.productName,
     barcode: item.barcode || "",
     category: item.category || "",
-    systemQty: item.systemQty,
-    countedQty: item.countedQty,
-    variance: item.variance,
+    countedQty: item.countedQty ?? null,
     status: item.status,
     countType: item.countType || "standard",
+    qtyPerPack: item.qtyPerPack || 0,
     countedBy: item.countedBy || "",
     countedAt: item.countedAt || null,
   };
+  if (withSystem) {
+    line.systemQty = item.systemQty;
+    line.variance = item.variance;
+  }
+  return line;
 }
 
 /**
@@ -60,10 +74,14 @@ function barcodeKey(code) {
   return /^\d+$/.test(text) ? text.replace(/^0+/, "") || "0" : text;
 }
 
-/** A product can carry several barcodes in one field, comma or space separated. */
+/**
+ * A product can carry several barcodes in one field, comma or space separated. A pack's
+ * loose-units line carries the pack's code with "-LU" on the end; scanning the pack finds both.
+ */
 function barcodeMatches(item, wanted) {
   if (!item.barcode) return false;
   return String(item.barcode)
+    .replace(/-LU$/i, "")
     .split(/[,;\s|]+/)
     .some((code) => code && barcodeKey(code) === wanted);
 }
@@ -86,7 +104,7 @@ async function linesByProductBarcode(items, wanted) {
   return items.filter((item) => ids.has(String(item.productId)));
 }
 
-function buildProgress(items) {
+function buildProgress(items, withSystem) {
   const total = items.length;
   let counted = 0;
   let variances = 0;
@@ -96,8 +114,14 @@ function buildProgress(items) {
       if (Number(item.variance || 0) !== 0) variances += 1;
     }
   }
-  return { total, counted, pending: total - counted, variances };
+  const progress = { total, counted, pending: total - counted };
+  // How many differ from the system says something about the system count
+  if (withSystem) progress.variances = variances;
+  return progress;
 }
+
+/** Changes whenever a count is saved, so a phone can ask "anything new since?" cheaply. */
+const versionOf = (stockTake) => String(new Date(stockTake.updatedAt || stockTake.createdAt || 0).getTime());
 
 export default async function handler(req, res) {
   await mongooseConnect();
@@ -106,6 +130,7 @@ export default async function handler(req, res) {
   if (!session || !session.staffId) {
     return res.status(401).json({ error: "Not authenticated" });
   }
+  const withSystem = seesSystemQty(session);
 
   const stockTakeId = req.query.id || session.stockTakeId;
   if (!stockTakeId) {
@@ -118,13 +143,25 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
+      const { barcode, search, itemId, list, since } = req.query;
+
+      // Nothing new since the phone's copy: answer without loading the lines
+      if (list && since) {
+        const head = await StockTake.findById(stockTakeId).select("updatedAt createdAt status").lean();
+        if (!head) return res.status(404).json({ error: "Stock take not found" });
+        if (!["draft", "in-progress"].includes(head.status)) {
+          return res.status(400).json({ error: "This stock take is no longer editable", closed: true });
+        }
+        if (versionOf(head) === String(since)) return res.status(200).json({ success: true, unchanged: true, version: String(since) });
+      }
+
       const stockTake = await StockTake.findById(stockTakeId).lean();
       if (!stockTake) {
         return res.status(404).json({ error: "Stock take not found" });
       }
 
       if (!["draft", "in-progress"].includes(stockTake.status)) {
-        return res.status(400).json({ error: "This stock take is no longer editable" });
+        return res.status(400).json({ error: "This stock take is no longer editable", closed: true });
       }
 
       const items = Array.isArray(stockTake.items) ? stockTake.items : [];
@@ -135,9 +172,21 @@ export default async function handler(req, res) {
         locationName: stockTake.locationName,
         status: stockTake.status,
       };
-      const progress = buildProgress(items);
+      const progress = buildProgress(items, withSystem);
+      const version = versionOf(stockTake);
+      const role = { seesSystemQty: withSystem };
 
-      const { barcode, search, itemId } = req.query;
+      // ── The whole list, for the phone to keep ────────────────
+      if (list) {
+        return res.status(200).json({
+          success: true,
+          stockTake: header,
+          progress,
+          version,
+          ...role,
+          items: items.map((item) => publicItem(item, withSystem)),
+        });
+      }
 
       // ── One item by barcode ───────────────────────────────────
       if (barcode) {
@@ -152,6 +201,7 @@ export default async function handler(req, res) {
             barcode: String(barcode).trim(),
             stockTake: header,
             progress,
+            version,
           });
         }
 
@@ -161,9 +211,10 @@ export default async function handler(req, res) {
           success: true,
           found: true,
           barcode: String(barcode).trim(),
-          items: matches.map(publicItem),
+          items: matches.map((item) => publicItem(item, withSystem)),
           stockTake: header,
           progress,
+          version,
         });
       }
 
@@ -176,9 +227,10 @@ export default async function handler(req, res) {
         return res.status(200).json({
           success: true,
           found: true,
-          items: [publicItem(match)],
+          items: [publicItem(match, withSystem)],
           stockTake: header,
           progress,
+          version,
         });
       }
 
@@ -186,13 +238,7 @@ export default async function handler(req, res) {
       if (search !== undefined) {
         const term = String(search).trim().toLowerCase();
         if (term.length < 2) {
-          return res.status(200).json({
-            success: true,
-            items: [],
-            truncated: false,
-            stockTake: header,
-            progress,
-          });
+          return res.status(200).json({ success: true, items: [], truncated: false, stockTake: header, progress, version });
         }
 
         const matches = [];
@@ -209,19 +255,16 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
           success: true,
-          items: matches.slice(0, SEARCH_LIMIT).map(publicItem),
+          items: matches.slice(0, SEARCH_LIMIT).map((item) => publicItem(item, withSystem)),
           truncated: matches.length > SEARCH_LIMIT,
           stockTake: header,
           progress,
+          version,
         });
       }
 
       // ── Header and progress only ──────────────────────────────
-      return res.status(200).json({
-        success: true,
-        stockTake: header,
-        progress,
-      });
+      return res.status(200).json({ success: true, stockTake: header, progress, version, ...role });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -230,7 +273,7 @@ export default async function handler(req, res) {
   if (req.method === "PUT") {
     try {
       const { counts } = req.body || {};
-      // counts = [{ itemId, countedQty }]
+      // counts = [{ itemId, countedQty }] or [{ itemId, clear: true }]
 
       if (!Array.isArray(counts) || counts.length === 0) {
         return res.status(400).json({ error: "No counts provided" });
@@ -242,7 +285,7 @@ export default async function handler(req, res) {
       }
 
       if (!["draft", "in-progress"].includes(stockTake.status)) {
-        return res.status(400).json({ error: "Stock take is no longer editable" });
+        return res.status(400).json({ error: "Stock take is no longer editable", closed: true });
       }
 
       // Update status to in-progress if still draft
@@ -252,13 +295,34 @@ export default async function handler(req, res) {
 
       let updated = 0;
       const saved = [];
+      const rejected = [];
 
-      for (const { itemId, countedQty } of counts) {
-        const item = stockTake.items.id(itemId);
-        if (!item) continue;
+      for (const entry of counts) {
+        const item = stockTake.items.id(entry?.itemId);
+        if (!item) {
+          rejected.push({ itemId: entry?.itemId, reason: "Not on this stock take" });
+          continue;
+        }
 
-        const qty = Number(countedQty);
-        if (!Number.isFinite(qty) || qty < 0) continue;
+        if (entry.clear) {
+          // A count made by mistake comes off again; the line is waiting to be counted
+          item.countedQty = null;
+          item.variance = 0;
+          item.varianceValue = 0;
+          item.status = "pending";
+          item.countedAt = null;
+          item.countedBy = "";
+          item.reason = "";
+          updated++;
+          saved.push(publicItem(item, withSystem));
+          continue;
+        }
+
+        const qty = Number(entry.countedQty);
+        if (!Number.isFinite(qty) || qty < 0) {
+          rejected.push({ itemId: entry.itemId, reason: "A count must be a number of zero or more" });
+          continue;
+        }
 
         item.countedQty = qty;
         item.variance = qty - item.systemQty;
@@ -268,20 +332,21 @@ export default async function handler(req, res) {
         item.countedBy = session.staffName || "Mobile Staff";
         item.reason = item.variance !== 0 ? "Stock Take" : "";
         updated++;
-        saved.push(publicItem(item));
+        saved.push(publicItem(item, withSystem));
       }
 
       if (updated > 0) {
         await stockTake.save();
       }
 
-      // Return the saved rows and fresh totals so the phone does not need a
-      // second round trip to refresh its progress bar.
+      // The saved lines and fresh totals, so the phone needs no second round trip
       return res.status(200).json({
         success: true,
         updated,
         items: saved,
-        progress: buildProgress(stockTake.items || []),
+        rejected,
+        progress: buildProgress(stockTake.items || [], withSystem),
+        version: versionOf(stockTake),
       });
     } catch (err) {
       return res.status(500).json({ error: err.message });

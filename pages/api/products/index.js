@@ -6,7 +6,7 @@ import { syncVendorAssignmentsForProduct } from "@/lib/vendorProductSync";
 import { deleteProductImages } from "@/lib/s3";
 import { archiveFields, restoreFields } from "@/lib/productArchive";
 import { deriveChildrenForParent } from "@/lib/syncPackQty";
-import { resolveChildCost, syncChildCostsForParent } from "@/lib/childPricing";
+import { followsPackCost, linkedChildrenOf, resolveChildCost, syncChildCostsForParent } from "@/lib/childPricing";
 import { deriveChildQuantity, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
 import { calculateMarginPercent, normalizeTaxRate, roundMoney, VAT_RATE } from "@/lib/pricing";
 import { repairStoredBarcodes, suffixBarcodes } from "@/lib/barcodes";
@@ -552,7 +552,7 @@ export default async function handler(req, res) {
       // A child that follows its pack gets its cost from the pack, whatever was sent
       const followsParent = hasOwn(updateData, "costFromParent")
         ? Boolean(updateData.costFromParent)
-        : Boolean(existingProduct.costFromParent);
+        : followsPackCost(existingProduct);
 
       if (followsParent && isDerivedChild(existingProduct)) {
         const derived = await resolveChildCost({ ...existingProduct, ...updateData, costFromParent: true });
@@ -699,17 +699,22 @@ export default async function handler(req, res) {
         }
       }
 
+      // A pack's children are re-priced from its cost, and listed back so the products list can
+      // show their new cost straight away instead of the old one until the next full reload
+      let linkedChildren;
       if (updated.packType === "pack") {
         await deriveChildrenForParent(updated._id);
         if (["costPrice", "qtyPerPack"].some((field) => hasOwn(updateData, field))) {
           await syncChildCostsForParent(updated._id);
         }
+        linkedChildren = await linkedChildrenOf(updated._id);
       }
 
       return res.json({
         success: true,
         message: "Product updated successfully",
         data: updated,
+        ...(linkedChildren ? { linkedChildren } : {}),
       });
     }
 

@@ -5,75 +5,9 @@ import Nav from "@/components/Nav";
 import NavBar from "@/components/NavBar";
 import Loader from "@/components/Loader";
 import AccessDeniedState from "@/components/AccessDeniedState";
+import { getRequiredPermission } from "@/lib/navigation";
 
 const inter = Inter({ subsets: ["latin"] });
-
-// Map route prefixes to required permission keys
-const ROUTE_PERMISSIONS = {
-  "/setup/users": "setup.users",
-  "/setup/assets": "setup.assets",
-  "/setup/setup": "setup.company",
-  "/setup/Hero-Promo-setup": "setup.hero-promo",
-  "/setup/receipts": "setup.receipts",
-  "/setup/pos-tenders": "setup.pos-tenders",
-  "/setup/location-items": "setup.location-items",
-  "/setup": "setup",
-  "/manage/staff-roles": "manage.staff-roles",
-  "/manage/staff": "manage.staff",
-  "/manage/vendors": "manage.vendors",
-  "/manage/purchase-orders": "manage.purchase-orders",
-  "/manage/products": "manage.products",
-  "/manage/product-import": "manage.products",
-  "/manage/archived": "manage.archived",
-  "/manage/categories": "manage.categories",
-  "/manage/promotions-management": "manage.customer-promotions",
-  "/manage/promotions": "manage.promotions",
-  "/manage/orders": "manage.orders",
-  "/manage/customers": "manage.customers",
-  "/manage/campaigns": "manage.campaigns",
-  "/manage": "manage",
-  "/stock/management": "stock.management",
-  "/stock/movement": "stock.movement",
-  "/stock/stock-history-levels": "stock.management",
-  "/stock/stock-take-report": "stock.stock-take-report",
-  "/stock/stock-take": "stock.stock-take",
-  "/stock/expiration-report": "stock.expiration-report",
-  "/stock": "stock",
-  "/reporting/sales-report": "reporting.sales-report",
-  "/reporting/end-of-day-report": "reporting.eod",
-  "/reporting/transaction-report": ["reporting.transaction-report", "reporting.transactions"],
-  "/reporting/reporting": "reporting.sales-report",
-  "/reporting": "reporting",
-  "/expenses/expenses": "expenses.entry",
-  "/expenses/analysis": "expenses.analysis",
-  "/expenses": "expenses",
-  // The tax pages live under /accounting but are reached from the Expenses
-  // menu, so either permission opens them.
-  "/accounting/tax-analysis": ["accounting.tax-analysis", "expenses.tax-analysis"],
-  "/accounting/tax-personal": ["accounting.tax-personal", "expenses.tax-personal"],
-  "/accounting/chart-of-accounts": "accounting.chart-of-accounts",
-  "/accounting/journal-entries": "accounting.journal-entries",
-  "/accounting/general-ledger": "accounting.general-ledger",
-  "/accounting/reports": "accounting.trial-balance",
-  "/accounting/trial-balance": "accounting.trial-balance",
-  "/accounting/profit-loss": "accounting.profit-loss",
-  "/accounting/balance-sheet": "accounting.balance-sheet",
-  "/accounting": "accounting",
-  "/products": "manage.products",
-  "/memo": "manage.purchase-orders",
-  "/support": "support",
-};
-
-function getRequiredPermission(pathname) {
-  // Check most specific routes first (longer paths first)
-  const sorted = Object.keys(ROUTE_PERMISSIONS).sort((a, b) => b.length - a.length);
-  for (const prefix of sorted) {
-    if (pathname.startsWith(prefix)) {
-      return ROUTE_PERMISSIONS[prefix];
-    }
-  }
-  return null; // No permission required (home, etc.)
-}
 
 export default function Layout({ children, title = "Dashboard" }) {
   const router = useRouter();

@@ -108,7 +108,8 @@ export default function ProductForm(props) {
   const [qtyPerPack, setQtyPerPack] = useState(props.qtyPerPack ?? 1);
   const [childSalePrice, setChildSalePrice] = useState(props.childSalePrice ?? "");
   const [isLinkedChild, setIsLinkedChild] = useState(isDerivedChild(props));
-  const [costFromParent, setCostFromParent] = useState(Boolean(props.costFromParent));
+  // A linked child follows its pack's cost unless it was set to keep its own (lib/childPricing.js)
+  const [costFromParent, setCostFromParent] = useState(props.costFromParent !== false);
   const [parentPack, setParentPack] = useState(null);
   // Existing products converted to a pack usually get existing products linked as children instead
   const [autoCreateUnitChild, setAutoCreateUnitChild] = useState(!props._id);
@@ -162,7 +163,7 @@ export default function ProductForm(props) {
     setPackType(props.packType || "unit");
     setQtyPerPack(props.qtyPerPack ?? 1);
     setChildSalePrice(props.childSalePrice ?? "");
-    setCostFromParent(Boolean(props.costFromParent));
+    setCostFromParent(props.costFromParent !== false);
     setIsLinkedChild(isDerivedChild(props));
     setAutoCreateUnitChild(!props._id);
     setSelectedLocations(props.locations || []);
@@ -298,7 +299,7 @@ export default function ProductForm(props) {
     if (linkedAsChild) {
       setPackType("unit");
       setQtyPerPack(1);
-      if (current.costFromParent) setCostFromParent(true);
+      setCostFromParent(current.costFromParent !== false);
     } else {
       setCostFromParent(false);
     }

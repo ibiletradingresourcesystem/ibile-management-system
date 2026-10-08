@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/router";
+import { ChevronDown, SlidersHorizontal, Trash2 } from "lucide-react";
 import Layout from "@/components/Layout";
 import { formatCurrency } from "@/lib/format";
 import { Loader } from "@/components/ui";
@@ -1063,13 +1064,24 @@ function PackQuantityInput({ value, packSize, onChange, disabled = false, compac
   );
 }
 
+/**
+ * One product on the movement. The row holds what is checked line by line: the product, its rate,
+ * the quantity being moved (packs and units), the line total, and remove. Prices, margin, expiry,
+ * stock on hand and where the line came from open under "Price & expiry", so a delivery of thirty
+ * products reads as a list instead of a wall of figures. Anything wrong with a line still shows
+ * on the row.
+ */
 function MovementLine({ line, isAdmin, issues, saving, onQuantity, onExpiry, onPrice, onSavePrice, onRemove }) {
+  const [open, setOpen] = useState(false);
   const pack = isPackProduct(line);
   const packSize = getPackSize(line);
   const cost = Number(line.costPrice) || 0;
   const margin = marginOf(line);
   const lineTotal = cost * (Number(line.quantity) || 0);
   const invalidQty = !(Number(line.quantity) > 0);
+  const errors = issues.filter((issue) => issue.tone === "error");
+  // Something under "Price & expiry" wants a look: a warning, or a price not saved yet
+  const needsLook = line.priceDirty || issues.some((issue) => issue.tone === "warning");
 
   const toneClass = {
     error: "text-red-600",
@@ -1078,12 +1090,70 @@ function MovementLine({ line, isAdmin, issues, saving, onQuantity, onExpiry, onP
   };
 
   return (
-    <div className="rounded-lg border theme-border-soft bg-white p-3 md:p-4 space-y-3">
-      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
-        {/* Identity and prices */}
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900 text-sm md:text-base">{line.name}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs md:text-sm text-gray-600">
+    <div className={`rounded-lg border bg-white transition-shadow ${open ? "border-[color:var(--border-strong)] shadow-sm" : "theme-border-soft"}`}>
+      <div className="grid grid-cols-2 items-center gap-x-4 gap-y-2 p-3 lg:grid-cols-[minmax(0,1fr)_7rem_15rem_7rem_auto]">
+        {/* Product */}
+        <div className="order-1 col-span-2 min-w-0 lg:order-none lg:col-span-1">
+          <p className="font-semibold text-gray-900 text-sm md:text-base break-words">{line.name}</p>
+          {pack && (
+            <span className="mt-0.5 inline-block rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">
+              Pack of {packSize}
+            </span>
+          )}
+        </div>
+
+        {/* Rate */}
+        <div className="order-2 lg:order-none lg:text-right">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400">{pack ? "Rate / pack" : "Rate"}</p>
+          <p className="text-sm font-medium text-gray-900">{formatCurrency(cost)}</p>
+        </div>
+
+        {/* Quantity: packs and units */}
+        <div className="order-4 col-span-2 lg:order-none lg:col-span-1">
+          <PackQuantityInput value={line.quantity} packSize={pack ? packSize : 1} onChange={onQuantity} compact invalid={invalidQty} />
+        </div>
+
+        {/* Line total */}
+        <div className="order-3 text-right lg:order-none">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400">Line total</p>
+          <p className="text-sm font-semibold text-gray-900">{formatCurrency(lineTotal)}</p>
+        </div>
+
+        <div className="order-5 col-span-2 flex items-center justify-end gap-1.5 lg:order-none lg:col-span-1">
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+              open ? "border-[color:var(--border-strong)] bg-gray-50 text-gray-900" : "theme-border-soft text-gray-700 hover:bg-gray-50"
+            }`}
+            title="Cost, selling price, margin, expiry date and stock on hand"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+            Price &amp; expiry
+            {needsLook && <span className="h-2 w-2 rounded-full bg-amber-500" aria-label="Needs a look" />}
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remove ${line.name}`}
+            title="Remove from this movement"
+            className="rounded-lg bg-red-50 p-2 text-red-600 transition hover:bg-red-100"
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+      {/* Problems that stop the movement stay on the row */}
+      {errors.length > 0 && !open && (
+        <p className="px-3 pb-2 -mt-1 text-xs text-red-600">{errors.map((issue) => issue.text).join(" ")}</p>
+      )}
+
+      {open && (
+        <div className="space-y-3 border-t theme-border-soft px-3 py-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
             <span>
               Cost {formatCurrency(cost)}
               {pack && <span className="text-gray-400"> / pack · {formatCurrency(cost / packSize)} / unit</span>}
@@ -1092,79 +1162,66 @@ function MovementLine({ line, isAdmin, issues, saving, onQuantity, onExpiry, onP
             <span className="inline-flex items-center gap-1">
               Margin <MarginBadge value={margin} />
             </span>
-            {pack && <span className="text-gray-500">Pack of {packSize}</span>}
+            <span>
+              In stock (all locations): <StockBreakdown quantity={line.stockOnHand} product={line} />
+            </span>
+            {pack && (
+              <span>
+                Moving: <strong className="text-gray-800">{formatPackQuantity(line.quantity, packSize)}</strong>
+              </span>
+            )}
+            {line.receivedAs && <span>Received as {line.receivedAs}</span>}
           </div>
-          <p className="mt-1 text-xs text-gray-500">
-            In stock (all locations): <StockBreakdown quantity={line.stockOnHand} product={line} />
-            {line.receivedAs && <span> · received as {line.receivedAs}</span>}
-          </p>
-        </div>
 
-        {/* Quantity, total, remove */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <PackQuantityInput value={line.quantity} packSize={pack ? packSize : 1} onChange={onQuantity} compact invalid={invalidQty} />
-          <div className="text-right min-w-[92px]">
-            <p className="text-[10px] uppercase tracking-wide text-gray-400">Line total</p>
-            <p className="font-semibold text-gray-900">{formatCurrency(lineTotal)}</p>
+          {/* Expiry */}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs font-medium text-gray-600">
+              Expiry date
+              <input
+                type="date"
+                value={toDateInput(line.expiryDate)}
+                onChange={(e) => onExpiry(e.target.value)}
+                className="form-input !w-auto !py-1 text-xs"
+              />
+            </label>
+            {line.expiryDate && (
+              <button type="button" onClick={() => onExpiry("")} className="text-xs text-gray-500 underline hover:text-gray-700">
+                Clear
+              </button>
+            )}
           </div>
-          <button onClick={onRemove} className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-2 rounded-lg transition font-medium text-sm">
-            Remove
-          </button>
+
+          {/* Prices (admins) */}
+          {isAdmin && (
+            <div className="flex flex-wrap items-end gap-3">
+              <PriceField label={pack ? "Cost / pack" : "Cost"} value={line.costPrice} onChange={(v) => onPrice("costPrice", v)} />
+              <PriceField label={pack ? "Sell / pack" : "Sell"} value={line.salePriceIncTax} onChange={(v) => onPrice("salePriceIncTax", v)} />
+              <PriceField
+                label="Margin %"
+                value={line.marginDraft !== undefined ? line.marginDraft : roundMoney(margin)}
+                onChange={(v) => onPrice("margin", v)}
+                step="0.1"
+              />
+              <button
+                onClick={onSavePrice}
+                disabled={saving || !line.priceDirty}
+                className="btn-action btn-action-primary btn-sm disabled:opacity-50"
+              >
+                {saving ? "Saving..." : line.priceDirty ? "Save Price" : "Saved"}
+              </button>
+            </div>
+          )}
+
+          {issues.length > 0 && (
+            <ul className="space-y-0.5">
+              {issues.map((issue, i) => (
+                <li key={i} className={`text-xs ${toneClass[issue.tone] || "text-gray-600"}`}>
+                  {issue.text}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      </div>
-
-      {/* Expiry, editable on the line */}
-      <div className="flex flex-wrap items-center gap-3 pt-3 border-t theme-border-soft">
-        <label className="flex items-center gap-2 text-xs font-medium text-gray-600">
-          Expiry date
-          <input
-            type="date"
-            value={toDateInput(line.expiryDate)}
-            onChange={(e) => onExpiry(e.target.value)}
-            className="form-input !w-auto !py-1 text-xs"
-          />
-        </label>
-        {line.expiryDate && (
-          <button type="button" onClick={() => onExpiry("")} className="text-xs text-gray-500 hover:text-gray-700 underline">
-            Clear
-          </button>
-        )}
-        {pack && (
-          <span className="text-xs text-gray-500">
-            Moving: <strong className="text-gray-800">{formatPackQuantity(line.quantity, packSize)}</strong>
-          </span>
-        )}
-      </div>
-
-      {/* Admin price editor */}
-      {isAdmin && (
-        <div className="flex flex-wrap items-end gap-3 pt-3 border-t theme-border-soft">
-          <PriceField label={pack ? "Cost / pack" : "Cost"} value={line.costPrice} onChange={(v) => onPrice("costPrice", v)} />
-          <PriceField label={pack ? "Sell / pack" : "Sell"} value={line.salePriceIncTax} onChange={(v) => onPrice("salePriceIncTax", v)} />
-          <PriceField
-            label="Margin %"
-            value={line.marginDraft !== undefined ? line.marginDraft : roundMoney(margin)}
-            onChange={(v) => onPrice("margin", v)}
-            step="0.1"
-          />
-          <button
-            onClick={onSavePrice}
-            disabled={saving || !line.priceDirty}
-            className="btn-action btn-action-primary btn-sm disabled:opacity-50"
-          >
-            {saving ? "Saving..." : line.priceDirty ? "Save Price" : "Saved"}
-          </button>
-        </div>
-      )}
-
-      {issues.length > 0 && (
-        <ul className="space-y-0.5">
-          {issues.map((issue, i) => (
-            <li key={i} className={`text-xs ${toneClass[issue.tone] || "text-gray-600"}`}>
-              {issue.text}
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

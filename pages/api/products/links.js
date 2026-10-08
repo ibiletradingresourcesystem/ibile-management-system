@@ -7,7 +7,8 @@
  *
  * GET    ?productId=                                            → { product, parent, children }
  * POST   { parentId, childId, unitsPerChild, moveStockToParent, costFromParent } → link a child
- * PATCH  { childId, unitsPerChild }                              → change units in a child
+ * PATCH  { childId, unitsPerChild?, costFromParent? }            → change units in a child, or
+ *                                                                  whether it follows the pack's cost
  * DELETE ?childId=                                               → unlink a child (it starts at 0 stock)
  */
 import { mongooseConnect } from "@/lib/mongodb";
@@ -179,8 +180,23 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "PATCH") {
-      const { childId, unitsPerChild } = req.body || {};
+      const { childId, unitsPerChild, costFromParent } = req.body || {};
       if (!isObjectId(childId)) return fail(res, 400, "Valid childId is required");
+
+      // Following the pack's cost, or keeping its own: switched from the pack's linked products
+      if (costFromParent !== undefined && unitsPerChild === undefined) {
+        const linkedChild = await Product.findById(childId).select(SUMMARY_FIELDS).lean();
+        if (!linkedChild || !isDerivedChild(linkedChild)) return fail(res, 404, "Linked child product not found");
+        await Product.updateOne({ _id: linkedChild._id }, { $set: { costFromParent: Boolean(costFromParent) } });
+        await syncChildCostsForParent(linkedChild.parentProduct);
+        return res.json({
+          success: true,
+          message: costFromParent
+            ? `"${linkedChild.name}" now takes its cost from the pack`
+            : `"${linkedChild.name}" now keeps its own cost`,
+          data: await loadRelations(linkedChild.parentProduct),
+        });
+      }
 
       const units = parseUnits(unitsPerChild);
       if (!units) return fail(res, 400, "Units per child must be a whole number of 1 or more");
