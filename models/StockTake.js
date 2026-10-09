@@ -69,6 +69,22 @@ const StockTakeSchema = new Schema(
     approvedAt: { type: Date, default: null },
     adjustmentApplied: { type: Boolean, default: false },
     adjustedAt: { type: Date, default: null },
+
+    // Sent from a phone part-way through (pages/api/stock-take/mobile/send.js): the counted lines
+    // became a stock take of their own (sentFrom on it), and the rest stayed here to count
+    sentFrom: { type: Schema.Types.ObjectId, ref: "StockTake", default: null, index: true },
+    sentBy: { type: String, default: "" },
+    sentAt: { type: Date, default: null },
+    sentParts: [
+      {
+        _id: false,
+        stockTake: { type: Schema.Types.ObjectId, ref: "StockTake" },
+        reference: String,
+        lines: Number,
+        by: String,
+        at: Date,
+      },
+    ],
   },
   { timestamps: true }
 );

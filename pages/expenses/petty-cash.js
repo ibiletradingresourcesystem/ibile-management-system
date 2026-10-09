@@ -163,10 +163,7 @@ export default function PettyCashPage() {
               editingVendor={editingVendor}
               onSubmit={editingVendor ? handleUpdateVendor : handleAddVendor}
               onCancel={() => {
-                if (editingVendor) {
-                  // If editing, delete the vendor when cancel is clicked
-                  handleDeleteVendor(editingVendor._id);
-                }
+                // Cancel leaves the vendor as it was: it used to offer to delete the vendor being edited
                 setEditingVendor(null);
                 setTab("vendors");
               }}

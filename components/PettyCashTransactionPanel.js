@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { PERIOD_OPTIONS, filterByPeriod, periodLabel } from "@/lib/periodFilter";
+import { PERIOD_OPTIONS, periodLabel, periodRange } from "@/lib/periodFilter";
 import { apiClient } from "@/lib/api-client";
 import { CheckCircle } from "lucide-react";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
@@ -91,8 +91,28 @@ export default function PettyCashTransactionPanel({
   const [tab, setTab] = useState("active"); // active | paid
   const [filterVendor, setFilterVendor] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
-  // Paid orders are read a period at a time; this month is what is usually asked for.
+  // Paid orders are read a period at a time; this month is what is usually asked for. "custom"
+  // takes the two dates below. The server sends only what was paid in the period.
   const [paidPeriod, setPaidPeriod] = useState("thisMonth");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [paidCountAllTime, setPaidCountAllTime] = useState(null);
+
+  // The window paid orders are read over: [from, to), or none for till date
+  const paidRange = useMemo(() => {
+    if (paidPeriod !== "custom") return periodRange(paidPeriod);
+    if (!customFrom && !customTo) return null;
+    const from = customFrom ? new Date(`${customFrom}T00:00:00`) : null;
+    const to = customTo ? new Date(`${customTo}T00:00:00`) : null;
+    if (to) to.setDate(to.getDate() + 1); // the whole of the last day
+    return { from, to };
+  }, [paidPeriod, customFrom, customTo]);
+  const paidRangeLabel =
+    paidPeriod !== "custom"
+      ? periodLabel(paidPeriod)
+      : customFrom || customTo
+        ? `${customFrom ? formatDate(customFrom) : "…"} – ${customTo ? formatDate(customTo) : "today"}`
+        : "Till Date";
 
   // Order form state
   const [showForm, setShowForm] = useState(false);
@@ -144,15 +164,18 @@ export default function PettyCashTransactionPanel({
       if (filterVendor) params.vendorId = filterVendor;
       if (filterStatus) params.status = filterStatus;
       if (currentLocation) params.location = currentLocation;
+      if (paidRange?.from) params.paidFrom = paidRange.from.toISOString();
+      if (paidRange?.to) params.paidTo = paidRange.to.toISOString();
 
       const { data } = await apiClient.get("/api/petty-cash-transactions", { params });
       setTransactions(data.transactions || []);
+      setPaidCountAllTime(typeof data.paidCountAllTime === "number" ? data.paidCountAllTime : null);
     } catch (err) {
       console.error("Failed to load transactions:", err);
     } finally {
       setLoading(false);
     }
-  }, [filterVendor, filterStatus, currentLocation]);
+  }, [filterVendor, filterStatus, currentLocation, paidRange]);
 
   useEffect(() => {
     loadTransactions();
@@ -341,7 +364,8 @@ export default function PettyCashTransactionPanel({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `petty-cash-paid-${new Date().toISOString().split("T")[0]}.csv`;
+    const periodSlug = paidRangeLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    a.download = `petty-cash-paid-${periodSlug || "all"}-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -353,19 +377,77 @@ export default function PettyCashTransactionPanel({
     [transactions]
   );
 
-  // A paid order belongs to the day the money went out, not the day it was raised.
-  const paidTransactions = useMemo(
-    () => filterByPeriod(allPaidTransactions, paidPeriod, (t) => t.paidAt || t.requestDate || t.createdAt),
-    [allPaidTransactions, paidPeriod]
-  );
+  // A paid order belongs to the day the money went out, not the day it was raised. The server
+  // already sent only the period's paid orders; this keeps the list in step while it reloads.
+  const paidTransactions = useMemo(() => {
+    if (!paidRange) return allPaidTransactions;
+    return allPaidTransactions.filter((t) => {
+      const when = new Date(t.paidAt || t.requestDate || t.createdAt);
+      return (!paidRange.from || when >= paidRange.from) && (!paidRange.to || when < paidRange.to);
+    });
+  }, [allPaidTransactions, paidRange]);
 
   const totalOrdered = activeTransactions.reduce((s, t) => s + t.amount, 0);
   const totalPaid = paidTransactions.reduce((s, t) => s + t.amount, 0);
+  const paidTotalAllTimeCount = paidCountAllTime ?? allPaidTransactions.length;
+
+  // Who was paid how much in the period, biggest first, for a quick review
+  const paidByVendor = useMemo(() => {
+    const rows = new Map();
+    for (const t of paidTransactions) {
+      const key = t.vendorName || "Unknown vendor";
+      const row = rows.get(key) || { vendorName: key, count: 0, total: 0 };
+      row.count += 1;
+      row.total += Number(t.amount) || 0;
+      rows.set(key, row);
+    }
+    return [...rows.values()].sort((a, b) => b.total - a.total);
+  }, [paidTransactions]);
 
   const displayList = tab === "active" ? activeTransactions : paidTransactions;
 
   return (
     <div className="space-y-4">
+      {/* The period paid orders and the paid totals are read over — on every tab */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+        <label htmlFor="petty-paid-period" className="text-sm font-medium text-emerald-800">Paid in</label>
+        <select
+          id="petty-paid-period"
+          value={paidPeriod}
+          onChange={(e) => setPaidPeriod(e.target.value)}
+          className="border rounded px-2 py-1.5 text-sm bg-white !w-auto"
+        >
+          {PERIOD_OPTIONS.map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+          <option value="custom">Custom dates…</option>
+        </select>
+        {paidPeriod === "custom" && (
+          <>
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo || undefined}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              aria-label="Paid from"
+              className="border rounded px-2 py-1 text-sm bg-white !w-auto"
+            />
+            <span className="text-sm text-emerald-800">to</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom || undefined}
+              onChange={(e) => setCustomTo(e.target.value)}
+              aria-label="Paid to"
+              className="border rounded px-2 py-1 text-sm bg-white !w-auto"
+            />
+          </>
+        )}
+        <span className="text-xs text-emerald-700">
+          {loading ? "Loading…" : `${paidTransactions.length} paid order${paidTransactions.length === 1 ? "" : "s"} · ${formatCurrency(totalPaid)}`}
+        </span>
+      </div>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
@@ -379,12 +461,12 @@ export default function PettyCashTransactionPanel({
         <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200">
           <p className="text-xs text-emerald-600 font-medium">Paid Orders</p>
           <p className="text-lg font-bold text-emerald-800">{paidTransactions.length}</p>
-          <p className="text-[10px] text-emerald-600/80">{periodLabel(paidPeriod)}</p>
+          <p className="text-[10px] text-emerald-600/80">{paidRangeLabel}</p>
         </div>
         <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200">
           <p className="text-xs text-emerald-600 font-medium">Total Paid</p>
           <p className="text-lg font-bold text-emerald-800">{formatCurrency(totalPaid)}</p>
-          <p className="text-[10px] text-emerald-600/80">{periodLabel(paidPeriod)}</p>
+          <p className="text-[10px] text-emerald-600/80">{paidRangeLabel}</p>
         </div>
       </div>
 
@@ -393,7 +475,7 @@ export default function PettyCashTransactionPanel({
         <select
           value={filterVendor}
           onChange={(e) => setFilterVendor(e.target.value)}
-          className="border rounded px-2 py-1.5 text-sm"
+          className="border rounded px-2 py-1.5 text-sm !w-auto"
         >
           <option value="">All Vendors</option>
           {vendors.map((v) => (
@@ -405,7 +487,7 @@ export default function PettyCashTransactionPanel({
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="border rounded px-2 py-1.5 text-sm"
+          className="border rounded px-2 py-1.5 text-sm !w-auto"
         >
           <option value="">All Status</option>
           <option value="Ordered">Ordered</option>
@@ -413,20 +495,6 @@ export default function PettyCashTransactionPanel({
           <option value="Paid">Paid</option>
           <option value="Cancelled">Cancelled</option>
         </select>
-        {/* Only the paid side is read a period at a time, so the picker is only
-            offered there — an open order is not something to hide by date. */}
-        {tab === "paid" && (
-          <select
-            value={paidPeriod}
-            onChange={(e) => setPaidPeriod(e.target.value)}
-            aria-label="Period for paid orders"
-            className="border rounded px-2 py-1.5 text-sm"
-          >
-            {PERIOD_OPTIONS.map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
-            ))}
-          </select>
-        )}
         <button
           onClick={() => {
             setFormData(prev => ({
@@ -471,9 +539,33 @@ export default function PettyCashTransactionPanel({
               : "border-transparent text-gray-500 hover:text-gray-700"
           }`}
         >
-          Paid ({paidTransactions.length}{paidPeriod !== "tillDate" && allPaidTransactions.length !== paidTransactions.length ? ` of ${allPaidTransactions.length}` : ""})
+          Paid ({paidTransactions.length}{paidRange && paidTotalAllTimeCount !== paidTransactions.length ? ` of ${paidTotalAllTimeCount}` : ""})
         </button>
       </div>
+
+      {/* The period's payments by vendor */}
+      {tab === "paid" && paidByVendor.length > 0 && (
+        <div className="rounded-lg border border-emerald-200 bg-white">
+          <p className="border-b border-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800">
+            Paid by vendor · {paidRangeLabel}
+          </p>
+          <ul className="divide-y divide-gray-100">
+            {paidByVendor.slice(0, 10).map((row) => (
+              <li key={row.vendorName} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1 truncate text-gray-800">{row.vendorName}</span>
+                <span className="text-xs text-gray-500">{row.count} order{row.count === 1 ? "" : "s"}</span>
+                <span className="w-28 text-right font-semibold text-gray-900">{formatCurrency(row.total)}</span>
+                <span className="hidden w-12 text-right text-xs text-gray-500 sm:inline">
+                  {totalPaid > 0 ? `${Math.round((row.total / totalPaid) * 100)}%` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {paidByVendor.length > 10 && (
+            <p className="px-3 py-2 text-xs text-gray-500">and {paidByVendor.length - 10} more vendor{paidByVendor.length - 10 === 1 ? "" : "s"}</p>
+          )}
+        </div>
+      )}
 
       {/* Order Form Modal - Refactored */}
       {showForm && (

@@ -23,23 +23,11 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import StockTake from "@/models/StockTake";
 import Product from "@/models/Product";
-import { verifyToken } from "@/lib/jwt";
-import { normalizeStaffRole } from "@/lib/pos-permissions";
-
-const MOBILE_SCOPE = "stock-take-mobile";
+import { parseMobileToken as parseToken, seesSystemQty } from "@/lib/stockTakeMobile";
+import { recalcSummary } from "@/lib/stockTakeCounts";
 
 /** Most matches anyone needs to choose from on a phone screen. */
 const SEARCH_LIMIT = 12;
-
-/** The signed token issued by /api/stock-take/mobile/auth. */
-function parseToken(authHeader) {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-  const session = verifyToken(authHeader.slice(7));
-  return session && session.scope === MOBILE_SCOPE ? session : null;
-}
-
-/** Only an admin is shown what the system holds. A token from before roles were kept is not. */
-const seesSystemQty = (session) => normalizeStaffRole(session?.role || "staff") === "admin";
 
 /** A line as the phone holds it. */
 function publicItem(item, withSystem) {
@@ -297,8 +285,28 @@ export default async function handler(req, res) {
       const saved = [];
       const rejected = [];
 
+      // A line sent to the manager a moment ago (mobile/send.js) moved to the sent part: a count or
+      // correction made on another phone meanwhile goes there, while the manager has not approved it
+      const missing = counts.some((entry) => !stockTake.items.id(entry?.itemId));
+      const sentParts = missing
+        ? await StockTake.find({ sentFrom: stockTake._id, status: "completed", adjustmentApplied: { $ne: true } })
+        : [];
+      const changedParts = new Set();
+
       for (const entry of counts) {
-        const item = stockTake.items.id(entry?.itemId);
+        let item = stockTake.items.id(entry?.itemId);
+        if (!item) {
+          const part = sentParts.find((candidate) => candidate.items.id(entry?.itemId));
+          if (part && entry.clear) {
+            // A sent stock take has every line counted; taking one off is the manager's call
+            rejected.push({ itemId: entry.itemId, reason: "Already sent to the manager — ask them to change it" });
+            continue;
+          }
+          if (part) {
+            item = part.items.id(entry.itemId);
+            changedParts.add(part);
+          }
+        }
         if (!item) {
           rejected.push({ itemId: entry?.itemId, reason: "Not on this stock take" });
           continue;
@@ -337,6 +345,10 @@ export default async function handler(req, res) {
 
       if (updated > 0) {
         await stockTake.save();
+        for (const part of changedParts) {
+          recalcSummary(part);
+          await part.save();
+        }
       }
 
       // The saved lines and fresh totals, so the phone needs no second round trip

@@ -4,7 +4,7 @@ import { Bar, Line, Pie } from "react-chartjs-2";
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/router";
 import { apiClient } from "@/lib/api-client";
-import { showAlertDialog } from "@/lib/dialogs";
+import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { motion } from "framer-motion";
 import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
@@ -673,18 +673,29 @@ export default function Home() {
     ],
   };
 
-  const handleDailyMail = async () => {
+  // The monthly business report (it also goes out by itself on the 1st, for the month just ended)
+  const handleMonthlyMail = async () => {
+    const lastMonth = new Date();
+    lastMonth.setDate(1);
+    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    const label = lastMonth.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    const ok = await showConfirmDialog({
+      title: "Email the monthly report?",
+      message: `The business report for ${label} goes to the report email address. It takes up to a minute to put together.`,
+      confirmLabel: "Send report",
+    });
+    if (!ok) return;
     try {
-      const response = await apiClient.post("/api/daily-mail");
+      const response = await apiClient.post("/api/monthly-report-mail", null, { timeout: 90000 });
       await showAlertDialog({
-        title: "Daily email sent",
-        message: `Sent to: ${response.data.sentTo}`,
+        title: "Monthly report sent",
+        message: `${label} — sent to: ${response.data.sentTo}`,
         tone: "success",
       });
     } catch (error) {
       await showAlertDialog({
-        title: "Daily email failed",
-        message: error.response?.data?.error || error.message,
+        title: "Monthly report failed",
+        message: error.response?.data?.error || error.response?.data?.message || error.message,
         tone: "danger",
       });
     }
@@ -797,8 +808,8 @@ export default function Home() {
             type="button"
             className="inline-flex items-center gap-2 border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-white hover:border-gray-300 hover:shadow"
             style={{ borderRadius: 'var(--radius-lg)' }}
-            onClick={handleDailyMail}
-            title="Send daily mail report"
+            onClick={handleMonthlyMail}
+            title="Email last month's business report"
           >
             <Mail className="h-3.5 w-3.5" />
             Mail report

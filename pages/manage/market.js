@@ -87,57 +87,60 @@ export default function MarketPage() {
   return (
     <Layout title="Market">
       <div className="page-container">
-        <div className="page-header">
-          <div>
-            <h1 className="page-title">Market</h1>
-            <p className="page-subtitle">What to buy at the market, sorted by section and vendor.</p>
+        {/* The same column as Vendors and Purchase Orders beside it */}
+        <div className="page-content">
+          <div className="page-header">
+            <div>
+              <h1 className="page-title">Market</h1>
+              <p className="page-subtitle">What to buy at the market, sorted by section and vendor.</p>
+            </div>
           </div>
-        </div>
 
-        <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl border theme-border-soft bg-white p-1" role="tablist">
-          {TABS.map(({ key, label, short, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              onClick={() => changeTab(key)}
-              className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold ${tab === key ? "theme-badge-soft" : "text-gray-600 hover:bg-gray-50"}`}
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              <span className="sm:hidden">{short}</span>
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          ))}
-        </div>
+          <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl border theme-border-soft bg-white p-1" role="tablist">
+            {TABS.map(({ key, label, short, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => changeTab(key)}
+                className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold ${tab === key ? "theme-badge-soft" : "text-gray-600 hover:bg-gray-50"}`}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                <span className="sm:hidden">{short}</span>
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
+          </div>
 
-        {tab === "list" && (
-          <MarketListTab
-            setup={setup}
-            canSetup={canSetup}
-            onOpenSetup={() => changeTab("setup")}
-            onGenerated={(list) => {
-              setTab("history");
-              setOpenListId(String(list._id));
-              router.replace({ pathname: "/manage/market", query: { tab: "history", list: String(list._id) } }, undefined, { shallow: true });
-            }}
-          />
-        )}
-        {tab === "history" && (
-          <MarketHistoryTab
-            setup={setup}
-            openListId={openListId}
-            onListChange={(id) => {
-              setOpenListId(id);
-              router.replace({ pathname: "/manage/market", query: id ? { tab: "history", list: id } : { tab: "history" } }, undefined, { shallow: true });
-            }}
-            onCarried={(count) => {
-              showToastMessage({ title: "Market", text: `${count} item${count === 1 ? "" : "s"} put on the next list`, fallbackTone: "success" });
-              changeTab("list");
-            }}
-          />
-        )}
-        {tab === "setup" && <MarketSetupTab setup={setup} reload={loadSetup} canSetup={canSetup} />}
+          {tab === "list" && (
+            <MarketListTab
+              setup={setup}
+              canSetup={canSetup}
+              onOpenSetup={() => changeTab("setup")}
+              onGenerated={(list) => {
+                setTab("history");
+                setOpenListId(String(list._id));
+                router.replace({ pathname: "/manage/market", query: { tab: "history", list: String(list._id) } }, undefined, { shallow: true });
+              }}
+            />
+          )}
+          {tab === "history" && (
+            <MarketHistoryTab
+              setup={setup}
+              openListId={openListId}
+              onListChange={(id) => {
+                setOpenListId(id);
+                router.replace({ pathname: "/manage/market", query: id ? { tab: "history", list: id } : { tab: "history" } }, undefined, { shallow: true });
+              }}
+              onCarried={(count) => {
+                showToastMessage({ title: "Market", text: `${count} item${count === 1 ? "" : "s"} put on the next list`, fallbackTone: "success" });
+                changeTab("list");
+              }}
+            />
+          )}
+          {tab === "setup" && <MarketSetupTab setup={setup} reload={loadSetup} canSetup={canSetup} />}
+        </div>
       </div>
     </Layout>
   );

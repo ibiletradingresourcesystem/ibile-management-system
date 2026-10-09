@@ -2,13 +2,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import StockTake from "@/models/StockTake";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
-
-function generateRef() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
-  return `ST-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${rand}`;
-}
+import { generateStockTakeRef as generateRef } from "@/lib/stockTakeCounts";
 
 function buildStockTakeTitle(locationName) {
   const dateLabel = new Date().toLocaleDateString("en-GB", {

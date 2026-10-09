@@ -1,8 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/daily-mail",
-      "schedule": "0 0 * * *"
+      "path": "/api/monthly-report-mail",
+      "schedule": "0 6 1 * *"
     }
   ]
 }

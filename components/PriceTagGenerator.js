@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatPackQuantity, getPackSize, isPackProduct } from "@/lib/packUnits";
@@ -772,6 +773,12 @@ export default function PriceTagGenerator({
                             <div className="mt-1 flex items-baseline justify-between gap-2">
                               <p className="text-sm font-semibold theme-accent-text">
                                 {formatPrice(product.salePriceIncTax ?? product.sellingPrice ?? product.price ?? 0, currency)}
+                                {/* On "Price Changed": what the shelf tag says now, or that it is new */}
+                                {product.priceChangedAt && (
+                                  <span className="ml-1.5 text-[11px] font-medium text-gray-500">
+                                    {Number(product.previousSalePrice) > 0 ? <>was <s>{formatPrice(product.previousSalePrice, currency)}</s></> : "new"}
+                                  </span>
+                                )}
                               </p>
                               {stockAware && (
                                 <span className={`text-[11px] font-medium whitespace-nowrap ${inStock ? "text-emerald-700" : "text-gray-400"}`}>
@@ -963,27 +970,6 @@ export default function PriceTagGenerator({
         </>
       )}
 
-      {/* Print styles */}
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          .print\\:hidden {
-            display: none !important;
-          }
-          .print-area {
-            visibility: visible;
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
-          .print-area * {
-            visibility: visible;
-          }
-        }
-      `}</style>
     </div>
   );
 }
@@ -996,9 +982,11 @@ function PriceTag({ tag, currency, brandName, size, tagIdx }) {
       className="border border-gray-400 bg-white flex flex-col justify-between overflow-hidden print:border print:border-gray-500"
       style={{
         width: "100%",
-        minHeight: size.height,
+        // Exactly this tall: a long name used to stretch its row and push the sheet onto a second page
+        height: size.height,
         padding: "4px 6px",
         pageBreakInside: "avoid",
+        breakInside: "avoid",
         boxSizing: "border-box",
       }}
     >
@@ -1178,14 +1166,33 @@ function PrintPreviewModal({ tags, currency, brandName, columns, onColumnsChange
   );
 }
 
-// Print sheet, A4. Mounted for one print: draws its barcodes, then opens the print dialog.
+/**
+ * Print sheet, A4. Mounted for one print: draws its barcodes, then opens the print dialog.
+ *
+ * Each sheet is one A4 page exactly. It used to be at least 297mm tall inside the browser's own page
+ * margins, so every sheet ran a few millimetres onto a second page, which printed blank before the
+ * next sheet began. Now the browser's margins are off (@page), the sheet is 297mm and no more, the
+ * tags have a fixed height, and only the sheets are printed: the page behind them, though hidden,
+ * also took up paper.
+ */
 function PrintArea({ tags, currency, brandName, columns, onReady }) {
   const layout = PRINT_LAYOUTS[columns];
   const tagsPerPage = layout.cols * layout.rows;
   const pages = Math.ceil(tags.length / tagsPerPage);
   const areaRef = useRef(null);
+  const [host, setHost] = useState(null);
+
+  // Straight into <body>, so print can leave everything else out
+  useEffect(() => {
+    const element = document.createElement("div");
+    element.id = "price-tag-print";
+    document.body.appendChild(element);
+    setHost(element);
+    return () => element.remove();
+  }, []);
 
   useEffect(() => {
+    if (!host) return undefined;
     let cancelled = false;
     renderBarcodes(areaRef.current).then(() => {
       if (!cancelled) requestAnimationFrame(() => !cancelled && onReady());
@@ -1194,14 +1201,27 @@ function PrintArea({ tags, currency, brandName, columns, onReady }) {
       cancelled = true;
     };
     // Once per mount: a new print job remounts this with a new key.
-  }, []);
+  }, [host]);
 
-  return (
-    <div ref={areaRef} className="print-area hidden print:block" style={{ printColorAdjust: "exact" }}>
+  if (!host) return null;
+  return createPortal(
+    <div ref={areaRef} className="print-area" style={{ printColorAdjust: "exact", WebkitPrintColorAdjust: "exact" }}>
+      <style>{`
+        #price-tag-print { display: none; }
+        @media print {
+          @page { size: A4 portrait; margin: 0; }
+          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+          body > *:not(#price-tag-print) { display: none !important; }
+          #price-tag-print { display: block !important; }
+          /* globals.css hides everything in print but #print-section */
+          #price-tag-print, #price-tag-print * { visibility: visible !important; }
+        }
+      `}</style>
       {Array.from({ length: pages }).map((_, pageNum) => {
         const start = pageNum * tagsPerPage;
         const end = Math.min(start + tagsPerPage, tags.length);
         const pageTags = tags.slice(start, end);
+        const last = pageNum === pages - 1;
 
         return (
           <div
@@ -1209,11 +1229,16 @@ function PrintArea({ tags, currency, brandName, columns, onReady }) {
             style={{
               display: "grid",
               gridTemplateColumns: `repeat(${layout.cols}, 1fr)`,
-              gap: "4px",
-              pageBreakAfter: pageNum < pages - 1 ? "always" : "avoid",
+              gridAutoRows: layout.tagHeight,
+              gap: "1mm",
+              boxSizing: "border-box",
+              width: "210mm",
+              height: "297mm",
+              overflow: "hidden",
               padding: "10mm 12mm",
-              minHeight: "297mm",
               alignContent: "start",
+              breakAfter: last ? "auto" : "page",
+              pageBreakAfter: last ? "auto" : "always",
             }}
           >
             {pageTags.map((tag, i) => (
@@ -1229,6 +1254,7 @@ function PrintArea({ tags, currency, brandName, columns, onReady }) {
           </div>
         );
       })}
-    </div>
+    </div>,
+    host
   );
 }

@@ -130,6 +130,8 @@ export default function MobileStockTakePage() {
   const [online, setOnline] = useState(true);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
+  // Handing the count (or what is counted so far) to the manager
+  const [handing, setHanding] = useState(false);
   const [message, setMessage] = useState(null); // { tone, text }
 
   // What is on screen
@@ -491,6 +493,55 @@ export default function MobileStockTakePage() {
     return { total, counted, pending: total - counted, pct: total ? Math.round((counted / total) * 100) : 0 };
   }, [items]);
 
+  /**
+   * Send to the manager — also part-way through. The counted lines go for review now; the rest
+   * stay on this count, on this link, for later (api/stock-take/mobile/send.js).
+   */
+  const sendToManager = async () => {
+    if (handing || !token || !id) return;
+    const partial = progress.pending > 0;
+    const ok = window.confirm(
+      partial
+        ? `Send the ${progress.counted} counted line${progress.counted === 1 ? "" : "s"} to the manager now?\n\n` +
+            `The ${progress.pending} not counted stay here to count later. Their stock is not changed.`
+        : `Send this finished stock take (${progress.total} line${progress.total === 1 ? "" : "s"}) to the manager?\n\nCounting on it then closes.`
+    );
+    if (!ok) return;
+    setHanding(true);
+    try {
+      const res = await fetch(`/api/stock-take/mobile/send?id=${id}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        signOut({ ask: false, keepQueue: true });
+        return;
+      }
+      if (!res.ok) {
+        if (data.closed) setClosed(true);
+        setMessage({ tone: "error", text: data.error || "Could not send the stock take. Try again." });
+        return;
+      }
+      if (data.whole) {
+        setClosed(true);
+        setMessage({ tone: "success", text: `Sent. ${data.sent} line${data.sent === 1 ? " is" : "s are"} with the manager for review.` });
+        return;
+      }
+      setMessage({
+        tone: "success",
+        text:
+          `Sent ${data.sent} counted line${data.sent === 1 ? "" : "s"} to the manager (${data.reference}). ${data.left} left to count` +
+          (data.halfCounted ? `, including ${data.halfCounted} pack + each product${data.halfCounted === 1 ? "" : "s"} with one line still to count.` : "."),
+      });
+      // The sent lines have moved off this count: load it afresh
+      versionRef.current = "";
+      setActiveId(null);
+      await loadList();
+    } catch {
+      setMessage({ tone: "error", text: "No connection. Send it when the phone is back online." });
+    } finally {
+      setHanding(false);
+    }
+  };
+
   const activeItem = activeId ? byId.get(String(activeId)) : null;
 
   const findResults = useMemo(() => {
@@ -783,6 +834,19 @@ export default function MobileStockTakePage() {
           <div><strong>{progress.pending}</strong><span>Left</span></div>
           <div><strong>{progress.pct}%</strong><span>Done</span></div>
         </div>
+
+        {!closed && progress.counted > 0 && (
+          <div className="mst-send">
+            <button onClick={sendToManager} className="mst-btn is-ghost" disabled={handing || queueSize > 0 || !online}>
+              {handing
+                ? "Sending…"
+                : progress.pending === 0
+                  ? "Send finished count to manager"
+                  : `Send ${progress.counted} counted to manager`}
+            </button>
+            {(queueSize > 0 || !online) && <small>Counts still on this phone go first, then you can send.</small>}
+          </div>
+        )}
 
         {/* Connection and the queue of counts not sent yet */}
         {(closed || !online || queueSize > 0) && (
@@ -1201,6 +1265,10 @@ function MobileStockTakeStyles() {
         border: 1px solid currentColor; background: transparent; color: inherit;
         border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 700; flex-shrink: 0;
       }
+
+      .mst-send { padding: 10px 16px 4px; }
+      .mst-send .mst-btn { width: 100%; height: 44px; font-size: 14px; }
+      .mst-send small { display: block; margin-top: 6px; font-size: 11.5px; color: var(--mst-muted); text-align: center; }
 
       .mst-message {
         display: flex; align-items: center; justify-content: space-between; gap: 10px;

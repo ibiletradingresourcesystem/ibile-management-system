@@ -7,6 +7,7 @@ import Vendor from "@/models/Vendor";
 import { deriveChildQty } from "@/lib/syncPackQty";
 import { authMiddleware, isAdmin, isStaff } from "@/lib/auth-middleware";
 import { isValidObjectId } from "mongoose";
+import { completePartiallyCountedPackGroups, markItemCounted, recalcSummary } from "@/lib/stockTakeCounts";
 
 const STOCK_TAKE_PRODUCT_SELECT = "name barcode category quantity costPrice packType qtyPerPack isChildProduct parentProduct vendors locations";
 
@@ -172,42 +173,6 @@ function buildStockTakeItems(products = []) {
 
 function getItemKey(item) {
   return `${String(item?.productId || "")}:${item?.countType || "standard"}`;
-}
-
-function markItemCounted(item, countedQty, countedBy = "System") {
-  item.countedQty = Number(countedQty || 0);
-  item.variance = item.countedQty - item.systemQty;
-  item.varianceValue = item.variance * item.costPrice;
-  item.status = "counted";
-  item.countedAt = new Date();
-  item.countedBy = countedBy;
-  item.reason = item.variance !== 0 ? (item.reason || "Stock Take") : "";
-}
-
-function completePartiallyCountedPackGroups(stockTake, countedBy = "System") {
-  const groups = new Map();
-
-  for (const item of stockTake.items || []) {
-    const productId = String(item.productId || "");
-    if (!productId) continue;
-    const group = groups.get(productId) || [];
-    group.push(item);
-    groups.set(productId, group);
-  }
-
-  for (const groupItems of groups.values()) {
-    const hasLooseUnits = groupItems.some((item) => item.countType === "loose-units");
-    if (!hasLooseUnits) continue;
-
-    const hasAnyCount = groupItems.some((item) => item.countedQty !== null && item.countedQty !== undefined);
-    if (!hasAnyCount) continue;
-
-    groupItems.forEach((item) => {
-      if (item.countedQty === null || item.countedQty === undefined) {
-        markItemCounted(item, 0, countedBy);
-      }
-    });
-  }
 }
 
 function mergeUniqueItems(existingItems = [], nextItems = []) {
@@ -741,25 +706,4 @@ export default async function handler(req, res) {
   }
 
   return res.status(405).json({ message: "Method not allowed" });
-}
-
-function recalcSummary(stockTake) {
-  const items = stockTake.items || [];
-  stockTake.totalItems = items.length;
-  stockTake.countedItems = items.filter((item) => item.status === "counted").length;
-  stockTake.totalSystemQty = items.reduce((sum, item) => sum + (item.systemQty || 0), 0);
-  stockTake.totalCountedQty = items
-    .filter((item) => item.countedQty !== null)
-    .reduce((sum, item) => sum + item.countedQty, 0);
-  stockTake.totalVariance = items
-    .filter((item) => item.countedQty !== null)
-    .reduce((sum, item) => sum + item.variance, 0);
-  stockTake.totalVarianceValue = items
-    .filter((item) => item.countedQty !== null)
-    .reduce((sum, item) => sum + item.varianceValue, 0);
-  stockTake.positiveVariance = items.filter((item) => item.variance > 0).reduce((sum, item) => sum + item.variance, 0);
-  stockTake.negativeVariance = items.filter((item) => item.variance < 0).reduce((sum, item) => sum + Math.abs(item.variance), 0);
-  stockTake.accuracyRate = stockTake.totalItems > 0
-    ? Math.round((items.filter((item) => item.countedQty !== null && item.variance === 0).length / stockTake.totalItems) * 100)
-    : 0;
 }

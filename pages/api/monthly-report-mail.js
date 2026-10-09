@@ -11,6 +11,17 @@ import { aggregateProductSales } from "@/lib/product-sales-report";
 import { buildLocationCache, resolveLocationName } from "@/lib/serverLocationHelper";
 import { generateMonthlyReportInsight, buildMonthlyReportAIHtml } from "@/lib/ai/monthlyReportAI";
 import { childQtyToParentQty } from "@/lib/packUnits";
+import { buildBusinessExtrasHtml, expensesInRange, loadBusinessExtras, reportMonth } from "@/lib/monthlyBusinessReport";
+
+/**
+ * The monthly business report, emailed on the 1st (vercel.json) for the month just ended.
+ *
+ *   ?month=YYYY-MM   that month instead          ?month=current   this month so far
+ *   ?preview=1       return the email's HTML instead of sending it (signed-in users only)
+ */
+
+// A month of data takes longer than the default 10 seconds on Vercel
+export const config = { maxDuration: 60 };
 
 function isDerivedChildProduct(product) {
   return product?.isChildProduct && product?.packType !== "pack";
@@ -116,19 +127,6 @@ function ensureStockLocation(stockByLocation, locationName) {
   return stockByLocation[name];
 }
 
-function getMonthRange(referenceDate = new Date()) {
-  const start = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
-  const nextMonthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
-  const end = new Date(nextMonthStart.getTime() - 1);
-  return { start, end, nextMonthStart };
-}
-
-function isLastDayOfMonth(date = new Date()) {
-  const tomorrow = new Date(date);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return tomorrow.getDate() === 1;
-}
-
 function getCreditPaymentTotalForRange(transaction, start, endExclusive) {
   return (Array.isArray(transaction.creditPayments) ? transaction.creditPayments : []).reduce((sum, payment) => {
     const paidAt = payment?.paidAt ? new Date(payment.paidAt) : null;
@@ -201,20 +199,10 @@ export default async function handler(req, res) {
       hasSender: Boolean(getMailEnvValue("MAIL_FROM", "SMTP_FROM", "EMAIL_FROM", "FROM_EMAIL", "SMTP_USER", "EMAIL_USER")),
     });
 
-    const isCronAuthorized =
-      req.query.key === process.env.CRON_SECRET ||
-      req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`;
-    const forceSend = req.query.force === "1" || req.query.force === "true";
+    // Sent once a month now (vercel.json, the 1st): it no longer has to skip every other day
+    const preview = req.query.preview === "1" || req.query.preview === "true";
 
-    if (isCronAuthorized && !forceSend && !isLastDayOfMonth(new Date())) {
-      return res.status(200).json({
-        message: "Monthly report skipped because today is not the last day of the month.",
-        skipped: true,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (!monthlyReportTo) {
+    if (!monthlyReportTo && !preview) {
       console.log("[Monthly Mail] Missing monthly report recipient");
       return res.status(500).json({
         error: "Missing MONTHLY_REPORT_MAIL_TO in .env",
@@ -229,9 +217,11 @@ export default async function handler(req, res) {
     const now = new Date();
     const today = new Date(now);
     today.setHours(0, 0, 0, 0);
-    const { start: monthStart, end: monthEnd, nextMonthStart } = getMonthRange(now);
-    const reportMonthLabel = monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    const reportRangeLabel = `${monthStart.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} - ${monthEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    // The shop's calendar month (Lagos), by default the one just ended
+    const period = reportMonth(req.query.month, now);
+    const { start: monthStart, end: nextMonthStart } = period;
+    const reportMonthLabel = period.label;
+    const reportRangeLabel = period.rangeLabel;
 
     // =====================
     // FETCH ALL DATA
@@ -259,19 +249,16 @@ export default async function handler(req, res) {
     });
 
     // 2. Get completed transactions for the month
+    // Voided sales are not sales (lib/sales-report-utils.js isCompletedSale)
     const transactions = await Transaction.find({
       createdAt: { $gte: monthStart, $lt: nextMonthStart },
       status: "completed",
+      subStatus: { $ne: "void" },
     }).lean();
     console.log(`[Monthly Mail] Found ${transactions.length} completed transactions`);
 
-    // 3. Get expenses for the month
-    const expenses = await Expense.find({
-      $or: [
-        { createdAt: { $gte: monthStart, $lt: nextMonthStart } },
-        { expenseDate: { $gte: monthStart, $lt: nextMonthStart } },
-      ],
-    }).lean();
+    // 3. Get expenses for the month, each counted once (lib/monthlyBusinessReport.js)
+    const expenses = await Expense.find(expensesInRange(monthStart, nextMonthStart)).lean();
     console.log(`[Monthly Mail] Found ${expenses.length} expenses`);
 
     const [creditIssuedThisMonth, creditAccounts] = await Promise.all([
@@ -654,7 +641,20 @@ export default async function handler(req, res) {
     // BUILD HTML REPORT
     // =====================
     const formatMoney = (val) =>
-      `₦${Number(val || 0).toLocaleString("en-NG", { minimumFractionDigits: 0 })}`;
+      `₦${Number(val || 0).toLocaleString("en-NG", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+    // The store's own name, wherever the report names the business
+    const businessName = String(stores.find((store) => store?.storeName)?.storeName || "Ibile Mart").trim();
+    const safeBusinessName = businessName.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+    // Comparison, trading days, products, categories, staff, buying, losses, petty cash
+    let businessExtrasHtml = "";
+    try {
+      const extras = await loadBusinessExtras({ period, transactions, expenses, allProducts, productMap });
+      businessExtrasHtml = buildBusinessExtrasHtml(extras, formatMoney);
+    } catch (extrasErr) {
+      console.error("[Monthly Mail] Business sections unavailable (non-fatal):", extrasErr.message);
+    }
     const formatShortDate = (date) =>
       new Date(date).toLocaleDateString("en-US", {
         month: "short",
@@ -708,17 +708,17 @@ export default async function handler(req, res) {
           <table style="width: 100%;">
             <tr>
               <td style="width: 70px; vertical-align: middle;">
-                <img src="cid:businessLogo" alt="St. Micheals" style="width: 60px; height: 60px; border-radius: 8px; background: white; padding: 5px;" onerror="this.style.display='none'" />
+                <img src="cid:businessLogo" alt="${safeBusinessName}" style="width: 60px; height: 60px; border-radius: 8px; background: white; padding: 5px;" onerror="this.style.display='none'" />
               </td>
               <td style="vertical-align: middle; padding-left: 15px;">
                 <h1 style="margin: 0; font-size: 24px;">Monthly Business Report</h1>
-                <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">St. Micheals Inventory System</p>
+                <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 14px;">${safeBusinessName}</p>
               </td>
             </tr>
           </table>
           <p style="margin: 15px 0 0 0; opacity: 0.9;">${reportMonthLabel}</p>
           <p style="margin: 5px 0 0 0; opacity: 0.8; font-size: 13px;">${reportRangeLabel}</p>
-          <p style="margin: 5px 0 0 0; opacity: 0.7; font-size: 12px;">Generated: ${new Date().toLocaleString()}</p>
+          <p style="margin: 5px 0 0 0; opacity: 0.7; font-size: 12px;">Generated: ${new Date().toLocaleString("en-GB", { timeZone: "Africa/Lagos" })}</p>
           <div style="margin-top: 18px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 14px;">
             <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.72); font-size: 11px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: bold;">Monthly Snapshot</p>
             <div style="display: flex; flex-wrap: wrap; gap: 12px;">
@@ -747,6 +747,8 @@ export default async function handler(req, res) {
         </div>
 
         ${aiInsightHtml}
+
+        ${businessExtrasHtml}
 
         <!-- TENDER BREAKDOWN BY LOCATION -->
         <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #8b5cf6;">
@@ -1132,11 +1134,16 @@ export default async function handler(req, res) {
 
         <!-- FOOTER -->
         <div style="background: #f9fafb; padding: 15px; border-radius: 8px; text-align: center;">
-          <p style="color: #999; font-size: 12px; margin: 0;">This is an automated monthly report from St. Micheals Inventory System. Powered by BizSuits.</p>
+          <p style="color: #999; font-size: 12px; margin: 0;">This is the automated monthly report for ${safeBusinessName}. Powered by BizSuits.</p>
           <p style="color: #059669; font-size: 12px; margin: 5px 0;">✅ Report generated successfully</p>
         </div>
       </div>
     `;
+
+    // Look before sending: the email as it would go out
+    if (preview) {
+      return res.status(200).json({ preview: true, month: period.monthKey, subject: `Monthly Business Report - ${reportMonthLabel} | ${businessName}`, html: mailHtml });
+    }
 
     const transporter = createMailTransport();
     if (!transporter) {
@@ -1169,9 +1176,9 @@ export default async function handler(req, res) {
     }
 
     const emailResponse = await transporter.sendMail({
-      from: getMailFromAddress("St's Micheal's Place"),
+      from: getMailFromAddress(businessName),
       to: monthlyReportTo,
-      subject: `Monthly Business Report - ${reportMonthLabel} | St. Micheals`,
+      subject: `Monthly Business Report - ${reportMonthLabel} | ${businessName}`,
       html: mailHtml,
       attachments,
     });

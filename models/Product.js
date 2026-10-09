@@ -12,6 +12,11 @@ const ProductSchema = new Schema(
     taxRate: { type: Number, default: 0 },
     salePriceIncTax: { type: Number, required: true },
     margin: { type: Number, default: 0 },
+    // When the selling price last changed, and what it was before: what Price Tags' "Price
+    // Changed" lists. Set by the hooks below on every write, not by each screen. A new product
+    // counts as a change (it needs its first tag); previousSalePrice is then empty.
+    priceChangedAt: { type: Date, default: null, index: true },
+    previousSalePrice: { type: Number, default: null },
 
     barcode: { type: String },
     category: { type: String, default: "Top Level" },
@@ -120,5 +125,83 @@ const ProductSchema = new Schema(
   },
   { timestamps: true }
 );
+
+/* =====================
+   SELLING PRICE CHANGES
+   Kept here so every way a price is written counts — the product form, import, pack and child
+   re-pricing, receiving — and a save that leaves the price as it was does not.
+===================== */
+const samePrice = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.005;
+
+/** The sale price an update sets, or undefined when it does not set one. */
+function salePriceIn(update) {
+  if (!update || Array.isArray(update)) return undefined;
+  if (update.$set && Object.prototype.hasOwnProperty.call(update.$set, "salePriceIncTax")) return update.$set.salePriceIncTax;
+  if (Object.prototype.hasOwnProperty.call(update, "salePriceIncTax")) return update.salePriceIncTax;
+  return undefined;
+}
+
+function stampUpdate(update, previous, at) {
+  update.$set = { ...(update.$set || {}), priceChangedAt: at, previousSalePrice: Number(previous) || 0 };
+}
+
+ProductSchema.post("init", function rememberPrice(doc) {
+  doc.$locals.loadedSalePrice = doc.salePriceIncTax;
+});
+
+ProductSchema.pre("save", function stampSave(next) {
+  if (this.isNew) {
+    if (Number(this.salePriceIncTax) > 0 && !this.priceChangedAt) this.priceChangedAt = new Date();
+  } else if (this.isModified("salePriceIncTax") && !samePrice(this.salePriceIncTax, this.$locals.loadedSalePrice)) {
+    this.previousSalePrice = Number(this.$locals.loadedSalePrice) || 0;
+    this.priceChangedAt = new Date();
+  }
+  next();
+});
+
+ProductSchema.pre("insertMany", function stampInsert(next, docs) {
+  const now = new Date();
+  for (const doc of Array.isArray(docs) ? docs : [docs]) {
+    if (doc && Number(doc.salePriceIncTax) > 0 && !doc.priceChangedAt) doc.priceChangedAt = now;
+  }
+  next();
+});
+
+async function stampOneUpdate() {
+  const update = this.getUpdate();
+  const price = salePriceIn(update);
+  if (price === undefined) return;
+  const current = await this.model.findOne(this.getFilter()).select("salePriceIncTax").lean();
+  if (current && !samePrice(current.salePriceIncTax, price)) stampUpdate(update, current.salePriceIncTax, new Date());
+}
+ProductSchema.pre("findOneAndUpdate", stampOneUpdate);
+ProductSchema.pre("updateOne", { document: false, query: true }, stampOneUpdate);
+
+// Many products to one price: the ones whose price is different now are stamped first, keeping
+// each one's old price
+ProductSchema.pre("updateMany", async function stampMany() {
+  const price = salePriceIn(this.getUpdate());
+  if (price === undefined) return;
+  await this.model.updateMany(
+    { ...this.getFilter(), salePriceIncTax: { $ne: Number(price) } },
+    [{ $set: { previousSalePrice: "$salePriceIncTax", priceChangedAt: "$$NOW" } }]
+  );
+});
+
+ProductSchema.pre("bulkWrite", async function stampBulk(next, ops) {
+  const priced = (Array.isArray(ops) ? ops : []).filter((op) => op?.updateOne && salePriceIn(op.updateOne.update) !== undefined);
+  if (priced.length === 0) return;
+  const ids = priced.map((op) => op.updateOne.filter?._id).filter(Boolean);
+  const current = new Map(
+    (await this.find({ _id: { $in: ids } }).select("salePriceIncTax").lean()).map((p) => [String(p._id), p.salePriceIncTax])
+  );
+  const now = new Date();
+  for (const op of priced) {
+    const id = String(op.updateOne.filter?._id || "");
+    if (!current.has(id)) continue;
+    const price = salePriceIn(op.updateOne.update);
+    if (!samePrice(current.get(id), price)) stampUpdate(op.updateOne.update, current.get(id), now);
+  }
+});
 
 export default models.Product || model("Product", ProductSchema);

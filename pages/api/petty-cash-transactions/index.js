@@ -47,19 +47,37 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const { vendorId, status, location } = req.query;
+      const { vendorId, status, location, paidFrom, paidTo } = req.query;
       const filter = {};
 
       if (vendorId) filter.vendor = vendorId;
       if (status) filter.status = status;
       if (location) filter.location = location;
 
+      // A period for what was paid: open orders always come back, paid ones only when they were
+      // paid in it (dated by the request for old ones paid before paidAt was kept). Without one,
+      // every order ever made came down, and the screen slowed as the records grew.
+      const from = parseDate(paidFrom);
+      const to = parseDate(paidTo);
+      let paidCountAllTime;
+      if (from || to) {
+        const range = {};
+        if (from) range.$gte = from;
+        if (to) range.$lt = to;
+        paidCountAllTime = await PettyCashTransaction.countDocuments({ ...filter, status: "Paid" });
+        filter.$or = [
+          { status: { $ne: "Paid" } },
+          { status: "Paid", paidAt: range },
+          { status: "Paid", paidAt: null, requestDate: range },
+        ];
+      }
+
       const transactions = await PettyCashTransaction.find(filter)
         .populate("vendor")
         .populate("expense")
         .sort({ createdAt: -1 });
 
-      return res.status(200).json({ success: true, transactions });
+      return res.status(200).json({ success: true, transactions, ...(paidCountAllTime !== undefined ? { paidCountAllTime } : {}) });
     } catch (error) {
       console.error("Petty cash transaction fetch error:", error);
       return res

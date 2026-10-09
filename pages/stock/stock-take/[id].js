@@ -2,6 +2,7 @@
 "use client";
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/router";
+import Link from "next/link";
 import Layout from "@/components/Layout";
 import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
@@ -705,6 +706,25 @@ export default function StockTakeDetail() {
                 </span>
               </div>
               {stockTake.description && <p className="text-sm text-gray-500 mt-1">{stockTake.description}</p>}
+              {stockTake.sentFrom && (
+                <p className="text-sm text-sky-700 mt-1">
+                  Sent from a phone{stockTake.sentBy ? ` by ${stockTake.sentBy}` : ""}
+                  {stockTake.sentAt ? ` on ${new Date(stockTake.sentAt).toLocaleString()}` : ""} — the counted part of{" "}
+                  <Link href={`/stock/stock-take/${stockTake.sentFrom}`} className="underline">the stock take it came from</Link>.
+                </p>
+              )}
+              {stockTake.sentParts?.length > 0 && (
+                <p className="text-sm text-sky-700 mt-1">
+                  Counted parts already sent from a phone:{" "}
+                  {stockTake.sentParts.map((part, index) => (
+                    <span key={String(part.stockTake)}>
+                      {index > 0 ? ", " : ""}
+                      <Link href={`/stock/stock-take/${part.stockTake}`} className="underline">{part.reference}</Link>
+                      {` (${part.lines} line${part.lines === 1 ? "" : "s"}${part.by ? `, ${part.by}` : ""})`}
+                    </span>
+                  ))}
+                </p>
+              )}
               {isAdminEdit && (
                 <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-2 inline-block">
                   Admin edit: this stock take is {stockTake.status}.{" "}
