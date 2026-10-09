@@ -244,6 +244,29 @@ function getOrderCustomerDisplayName(order) {
   );
 }
 
+/**
+ * Why the monthly report did not go, as text. A request Vercel ends for running too long answers
+ * { error: { code, message } } — an object, which the dialog cannot show and the page crashed on.
+ */
+function monthlyMailErrorText(error) {
+  const data = error?.response?.data;
+  const status = error?.response?.status;
+  const asText = (value) => {
+    if (!value) return "";
+    if (typeof value === "string") return value.trim();
+    if (typeof value === "object") return asText(value.message) || asText(value.code);
+    return String(value);
+  };
+  const code = typeof data?.error === "object" ? String(data.error?.code || "") : "";
+  if (error?.code === "ECONNABORTED" || status === 504 || /TIMEOUT/i.test(code)) {
+    return "The report took too long to put together and was stopped. Try again in a minute — the second run is usually quicker.";
+  }
+  const reason = asText(data?.error);
+  const detail = asText(data?.message);
+  const text = reason && detail && reason !== detail ? `${reason}: ${detail}` : reason || detail || asText(error?.message);
+  return text || "The report could not be sent. Please try again.";
+}
+
 export default function Home() {
   const router = useRouter();
 
@@ -695,7 +718,7 @@ export default function Home() {
     } catch (error) {
       await showAlertDialog({
         title: "Monthly report failed",
-        message: error.response?.data?.error || error.response?.data?.message || error.message,
+        message: monthlyMailErrorText(error),
         tone: "danger",
       });
     }

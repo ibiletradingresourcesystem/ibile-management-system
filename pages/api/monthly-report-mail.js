@@ -4,13 +4,10 @@ import Product from "@/models/Product";
 import Store from "@/models/Store";
 import Transaction from "@/models/Transactions";
 import Expense from "@/models/Expense";
-import StockMovement from "@/models/StockMovement";
 import jwt from "jsonwebtoken";
 import { createMailTransport, getMailEnvValue, getMailFromAddress } from "@/lib/mail";
 import { aggregateProductSales } from "@/lib/product-sales-report";
-import { buildLocationCache, resolveLocationName } from "@/lib/serverLocationHelper";
 import { generateMonthlyReportInsight, buildMonthlyReportAIHtml } from "@/lib/ai/monthlyReportAI";
-import { childQtyToParentQty } from "@/lib/packUnits";
 import { buildBusinessExtrasHtml, expensesInRange, loadBusinessExtras, reportMonth } from "@/lib/monthlyBusinessReport";
 
 /**
@@ -23,6 +20,9 @@ import { buildBusinessExtrasHtml, expensesInRange, loadBusinessExtras, reportMon
 // A month of data takes longer than the default 10 seconds on Vercel
 export const config = { maxDuration: 60 };
 
+// How long the report waits for the AI summary before going without it
+const AI_INSIGHT_BUDGET_MS = 20000;
+
 function isDerivedChildProduct(product) {
   return product?.isChildProduct && product?.packType !== "pack";
 }
@@ -33,73 +33,6 @@ function normalizeLocationValue(value) {
 
 function getProductId(product) {
   return String(product?._id || product?.id || "");
-}
-
-function getMovementLocationLabel(locationId, locationCache) {
-  const key = String(locationId || "").trim();
-  if (!key) return "";
-  return String(locationCache[key] || locationCache[key.toLowerCase()] || key).trim();
-}
-
-function getItemQuantity(item) {
-  const quantity = Number(item?.qty ?? item?.quantity ?? 0);
-  return Number.isFinite(quantity) ? quantity : 0;
-}
-
-function ensureProductLocationMap(stockByProduct, productId) {
-  if (!stockByProduct.has(productId)) {
-    stockByProduct.set(productId, new Map());
-  }
-
-  return stockByProduct.get(productId);
-}
-
-function addLocationQuantity(stockByProduct, productId, locationLabel, quantity) {
-  const normalizedLocation = normalizeLocationValue(locationLabel);
-  if (!productId || !normalizedLocation || !Number.isFinite(quantity) || quantity === 0) return;
-
-  const locationMap = ensureProductLocationMap(stockByProduct, productId);
-  const existing = locationMap.get(normalizedLocation) || {
-    locationName: String(locationLabel || "").trim(),
-    quantity: 0,
-  };
-
-  existing.quantity += quantity;
-  locationMap.set(normalizedLocation, existing);
-}
-
-function resolveStockProductDelta(productMap, productId, quantity) {
-  const product = productMap.get(String(productId || ""));
-  if (!product) return null;
-
-  if (isDerivedChildProduct(product)) {
-    const parentId = String(product.parentProduct || "");
-    const parent = productMap.get(parentId);
-    return { productId: parentId, quantity: childQtyToParentQty(quantity, product, parent) };
-  }
-
-  return { productId: String(product._id), quantity };
-}
-
-function getAssignedLocationNames(product, locationCache, activeLocationNameByKey) {
-  const assignedLocations = Array.isArray(product?.locations) ? product.locations : [];
-  const namesByKey = new Map();
-
-  assignedLocations.forEach((locationValue) => {
-    const reportName = getReportLocationName(locationValue, locationCache, activeLocationNameByKey);
-    if (reportName) {
-      namesByKey.set(normalizeLocationValue(reportName), reportName);
-    }
-  });
-
-  return Array.from(namesByKey.values());
-}
-
-function getReportLocationName(value, locationCache, activeLocationNameByKey) {
-  const resolvedName = getMovementLocationLabel(value, locationCache);
-  const normalizedName = normalizeLocationValue(resolvedName);
-  if (!normalizedName || normalizedName === "unknown" || normalizedName === "vendor") return "";
-  return activeLocationNameByKey.get(normalizedName) || activeLocationNameByKey.get(normalizeLocationValue(value)) || resolvedName;
 }
 
 function roundStockQuantity(value) {
@@ -116,15 +49,6 @@ function createStockLocationSummary(locationName) {
     lowStockItems: 0,
     outOfStockItems: 0,
   };
-}
-
-function ensureStockLocation(stockByLocation, locationName) {
-  const name = String(locationName || "").trim();
-  if (!name) return null;
-  if (!stockByLocation[name]) {
-    stockByLocation[name] = createStockLocationSummary(name);
-  }
-  return stockByLocation[name];
 }
 
 function getCreditPaymentTotalForRange(transaction, start, endExclusive) {
@@ -229,12 +153,6 @@ export default async function handler(req, res) {
 
     // 1. Get Store with locations and build location cache
     const stores = await Store.find().lean();
-    const storesMap = {};
-    const locationsMap = await buildLocationCache(); // Use centralized helper
-    
-    stores.forEach((store) => {
-      storesMap[store._id.toString()] = store;
-    });
 
     // Get all location names for report
     const allLocations = [];
@@ -261,18 +179,25 @@ export default async function handler(req, res) {
     const expenses = await Expense.find(expensesInRange(monthStart, nextMonthStart)).lean();
     console.log(`[Monthly Mail] Found ${expenses.length} expenses`);
 
-    const [creditIssuedThisMonth, creditAccounts] = await Promise.all([
-      Transaction.find({
-        createdAt: { $gte: monthStart, $lt: nextMonthStart },
-        status: "credit",
-      }).lean(),
-      Transaction.find({
-        $or: [
-          { status: "credit" },
-          { creditPayments: { $elemMatch: { paidAt: { $gte: monthStart, $lt: nextMonthStart } } } },
-        ],
-      }).lean(),
-    ]);
+    // Credit sales only where the business gives credit: one with no credit sale ever recorded
+    // gets no credit figures, sections or queries
+    const usesCredit = Boolean(await Transaction.exists({
+      $or: [{ status: "credit" }, { "creditPayments.0": { $exists: true } }],
+    }));
+    const [creditIssuedThisMonth, creditAccounts] = usesCredit
+      ? await Promise.all([
+        Transaction.find({
+          createdAt: { $gte: monthStart, $lt: nextMonthStart },
+          status: "credit",
+        }).lean(),
+        Transaction.find({
+          $or: [
+            { status: "credit" },
+            { creditPayments: { $elemMatch: { paidAt: { $gte: monthStart, $lt: nextMonthStart } } } },
+          ],
+        }).lean(),
+      ])
+      : [[], []];
 
     // 5. Get all products for stock report
     const allProducts = await Product.find({
@@ -282,15 +207,24 @@ export default async function handler(req, res) {
     console.log(`[Monthly Mail] Found ${allProducts.length} products`);
 
     const productMap = new Map(allProducts.map((product) => [getProductId(product), product]));
-    const [stockMovements, stockTransactions] = await Promise.all([
-      StockMovement.find({ status: "Received" })
-        .select("fromLocationId toLocationId reason products dateReceived dateSent")
-        .lean(),
-      Transaction.find({ status: { $in: ["completed", "refunded", "credit"] } })
-        .select("location status subStatus items createdAt")
-        .lean(),
-    ]);
-    console.log(`[Monthly Mail] Found ${stockMovements.length} stock movements and ${stockTransactions.length} stock transactions for location stock`);
+
+    // Locations by id and by name, so a sale (which the till records by name) and a product (by id
+    // or name) both read as the store's own spelling
+    const locationNameByKey = new Map();
+    allLocations.forEach((loc) => {
+      locationNameByKey.set(normalizeLocationValue(loc.id), loc.name);
+      locationNameByKey.set(normalizeLocationValue(loc.name), loc.name);
+    });
+    const saleLocationName = (value) => {
+      const key = normalizeLocationValue(value);
+      if (!key || key === "online") return "Online";
+      return locationNameByKey.get(key) || String(value).trim();
+    };
+    const productLocationsLabel = (product) =>
+      [...new Set((Array.isArray(product?.locations) ? product.locations : [])
+        .map((value) => locationNameByKey.get(normalizeLocationValue(value)))
+        .filter(Boolean))]
+        .join(", ");
 
     const productCostById = {};
     allProducts.forEach((product) => {
@@ -317,7 +251,8 @@ export default async function handler(req, res) {
     );
 
     for (const tx of transactions) {
-      const locName = await resolveLocationName(tx.location, locationsMap);
+      // The till records a sale's location by name; "Unknown" came from long names it did not find
+      const locName = saleLocationName(tx.location);
 
       if (!salesByLocation[locName]) {
         salesByLocation[locName] = {
@@ -434,151 +369,53 @@ export default async function handler(req, res) {
     });
 
     // =====================
-    // PROCESS STOCK BY LOCATION
+    // STOCK ON HAND
     // =====================
-    const stockByLocation = {};
+    // Every product's own quantity — what the shop holds, the number the Stock pages show. This
+    // used to be rebuilt per location from every stock movement and sale ever recorded, which left
+    // out stock that never came through a movement (opening stock, imports, stock takes) and so
+    // came out far too low. Stock is kept for the business as a whole, so it is reported that way.
+    const stockLocationLabel = allLocations.length === 1 ? allLocations[0].name : "All locations";
+    const stockByLocation = { [stockLocationLabel]: createStockLocationSummary(stockLocationLabel) };
+    const stockSummary = stockByLocation[stockLocationLabel];
     const expiringSoonProducts = [];
     const lowStockProducts = [];
     const expiringSoonDays = 30;
     const expiringSoonCutoff = new Date(today);
     expiringSoonCutoff.setDate(expiringSoonCutoff.getDate() + expiringSoonDays);
     const msPerDay = 1000 * 60 * 60 * 24;
-    const activeLocationNameByKey = new Map();
 
-    // Initialize all locations
-    allLocations.forEach((loc) => {
-      activeLocationNameByKey.set(normalizeLocationValue(loc.id), loc.name);
-      activeLocationNameByKey.set(normalizeLocationValue(loc.name), loc.name);
-      ensureStockLocation(stockByLocation, loc.name);
-    });
-
-    const stockByProduct = new Map();
-
-    stockMovements.forEach((movement) => {
-      const fromLocationName = getMovementLocationLabel(movement.fromLocationId, locationsMap);
-      const toLocationName = getMovementLocationLabel(movement.toLocationId, locationsMap);
-
-      (Array.isArray(movement.products) ? movement.products : []).forEach((item) => {
-        const quantity = Number(item?.quantity || 0);
-        if (!Number.isFinite(quantity) || quantity <= 0) return;
-
-        const resolved = resolveStockProductDelta(productMap, item.productId, quantity);
-        if (!resolved?.productId) return;
-
-        if (movement.reason === "Restock") {
-          addLocationQuantity(stockByProduct, resolved.productId, toLocationName, resolved.quantity);
-        } else if (movement.reason === "Transfer") {
-          addLocationQuantity(stockByProduct, resolved.productId, fromLocationName, -resolved.quantity);
-          addLocationQuantity(stockByProduct, resolved.productId, toLocationName, resolved.quantity);
-        } else if (["Return", "Adjustment", "Operational Loss"].includes(movement.reason)) {
-          addLocationQuantity(stockByProduct, resolved.productId, fromLocationName, -resolved.quantity);
-        }
-      });
-    });
-
-    stockTransactions.forEach((transaction) => {
-      if (transaction.subStatus === "void") return;
-
-      const locationName = getMovementLocationLabel(transaction.location, locationsMap) || "online";
-      const sign = transaction.status === "refunded" ? 1 : -1;
-
-      (Array.isArray(transaction.items) ? transaction.items : []).forEach((item) => {
-        const quantity = getItemQuantity(item);
-        if (quantity <= 0) return;
-
-        const resolved = resolveStockProductDelta(productMap, item.productId, quantity);
-        if (!resolved?.productId) return;
-
-        addLocationQuantity(stockByProduct, resolved.productId, locationName, sign * resolved.quantity);
-      });
-    });
-
-    // Process products by assigned locations plus physical stock movement locations.
     for (const product of allProducts) {
-      if (isDerivedChildProduct(product)) {
-        continue;
-      }
+      // A unit made from a pack holds no stock of its own: its pack is counted
+      if (isDerivedChildProduct(product)) continue;
 
-      const costPrice = product.costPrice || 0;
-      const salePrice = product.salePriceIncTax || 0;
-      const minStock = product.minStock || 0;
+      const quantity = roundStockQuantity(Math.max(0, Number(product.quantity) || 0));
+      const costPrice = Number(product.costPrice) || 0;
+      const salePrice = Number(product.salePriceIncTax) || 0;
+      const minStock = Number(product.minStock) || 0;
       const productName = product.name || product.title || "Unnamed product";
-      const productId = getProductId(product);
-      const productLocationStock = stockByProduct.get(productId) || new Map();
-      const targetLocations = new Map();
-      const expiryDateValue = product.expiryDate
-        ? new Date(product.expiryDate)
-        : null;
+      const where = productLocationsLabel(product) || stockLocationLabel;
 
-      getAssignedLocationNames(product, locationsMap, activeLocationNameByKey).forEach((locationName) => {
-        targetLocations.set(normalizeLocationValue(locationName), locationName);
-      });
+      stockSummary.totalUnits += quantity;
+      stockSummary.totalCostValue += quantity * costPrice;
+      stockSummary.totalSaleValue += quantity * salePrice;
+      stockSummary.productCount += 1;
+      if (quantity === 0) stockSummary.outOfStockItems += 1;
+      else if (minStock > 0 && quantity <= minStock) stockSummary.lowStockItems += 1;
 
-      productLocationStock.forEach((entry) => {
-        const locationName = getReportLocationName(entry.locationName, locationsMap, activeLocationNameByKey);
-        if (locationName) {
-          targetLocations.set(normalizeLocationValue(locationName), locationName);
-        }
-      });
-
-      const addExpiringEntry = (locName, quantity) => {
-        if (!expiryDateValue || quantity <= 0) {
-          return;
-        }
-        if (expiryDateValue <= expiringSoonCutoff) {
-          const daysToExpiry = Math.ceil(
-            (expiryDateValue.getTime() - today.getTime()) / msPerDay,
-          );
-          expiringSoonProducts.push({
-            name: productName,
-            location: locName,
-            quantity,
-            expiryDate: expiryDateValue,
-            daysToExpiry,
-          });
-        }
-      };
-
-      const addLowStockEntry = (locName, quantity) => {
-        if (minStock > 0 && quantity <= minStock) {
-          lowStockProducts.push({
-            name: productName,
-            location: locName,
-            quantity,
-            minStock,
-          });
-        }
-      };
-
-      if (targetLocations.size === 0) {
-        const qty = Number(product.quantity || 0);
-        if (qty <= 0) continue;
-        const fallbackLocation = allLocations.length > 0 ? allLocations[0].name : "Unassigned";
-        targetLocations.set(normalizeLocationValue(fallbackLocation), fallbackLocation);
+      if (minStock > 0 && quantity <= minStock) {
+        lowStockProducts.push({ name: productName, location: where, quantity, minStock });
       }
-
-      targetLocations.forEach((locName, locationKey) => {
-        const stockSummary = ensureStockLocation(stockByLocation, locName);
-        if (!stockSummary) return;
-
-        const locationStock = productLocationStock.get(locationKey);
-        const fallbackQuantity = targetLocations.size === 1 ? Number(product.quantity || 0) : 0;
-        const quantity = roundStockQuantity(locationStock ? locationStock.quantity : fallbackQuantity);
-
-        stockSummary.totalUnits += quantity;
-        stockSummary.totalCostValue += quantity * costPrice;
-        stockSummary.totalSaleValue += quantity * salePrice;
-        stockSummary.productCount += 1;
-
-        if (quantity === 0) {
-          stockSummary.outOfStockItems += 1;
-        } else if (minStock > 0 && quantity <= minStock) {
-          stockSummary.lowStockItems += 1;
-        }
-
-        addExpiringEntry(locName, quantity);
-        addLowStockEntry(locName, quantity);
-      });
+      const expiryDateValue = product.expiryDate ? new Date(product.expiryDate) : null;
+      if (expiryDateValue && quantity > 0 && expiryDateValue <= expiringSoonCutoff) {
+        expiringSoonProducts.push({
+          name: productName,
+          location: where,
+          quantity,
+          expiryDate: expiryDateValue,
+          daysToExpiry: Math.ceil((expiryDateValue.getTime() - today.getTime()) / msPerDay),
+        });
+      }
     }
 
     // =====================
@@ -629,6 +466,8 @@ export default async function handler(req, res) {
       .filter((row) => row.issued || row.recovered || row.outstanding)
       .sort((a, b) => b.outstanding - a.outstanding)
       .slice(0, 15);
+    // Shown only when there is credit to speak of this month
+    const showCredit = usesCredit && (creditIssuedTotal > 0 || creditRecoveredThisMonth > 0 || outstandingCredit > 0);
     const grossProfitMonth = totalSales - totalCogsMonth;
     const netProfitMonth = grossProfitMonth - totalExpenses;
 
@@ -679,17 +518,29 @@ export default async function handler(req, res) {
         grossMargin: totalSales > 0 ? Math.round((grossProfitMonth / totalSales) * 100) : 0,
         netMargin: totalSales > 0 ? Math.round((netProfitMonth / totalSales) * 100) : 0,
         stockValue: totalStockValue,
-        creditIssued: creditIssuedTotal,
-        creditRecovered: creditRecoveredThisMonth,
-        outstandingCredit,
+        stockCostValue: totalStockCost,
+        ...(showCredit
+          ? { creditIssued: creditIssuedTotal, creditRecovered: creditRecoveredThisMonth, outstandingCredit }
+          : {}),
         locationsCount: allLocations.length,
         lowStockCount: lowStockProducts.length,
         expiringSoonCount: expiringSoonProducts.length,
         topProducts: productSalesSummary.slice(0, 5).map(p => ({ name: p.name, units: p.unitsSold, revenue: Math.round(p.totalSales) })),
       };
 
+      // The AI may take its own time; the report does not wait past this for it, so the whole
+      // request stays inside Vercel's limit (a timed-out request is what crashed the dashboard)
       console.log("[Monthly Mail] Generating AI executive insights...");
-      const aiInsight = await generateMonthlyReportInsight(aiMetrics);
+      let aiTimer;
+      const aiInsight = await Promise.race([
+        generateMonthlyReportInsight(aiMetrics),
+        new Promise((resolve) => {
+          aiTimer = setTimeout(() => {
+            console.warn(`[Monthly Mail] AI insight took over ${AI_INSIGHT_BUDGET_MS / 1000}s, sending without it`);
+            resolve(null);
+          }, AI_INSIGHT_BUDGET_MS);
+        }),
+      ]).finally(() => clearTimeout(aiTimer));
       aiInsightHtml = buildMonthlyReportAIHtml(aiInsight);
       if (aiInsight) {
         console.log(`[Monthly Mail] AI insight generated (cached: ${aiInsight.cached}, health: ${aiInsight.healthScore})`);
@@ -735,13 +586,18 @@ export default async function handler(req, res) {
                 <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: bold; color: #fecaca;">${formatMoney(totalExpenses)}</p>
               </div>
               <div style="flex: 1; min-width: 130px;">
-                <p style="margin: 0; color: rgba(255,255,255,0.72); font-size: 11px;">Stock Value</p>
-                <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: bold; color: #fde68a;">${formatMoney(totalStockValue)}</p>
+                <p style="margin: 0; color: rgba(255,255,255,0.72); font-size: 11px;">Stock Value (at cost)</p>
+                <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: bold; color: #fde68a;">${formatMoney(totalStockCost)}</p>
               </div>
+              ${showCredit ? `
               <div style="flex: 1; min-width: 130px;">
                 <p style="margin: 0; color: rgba(255,255,255,0.72); font-size: 11px;">Credit Outstanding</p>
                 <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: bold; color: #fed7aa;">${formatMoney(outstandingCredit)}</p>
-              </div>
+              </div>` : `
+              <div style="flex: 1; min-width: 130px;">
+                <p style="margin: 0; color: rgba(255,255,255,0.72); font-size: 11px;">Gross Profit</p>
+                <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: bold; color: #bbf7d0;">${formatMoney(grossProfitMonth)}</p>
+              </div>`}
             </div>
           </div>
         </div>
@@ -803,9 +659,10 @@ export default async function handler(req, res) {
           }
         </div>
 
-        <!-- STOCK REPORT BY LOCATION -->
+        <!-- STOCK ON HAND -->
         <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #f59e0b;">
-          <h2 style="color: #f59e0b; margin-top: 0; font-size: 18px;">📦 Stock Report by Location</h2>
+          <h2 style="color: #f59e0b; margin-top: 0; font-size: 18px;">📦 Stock on Hand</h2>
+          <p style="margin: 0 0 12px 0; color: #78716c; font-size: 12px;">As at ${formatShortDate(now)}, from each product's stock count. Cost value is what the stock cost to buy; sale value is what it sells for. Units count packs as packs.</p>
           <table style="width: 100%; border-collapse: collapse;">
             <thead>
               <tr style="background: #fffbeb;">
@@ -937,7 +794,8 @@ export default async function handler(req, res) {
           </div>
         </div>
 
-        <!-- CREDIT MANAGEMENT -->
+        <!-- CREDIT MANAGEMENT (only where the business gives credit) -->
+        ${showCredit ? `
         <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #d97706;">
           <h2 style="color: #b45309; margin-top: 0; font-size: 18px;">Credit Management (${reportMonthLabel})</h2>
           <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
@@ -982,7 +840,7 @@ export default async function handler(req, res) {
               </tbody>
             </table>`
           }
-        </div>
+        </div>` : ""}
 
         <!-- SALES BY LOCATION -->
         <div style="background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid #059669;">
@@ -1089,12 +947,19 @@ export default async function handler(req, res) {
               <p style="margin: 8px 0 0 0; opacity: 0.7; font-size: 11px;">Sales minus COGS and expenses</p>
             </div>
 
+            ${showCredit ? `
             <!-- Credit Recovery -->
             <div style="background: rgba(255, 255, 255, 0.15); padding: 18px; border-radius: 8px; border-left: 4px solid rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px);">
               <p style="margin: 0; opacity: 0.85; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Credit Recovered</p>
               <p style="margin: 12px 0 0 0; font-size: 28px; font-weight: bold; line-height: 1;">${formatMoney(creditRecoveredThisMonth)}</p>
               <p style="margin: 8px 0 0 0; opacity: 0.7; font-size: 11px;">Outstanding: ${formatMoney(outstandingCredit)}</p>
-            </div>
+            </div>` : `
+            <!-- Gross Profit -->
+            <div style="background: rgba(255, 255, 255, 0.15); padding: 18px; border-radius: 8px; border-left: 4px solid rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px);">
+              <p style="margin: 0; opacity: 0.85; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">🧮 Gross Profit</p>
+              <p style="margin: 12px 0 0 0; font-size: 28px; font-weight: bold; line-height: 1;">${formatMoney(grossProfitMonth)}</p>
+              <p style="margin: 8px 0 0 0; opacity: 0.7; font-size: 11px;">Sales minus cost of goods sold</p>
+            </div>`}
           </div>
 
           <!-- Divider -->
@@ -1106,7 +971,8 @@ export default async function handler(req, res) {
             <!-- Stock Value -->
             <div style="text-align: center; padding: 12px;">
               <p style="margin: 0; opacity: 0.8; font-size: 28px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Stock Value</p>
-              <p style="margin: 8px 0 0 0; font-size: 18px; font-weight: bold;">${formatMoney(totalStockValue)}</p>
+              <p style="margin: 8px 0 0 0; font-size: 18px; font-weight: bold;">${formatMoney(totalStockCost)} at cost</p>
+              <p style="margin: 4px 0 0 0; opacity: 0.75; font-size: 12px;">${formatMoney(totalStockValue)} at selling price</p>
             </div>
 
             <!-- Locations Active -->
@@ -1198,9 +1064,10 @@ export default async function handler(req, res) {
         totalCogs: totalCogsMonth,
         netPosition: netProfitMonth,
         stockValue: totalStockValue,
-        creditIssued: creditIssuedTotal,
-        creditRecovered: creditRecoveredThisMonth,
-        outstandingCredit,
+        stockCostValue: totalStockCost,
+        ...(showCredit
+          ? { creditIssued: creditIssuedTotal, creditRecovered: creditRecoveredThisMonth, outstandingCredit }
+          : {}),
         locationsCount: allLocations.length,
       },
     });

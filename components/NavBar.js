@@ -16,6 +16,10 @@ const TopBar = ({ user, logout }) => {
   const [creditBalance, setCreditBalance] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
+  // The Credit tab goes when the last open credit does; whoever was on it lands on All
+  useEffect(() => {
+    if (creditCount === 0 && activeTab === 'credit') setActiveTab('all');
+  }, [creditCount, activeTab]);
   const [isOnline, setIsOnline] = useState(true);
   // Stock, expiry and credit alerts are a manager's: basic staff get no bell (lib/permission-utils.js)
   const showBell = Boolean(user) && !isBasicStaffRole(user.role);
@@ -215,12 +219,13 @@ const TopBar = ({ user, logout }) => {
                 </p>
               </div>
 
-              <div className="grid grid-cols-4 border-b border-gray-200 bg-gray-50">
+              {/* Credit only where the business gives credit: a shop with none open gets no tab for it */}
+              <div className={`grid ${creditCount > 0 ? 'grid-cols-4' : 'grid-cols-3'} border-b border-gray-200 bg-gray-50`}>
                 {[
                   ['all', `All (${totalNotifications})`, 'bg-white theme-accent-text border-b-2 theme-border-accent'],
                   ['stock', `Stock (${lowStockCount})`, 'bg-white text-yellow-600 border-b-2 border-yellow-600'],
                   ['expiring', `Expiring (${expiringCount})`, 'bg-white text-orange-600 border-b-2 border-orange-600'],
-                  ['credit', `Credit (${creditCount})`, 'bg-white text-amber-600 border-b-2 border-amber-600'],
+                  ...(creditCount > 0 ? [['credit', `Credit (${creditCount})`, 'bg-white text-amber-600 border-b-2 border-amber-600']] : []),
                 ].map(([key, label, activeClass]) => (
                   <button
                     key={key}
@@ -238,7 +243,7 @@ const TopBar = ({ user, logout }) => {
                 {activeTab === 'all' && totalNotifications === 0 && (
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-center">
                     <p className="text-sm font-semibold text-emerald-800">Everything is clear</p>
-                    <p className="mt-1 text-xs text-emerald-700">No low stock, expiring batches, or open credit alerts.</p>
+                    <p className="mt-1 text-xs text-emerald-700">No low stock or expiring batches.</p>
                   </div>
                 )}
 
@@ -305,11 +310,6 @@ const TopBar = ({ user, logout }) => {
                   </div>
                 )}
 
-                {activeTab === 'credit' && creditCount === 0 && (
-                  <div className="text-center py-6">
-                    <p className="text-sm text-gray-600">No open credit accounts</p>
-                  </div>
-                )}
               </div>
 
               <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">

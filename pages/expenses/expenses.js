@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import Layout from "@/components/Layout";
 import ExpenseForm from "@/components/ExpenseForm";
 import { formatCurrency } from "@/lib/format";
-import { showAlertDialog } from "@/lib/dialogs";
+import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { Search, Save, X, Banknote, Receipt, Wallet, Info, MapPin, Calendar } from "lucide-react";
 import { currentTradingDay, formatDayKey } from "@/lib/tradingDay";
 
@@ -19,6 +19,9 @@ export default function ExpensesPage() {
   const [locations, setLocations] = useState([]);
   const [userLocation, setUserLocation] = useState("");
   const [userName, setUserName] = useState("");
+  const [userRole, setUserRole] = useState("");
+  // A petty cash payment's expense goes with its order, stock and all: managers and admins only
+  const canDeletePettyCash = ["admin", "manager"].includes(userRole);
 
   // Filters
   const [filterLocation, setFilterLocation] = useState("All");
@@ -46,6 +49,7 @@ export default function ExpensesPage() {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
     setUserLocation(user.location || "");
     setUserName(user.name || "");
+    setUserRole(String(user.role || "").toLowerCase());
     fetchAll();
   }, []);
 
@@ -131,19 +135,32 @@ export default function ExpensesPage() {
     }
   };
 
-  const handleDeleteExpense = async (id) => {
-    const confirmed = await showAlertDialog({
-      title: "Delete Expense",
-      message: "Are you sure you want to delete this expense?",
+  // A confirm, not an alert: an alert answers nothing, so nothing was ever deleted
+  const handleDeleteExpense = async (exp) => {
+    const fromPettyCash = exp.sourceType === "petty-cash-transaction";
+    const confirmed = await showConfirmDialog({
+      title: "Delete expense?",
+      message: fromPettyCash
+        ? `"${exp.title}" is the payment for a petty cash order. Deleting it deletes that order too and reverses it: anything the order brought into stock is taken back out.`
+        : `"${exp.title}" (${formatCurrency(exp.amount)}) is removed from expenses and reports.`,
       tone: "danger",
-      confirm: "Delete",
+      confirmLabel: "Delete",
     });
     if (!confirmed) return;
-    const res = await fetch(`/api/expenses/${id}`, {
+    const res = await fetch(`/api/expenses/${exp._id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
     });
-    if (res.ok) fetchAll();
+    if (res.ok) {
+      fetchAll();
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    await showAlertDialog({
+      title: "Not deleted",
+      message: String(data.message || data.error || "The expense could not be deleted. Please try again."),
+      tone: "danger",
+    });
   };
 
   // === Filtered Data ===
@@ -287,7 +304,9 @@ export default function ExpensesPage() {
                         </div>
                         <div className="flex gap-2 mt-2">
                           <button onClick={() => handleEditExpense(exp)} className="text-xs border border-blue-300 text-blue-700 px-2 py-0.5 rounded hover:bg-blue-50">Edit</button>
-                          <button onClick={() => handleDeleteExpense(exp._id)} className="text-xs border border-red-300 text-red-700 px-2 py-0.5 rounded hover:bg-red-50">Delete</button>
+                          {(exp.sourceType !== "petty-cash-transaction" || canDeletePettyCash) && (
+                            <button onClick={() => handleDeleteExpense(exp)} className="text-xs border border-red-300 text-red-700 px-2 py-0.5 rounded hover:bg-red-50">Delete</button>
+                          )}
                         </div>
                       </>
                     )}

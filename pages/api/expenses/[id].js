@@ -1,8 +1,15 @@
 // pages/api/expenses/[id].js
 import { mongooseConnect } from "@/lib/mongodb";
 import Expense from "@/models/Expense";
+import PettyCashTransaction from "@/models/PettyCashTransaction";
+import { authMiddleware, isManager } from "@/lib/auth-middleware";
+import { deletePettyCashTransaction } from "@/lib/petty-cash-transactions";
 
 export default async function handler(req, res) {
+  // Changing or deleting the business's spending needs someone signed in
+  const authError = authMiddleware(req, res);
+  if (authError) return;
+
   await mongooseConnect();
 
   const { id } = req.query;
@@ -80,7 +87,7 @@ export default async function handler(req, res) {
 
     /* ---------------- DELETE EXPENSE ---------------- */
     if (req.method === "DELETE") {
-      const expense = await Expense.findByIdAndDelete(id);
+      const expense = await Expense.findById(id);
 
       if (!expense) {
         return res.status(404).json({
@@ -89,6 +96,28 @@ export default async function handler(req, res) {
         });
       }
 
+      // A petty cash payment: the order and its expense go together, or the order stays paid and
+      // its expense comes back the next time the order changes
+      if (expense.sourceType === "petty-cash-transaction" && expense.sourceId) {
+        const order = await PettyCashTransaction.findById(expense.sourceId).catch(() => null);
+        if (order) {
+          if (!isManager(req)) {
+            return res.status(403).json({
+              success: false,
+              message: "This expense is a paid petty cash order. Only a manager or admin can delete it.",
+            });
+          }
+          const result = await deletePettyCashTransaction(order);
+          return res.status(200).json({
+            success: true,
+            message: "Expense and its petty cash order deleted",
+            pettyCashOrderDeleted: true,
+            ...result,
+          });
+        }
+      }
+
+      await Expense.deleteOne({ _id: expense._id });
       return res.status(200).json({
         success: true,
         message: "Expense deleted successfully",

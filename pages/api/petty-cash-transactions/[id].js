@@ -1,8 +1,10 @@
 import { mongooseConnect } from "@/lib/mongoose";
-import { authMiddleware } from "@/lib/auth-middleware";
+import { authMiddleware, isManager } from "@/lib/auth-middleware";
 import {
+  SETTLED_PETTY_CASH_STATUSES,
   buildApprovalHistoryEntry,
-  buildStaffSnapshot,
+  deletePettyCashTransaction,
+  pettyCashUndoPlan,
   syncPettyCashExpense,
   updateInventoryFromPettyCashReceive,
 } from "@/lib/petty-cash-transactions";
@@ -47,19 +49,35 @@ export default async function handler(req, res) {
   await mongooseConnect();
   const { id } = req.query;
 
+  // What deleting the order would undo, shown before anyone confirms it
+  if (req.method === "GET" && req.query.undo) {
+    if (!isManager(req)) {
+      return res.status(403).json({ error: "Only a manager or admin can delete petty cash orders." });
+    }
+    try {
+      const transaction = await PettyCashTransaction.findById(id).lean();
+      if (!transaction) {
+        return res.status(404).json({ error: "Transaction not found." });
+      }
+      return res.status(200).json({ success: true, ...(await pettyCashUndoPlan(transaction)) });
+    } catch (error) {
+      console.error("Petty cash undo plan error:", error);
+      return res.status(500).json({ error: "Could not work out what deleting would undo." });
+    }
+  }
+
   if (req.method === "DELETE") {
+    // Deleting undoes the order, its stock and its expense: a manager's or an admin's call
+    if (!isManager(req)) {
+      return res.status(403).json({ error: "Only a manager or admin can delete petty cash orders." });
+    }
     try {
       const transaction = await PettyCashTransaction.findById(id);
       if (!transaction) {
         return res.status(404).json({ error: "Transaction not found." });
       }
-      if (transaction.status === "Paid") {
-        return res
-          .status(400)
-          .json({ error: "Cannot delete a paid transaction." });
-      }
-      await PettyCashTransaction.findByIdAndDelete(id);
-      return res.status(200).json({ success: true });
+      const result = await deletePettyCashTransaction(transaction);
+      return res.status(200).json({ success: true, ...result });
     } catch (error) {
       console.error("Petty cash delete error:", error);
       return res.status(500).json({ error: "Failed to delete transaction" });
@@ -67,7 +85,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method !== "PUT") {
-    res.setHeader("Allow", ["PUT", "DELETE"]);
+    res.setHeader("Allow", ["GET", "PUT", "DELETE"]);
     return res
       .status(405)
       .json({ error: `Method ${req.method} Not Allowed` });
@@ -218,6 +236,10 @@ export default async function handler(req, res) {
       if (transaction.status === "Cancelled" || transaction.status === "Rejected") {
         return res.status(400).json({ error: "Cannot receive a cancelled order." });
       }
+      // A second receipt would add the stock again
+      if (transaction.receivedAt) {
+        return res.status(400).json({ error: "This order has already been received." });
+      }
 
       transaction.status = "Received";
       transaction.receivedAt = new Date();
@@ -232,6 +254,22 @@ export default async function handler(req, res) {
           error: "Items received but failed to update inventory: " + error.message,
         });
       }
+    } else if (action === "cancel") {
+      // The page has always offered Cancel; it was answered "Unsupported action"
+      if (SETTLED_PETTY_CASH_STATUSES.includes(transaction.status)) {
+        return res.status(400).json({
+          error: `A ${transaction.status.toLowerCase()} order cannot be cancelled. A manager can delete it instead.`,
+        });
+      }
+      if (transaction.status === "Cancelled") {
+        return res.status(400).json({ error: "This order is already cancelled." });
+      }
+      transaction.status = "Cancelled";
+    } else if (action === "reopen") {
+      if (transaction.status !== "Cancelled" && transaction.status !== "Rejected") {
+        return res.status(400).json({ error: "Only a cancelled or rejected order can be reopened." });
+      }
+      transaction.status = "Ordered";
     } else {
       return res.status(400).json({ error: "Unsupported action." });
     }

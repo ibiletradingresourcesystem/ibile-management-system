@@ -3,6 +3,7 @@ import { PERIOD_OPTIONS, periodLabel, periodRange } from "@/lib/periodFilter";
 import { apiClient } from "@/lib/api-client";
 import { CheckCircle } from "lucide-react";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
+import { useAuth } from "@/lib/useAuth";
 
 function formatCurrency(val) {
   return `₦${Number(val || 0).toLocaleString("en-NG")}`;
@@ -86,9 +87,12 @@ export default function PettyCashTransactionPanel({
   prefillVendor = null,
   onPrefillConsumed,
 }) {
+  const { user } = useAuth();
+  // Deleting undoes an order, its stock and its expense: managers and admins only, as the API holds
+  const canDelete = ["admin", "manager"].includes(String(user?.role || "").toLowerCase());
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState("active"); // active | paid
+  const [tab, setTab] = useState("active"); // active | paid | cancelled
   const [filterVendor, setFilterVendor] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   // Paid orders are read a period at a time; this month is what is usually asked for. "custom"
@@ -306,7 +310,82 @@ export default function PettyCashTransactionPanel({
       loadTransactions();
       onTransactionChange?.();
     } catch (err) {
-      alert(err.response?.data?.error || `Failed to ${action}`);
+      await showAlertDialog({
+        title: "Not done",
+        message: String(err.response?.data?.error || `Could not ${action.replace(/-/g, " ")} this order.`),
+        tone: "danger",
+      });
+    }
+  };
+
+  const cancelOrder = async (tx) => {
+    const ok = await showConfirmDialog({
+      title: "Cancel this order?",
+      message: `"${tx.purpose}" moves to Cancelled. You can reopen or delete it from there.`,
+      confirmLabel: "Cancel order",
+      cancelLabel: "Keep it",
+      tone: "warning",
+    });
+    if (ok) runAction(tx._id, "cancel");
+  };
+
+  // Deleting undoes the order as if it was never entered: the stock its receipt added comes back
+  // out and the expense its payment made goes. The person sees exactly what before confirming.
+  const deleteOrder = async (tx) => {
+    let plan = { stock: [], expenseTotal: 0, expenseCount: 0 };
+    if (tx.receivedAt || tx.status === "Received" || tx.status === "Paid") {
+      try {
+        const { data } = await apiClient.get(`/api/petty-cash-transactions/${tx._id}`, { params: { undo: 1 } });
+        plan = data;
+      } catch (err) {
+        await showAlertDialog({
+          title: "Not deleted",
+          message: String(err.response?.data?.error || "Could not check what this order changed. Please try again."),
+          tone: "danger",
+        });
+        return;
+      }
+    }
+    const qty = (n) => Number(n).toLocaleString("en-NG", { maximumFractionDigits: 2 });
+    const details = [
+      ...plan.stock.map((line) => ({
+        label: `${line.name}: take ${qty(line.quantity)} back out of stock`,
+        value: line.stockNow === null ? "" : `${qty(line.stockNow)} → ${qty(line.stockAfter)}`,
+      })),
+      ...(plan.expenseCount > 0 ? [{ label: "Expense removed", value: formatCurrency(plan.expenseTotal) }] : []),
+    ];
+    const goesNegative = plan.stock.some((line) => line.stockAfter !== null && line.stockAfter < 0);
+    const undoes = details.length > 0;
+    const ok = await showConfirmDialog({
+      title: "Delete this order?",
+      message:
+        `"${tx.purpose}" (${formatCurrency(tx.amount)}) from ${tx.vendorName || "the vendor"} is deleted for good` +
+        (undoes ? ", and everything it did is reversed:" : ".") +
+        (goesNegative ? " Some of this stock has been sold since, so its count goes below zero." : ""),
+      details,
+      confirmLabel: undoes ? "Delete and reverse" : "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      const { data } = await apiClient.delete(`/api/petty-cash-transactions/${tx._id}`);
+      loadTransactions();
+      onTransactionChange?.();
+      const reversed = [
+        data.stockReversed?.length ? `${data.stockReversed.length} product${data.stockReversed.length === 1 ? "" : "s"} taken back out of stock` : "",
+        data.expensesRemoved ? "its expense removed" : "",
+      ].filter(Boolean);
+      await showAlertDialog({
+        title: "Order deleted",
+        message: reversed.length ? `${tx.purpose}: ${reversed.join(", ")}.` : tx.purpose,
+        tone: "success",
+      });
+    } catch (err) {
+      await showAlertDialog({
+        title: "Not deleted",
+        message: String(err.response?.data?.error || "The order could not be deleted. Nothing was changed."),
+        tone: "danger",
+      });
     }
   };
 
@@ -371,7 +450,10 @@ export default function PettyCashTransactionPanel({
   };
 
   // Anything still open stays in front of the reader, whatever period is chosen.
-  const activeTransactions = transactions.filter((t) => t.status !== "Paid" && t.status !== "Cancelled");
+  const isClosed = (t) => t.status === "Cancelled" || t.status === "Rejected";
+  const activeTransactions = transactions.filter((t) => t.status !== "Paid" && !isClosed(t));
+  // Cancelled and rejected orders, where they can be reopened or deleted
+  const cancelledTransactions = transactions.filter(isClosed);
   const allPaidTransactions = useMemo(
     () => transactions.filter((t) => t.status === "Paid"),
     [transactions]
@@ -404,7 +486,8 @@ export default function PettyCashTransactionPanel({
     return [...rows.values()].sort((a, b) => b.total - a.total);
   }, [paidTransactions]);
 
-  const displayList = tab === "active" ? activeTransactions : paidTransactions;
+  const displayList =
+    tab === "active" ? activeTransactions : tab === "cancelled" ? cancelledTransactions : paidTransactions;
 
   return (
     <div className="space-y-4">
@@ -540,6 +623,16 @@ export default function PettyCashTransactionPanel({
           }`}
         >
           Paid ({paidTransactions.length}{paidRange && paidTotalAllTimeCount !== paidTransactions.length ? ` of ${paidTotalAllTimeCount}` : ""})
+        </button>
+        <button
+          onClick={() => setTab("cancelled")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 ${
+            tab === "cancelled"
+              ? "border-gray-600 text-gray-700"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Cancelled ({cancelledTransactions.length})
         </button>
       </div>
 
@@ -778,7 +871,7 @@ export default function PettyCashTransactionPanel({
         <div className="text-center py-8 text-gray-500">Loading...</div>
       ) : displayList.length === 0 ? (
         <div className="text-center py-8 text-gray-400">
-          No {tab === "active" ? "active" : "paid"} transactions found.
+          No {tab} transactions found.
         </div>
       ) : (
         <div className="space-y-3">
@@ -929,10 +1022,7 @@ export default function PettyCashTransactionPanel({
                           Edit
                         </button>
                         <button
-                          onClick={() => {
-                            if (confirm("Cancel this order?"))
-                              runAction(tx._id, "cancel");
-                          }}
+                          onClick={() => cancelOrder(tx)}
                           className="border border-red-300 text-red-600 px-2.5 py-1 rounded text-xs font-medium hover:bg-red-50"
                         >
                           Cancel
@@ -956,12 +1046,21 @@ export default function PettyCashTransactionPanel({
                         </button>
                       </>
                     )}
-                    {(tx.status === "Cancelled" || tx.status === "Rejected") && (
+                    {isClosed(tx) && (
                       <button
                         onClick={() => runAction(tx._id, "reopen")}
                         className="border border-blue-300 text-blue-600 px-2.5 py-1 rounded text-xs font-medium hover:bg-blue-50"
                       >
                         Reopen
+                      </button>
+                    )}
+                    {/* Deleting reverses the order's stock and expense: managers and admins only */}
+                    {canDelete && (
+                      <button
+                        onClick={() => deleteOrder(tx)}
+                        className="ml-auto border border-red-300 text-red-700 px-2.5 py-1 rounded text-xs font-medium hover:bg-red-50"
+                      >
+                        Delete
                       </button>
                     )}
                   </div>
