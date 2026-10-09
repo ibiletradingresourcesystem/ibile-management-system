@@ -33,6 +33,7 @@ const ALL_PERMISSIONS = [
     { key: "manage.staff", label: "Staff" },
     { key: "manage.staff-roles", label: "Staff Roles" },
     { key: "manage.vendors", label: "Vendors" },
+    { key: "manage.market", label: "Market" },
     { key: "manage.purchase-orders", label: "Payment Tracker" },
   ]},
   { key: "stock", label: "Stock", description: "Stock management, movement, stock take, reports", children: [
@@ -103,7 +104,7 @@ function getDefaultPermissions(role) {
   switch (role) {
     case "admin": return getAllPermissionKeys();
     case "inventory": return [
-      "manage", "manage.products", "manage.archived", "manage.categories", "manage.vendors", "manage.purchase-orders",
+      "manage", "manage.products", "manage.archived", "manage.categories", "manage.vendors", "manage.market", "manage.purchase-orders",
       "stock", "stock.management", "stock.movement", "stock.stock-take", "stock.stock-take-report", "stock.expiration-report", "stock.stock-history-levels",
     ];
     case "account": return [
