@@ -1,7 +1,7 @@
 import { mongooseConnect } from "@/lib/mongoose";
 import { Transaction } from "@/models/Transactions";
 import JournalEntry from "@/models/JournalEntry";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { authMiddleware, isAdmin, isStaff } from "@/lib/auth-middleware";
 import { applyInventoryDelta } from "@/lib/transaction-utils";
 import { postRefundEntry } from "@/lib/accounting";
 
@@ -42,6 +42,15 @@ export default async function handler(req, res) {
       const transaction = await Transaction.findById(id);
       if (!transaction) {
         return res.status(404).json({ error: "Transaction not found" });
+      }
+
+      // Voiding a sale still on hold moves no money or stock. Anything else goes through the
+      // emailed approval (request-action), and only an admin may do it directly.
+      const voidingHeldSale = status === "refunded" && transaction.status === "held";
+      if (!voidingHeldSale && !isAdmin(req)) {
+        return res.status(403).json({
+          error: "Only an admin can change a finished sale directly. Request the refund or edit for approval.",
+        });
       }
 
       if (status === "completed" && transaction.status === "refunded") {
@@ -105,6 +114,10 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
+    if (!isAdmin(req)) {
+      return res.status(403).json({ error: "Only an admin can permanently delete a sale" });
+    }
+
     try {
       const transaction = await Transaction.findById(id);
       if (!transaction) {

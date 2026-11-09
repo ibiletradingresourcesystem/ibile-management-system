@@ -35,10 +35,9 @@
     "mongodb": "^6.21.0",
     "mongoose": "^8.21.0",
     "multiparty": "^4.2.3",
-    "next": "^15.5.9",
-    "nodemailer": "^7.0.12",
+    "next": "^15.5.29",
+    "nodemailer": "^10.4.0",
     "number-to-words": "^1.2.4",
-    "pdfjs-dist": "^5.3.31",
     "pdfkit": "^0.17.1",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
@@ -48,15 +47,20 @@
     "react-webcam": "^7.2.0",
     "read-excel-file": "^9.2.0",
     "recharts": "^3.9.2",
-    "sharp": "^0.34.4",
+    "sharp": "^0.35.5",
     "swr": "^2.3.8"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "^15.5.9",
+    "@next/eslint-plugin-next": "^15.5.29",
     "autoprefixer": "^10.4.20",
     "critters": "^0.0.23",
     "eslint": "^9.0.0",
-    "postcss": "^8.4.47",
+    "postcss": "^8.5.32",
     "tailwindcss": "^3.4.14"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "^8.5.23"
+    }
   }
 }

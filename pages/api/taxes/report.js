@@ -63,7 +63,7 @@ export default async function handler(req, res) {
     const period = String(req.query.period || "last-month");
     const now = new Date();
     const { start, end, label, days, to } = buildPeriodRange(period, now);
-    const [{ sales, refunds, expenses, voidedCount, productMap, categoryTreatments }, store] = await Promise.all([
+    const [{ sales, refunds, expenses, stockLosses, voidedCount, productMap, categoryTreatments }, store] = await Promise.all([
       loadFinancialPeriod({ start, end }),
       Store.findOne({}).lean(),
     ]);
@@ -72,6 +72,7 @@ export default async function handler(req, res) {
       sales,
       refunds,
       expenses,
+      stockLosses,
       productMap,
       categoryTreatments,
       voidedCount,

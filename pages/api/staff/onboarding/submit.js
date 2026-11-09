@@ -6,8 +6,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { token, onboardingData, guarantor } = req.body;
-  if (!token) {
+  const { token, onboardingData, guarantor } = req.body || {};
+  // A string only: an object here would be run as a database query
+  if (!token || typeof token !== "string") {
     return res.status(400).json({ error: "Token is required" });
   }
 

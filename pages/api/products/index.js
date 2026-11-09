@@ -2,6 +2,7 @@ import { mongooseConnect, withRetry } from "@/lib/mongodb";
 import Product from "@/models/Product";
 import { Category } from "@/models/Category";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { canManageProducts } from "@/lib/permission-utils";
 import { syncVendorAssignmentsForProduct } from "@/lib/vendorProductSync";
 import { deleteProductImages } from "@/lib/s3";
 import { archiveFields, restoreFields } from "@/lib/productArchive";
@@ -392,6 +393,7 @@ export default async function handler(req, res) {
     ===================== */
     if (method === "POST") {
       const body = sanitizeProductPayload(req.body);
+      if (!canManageProducts(req.user)) delete body.quantity;
       const autoCreateUnitChild = body.autoCreateUnitChild !== false;
       delete body.autoCreateUnitChild;
       body.isArchived = false;
@@ -511,6 +513,10 @@ export default async function handler(req, res) {
       const updateData = sanitizeProductPayload(req.body);
       const autoCreateUnitChild = updateData.autoCreateUnitChild !== false;
       delete updateData.autoCreateUnitChild;
+
+      // Setting a stock figure outright is for those who manage stock: the permission to change a
+      // price or a promotion on a product is not permission to change how many there are
+      if (!canManageProducts(req.user)) delete updateData.quantity;
 
       if (isDerivedChild(existingProduct)) {
         // A child's stock always comes from its parent

@@ -2,6 +2,7 @@
 
 import Layout from "@/components/Layout";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { tenderReconciliation } from "@/lib/endOfDayCash";
 import { dayKeyOf, formatDayKey, TRADING_DAY_START_HOUR } from "@/lib/tradingDay";
 import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
@@ -405,16 +406,17 @@ export default function EndOfDayReporting() {
                     <th className="whitespace-nowrap">Trading day</th>
                     <th className="whitespace-nowrap">Location</th>
                     <th className="whitespace-nowrap">Staff</th>
-                    <th className="text-right">Sales</th>
+                    <th className="text-right" title="What the sales on this till took">Expected</th>
+                    <th className="text-right" title="What was counted at close">Counted</th>
+                    <th className="text-right">Over / short</th>
                     <th className="text-right">Transactions</th>
-                    <th className="text-right">Variance</th>
                     <th className="text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reports.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                      <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                         <p className="text-lg font-medium">No reports found</p>
                         <p className="text-sm mt-1">Try adjusting your period or location filter</p>
                       </td>
@@ -454,24 +456,15 @@ export default function EndOfDayReporting() {
                           {report.locationName || "Unknown"}
                         </td>
                         <td className="whitespace-nowrap">{report.staffName || "N/A"}</td>
-                        <td className="text-right font-medium">
-                          {(report.totalSales || 0).toLocaleString("en-NG", {
-                            maximumFractionDigits: 0,
-                          })}
+                        <td className="text-right font-medium tabular-nums">
+                          {money(report.expectedTakings ?? report.totalSales)}
+                        </td>
+                        <td className="text-right tabular-nums">{money(report.physicalCount)}</td>
+                        <td className="text-right whitespace-nowrap tabular-nums">
+                          <Difference value={reportVariance} />
                         </td>
                         <td className="text-right">
                           {formatNumber(report.transactionCount || 0)}
-                        </td>
-                        <td
-                          className={`text-right font-medium ${
-                            Math.abs(reportVariance) < 1
-                              ? "text-gray-700"
-                              : reportVariance > 0
-                                ? "text-amber-700"
-                                : "text-red-600"
-                          }`}
-                        >
-                          {reportVariance.toLocaleString()}
                         </td>
                         <td className="text-center">
                           <span
@@ -487,51 +480,25 @@ export default function EndOfDayReporting() {
                       </tr>
                       {expandedReportId === reportKey && (
                         <tr className="bg-gray-50">
-                          <td colSpan={7} className="px-6 py-4">
+                          <td colSpan={8} className="px-6 py-4">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-                              {/* Opening Info */}
-                              <div>
-                                <h4 className="font-semibold text-gray-800 mb-2">Opening Info</h4>
-                                <div className="space-y-1 text-sm">
-                                  <p><span className="text-gray-500">Opened At:</span> {report.openedAt ? new Date(report.openedAt).toLocaleString("en-NG") : "N/A"}</p>
-                                  <p><span className="text-gray-500">Opening Balance:</span> {(report.openingBalance || 0).toLocaleString()}</p>
-                                </div>
+                              {/* The session: when, who, and the float that stays in the drawer */}
+                              <div className="md:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                <SessionFact label="Opened" value={report.openedAt ? new Date(report.openedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "—"} />
+                                <SessionFact label="Closed" value={report.closedAt ? new Date(report.closedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "—"} />
+                                <SessionFact label="Closed by" value={report.staffName || "—"} />
+                                <SessionFact
+                                  label="Opening float"
+                                  value={money(report.openingBalance)}
+                                  note="Stays in the drawer; not part of the count"
+                                />
                               </div>
-                              
-                              {/* Closing Info */}
-                              <div>
-                                <h4 className="font-semibold text-gray-800 mb-2">Closing Info</h4>
-                                <div className="space-y-1 text-sm">
-                                  <p><span className="text-gray-500">Closed At:</span> {report.closedAt ? new Date(report.closedAt).toLocaleString("en-NG") : "N/A"}</p>
-                                  <p><span className="text-gray-500">Counted (takings):</span> {(report.physicalCount || 0).toLocaleString()}</p>
-                                  <p><span className="text-gray-500">Expected takings:</span> {Number(report.expectedTakings ?? ((report.expectedClosingBalance || 0) - (report.openingBalance || 0))).toLocaleString()}</p>
-                                  <p><span className="text-gray-500">Drawer at close:</span> {(report.expectedClosingBalance || 0).toLocaleString()} <span className="text-gray-400">(incl. float)</span></p>
-                                  <p>
-                                    <span className="text-gray-500">Cash counted:</span>{" "}
-                                    {report.countedCash === null || report.countedCash === undefined
-                                      ? "not counted separately"
-                                      : Number(report.countedCash).toLocaleString()}
-                                    <span className="text-gray-400"> of {Number(report.expectedCash || 0).toLocaleString()} expected</span>
-                                  </p>
-                                </div>
+
+                              {/* Each payment method: what the sales took against what was counted */}
+                              <div className="md:col-span-3">
+                                <TillReconciliation report={report} />
                               </div>
-                              
-                              {/* Tender Breakdown */}
-                              <div>
-                                <h4 className="font-semibold text-gray-800 mb-2">Tender Breakdown</h4>
-                                <div className="space-y-1 text-sm">
-                                  {report.tenderBreakdown && Object.entries(report.tenderBreakdown).length > 0 ? (
-                                    Object.entries(report.tenderBreakdown).map(([tender, amount]) => (
-                                      <p key={tender}>
-                                        <span className="text-gray-500">{tender}:</span> {(amount || 0).toLocaleString()}
-                                      </p>
-                                    ))
-                                  ) : (
-                                    <p className="text-gray-400">No breakdown available</p>
-                                  )}
-                                </div>
-                              </div>
-                              
+
                               {/* Who sold during this till session */}
                               <div className="md:col-span-3">
                                 <h4 className="font-semibold text-gray-800 mb-2">
@@ -583,6 +550,123 @@ export default function EndOfDayReporting() {
       </div>
       }
     </Layout>
+  );
+}
+
+const money = (value) => formatCurrency(Number(value) || 0, { maximumFractionDigits: 0 });
+
+/** Counted − expected, said plainly: over, short or exact. */
+function Difference({ value }) {
+  if (value === null || value === undefined) return <span className="text-gray-400">—</span>;
+  if (Math.abs(value) < 1) return <span className="font-medium text-emerald-700">Exact</span>;
+  return value > 0 ? (
+    <span className="font-semibold text-amber-700">+{money(value)} over</span>
+  ) : (
+    <span className="font-semibold text-red-600">−{money(-value)} short</span>
+  );
+}
+
+function SessionFact({ label, value, note }) {
+  return (
+    <div className="rounded-lg bg-gray-50 px-3 py-2">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="font-medium text-gray-900">{value}</p>
+      {note && <p className="text-[11px] text-gray-400">{note}</p>}
+    </div>
+  );
+}
+
+/**
+ * A till's takings, payment method by payment method: what the sales put on each (expected)
+ * against what staff counted on it at close, and the difference.
+ */
+function TillReconciliation({ report }) {
+  const { rows, perTender, totals, mixUp, float } = tenderReconciliation(report);
+  const notEntered = perTender ? rows.filter((row) => row.counted === null && row.expected > 0) : [];
+  const cashRow = rows.find((row) => row.tender.toUpperCase() === "CASH");
+
+  return (
+    <div>
+      <h4 className="font-semibold text-gray-800">Takings: expected against counted</h4>
+      <p className="mb-2 text-xs text-gray-500">
+        Expected is what this till&apos;s sales took on each payment method. Counted is what was counted or entered at close.
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-400">No payment breakdown on this report.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500">
+                <th className="py-2 pr-3 text-left font-medium">Payment method</th>
+                <th className="py-2 px-3 text-right font-medium">Expected</th>
+                <th className="py-2 px-3 text-right font-medium">Counted</th>
+                <th className="py-2 pl-3 text-right font-medium">Difference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.tender} className="border-b border-gray-100">
+                  <td className="py-2 pr-3 font-medium text-gray-800">{row.tender}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">{money(row.expected)}</td>
+                  <td className="py-2 px-3 text-right tabular-nums">
+                    {row.counted === null ? (
+                      <span className="text-gray-400">{perTender ? "Not entered" : "—"}</span>
+                    ) : (
+                      money(row.counted)
+                    )}
+                  </td>
+                  <td className="py-2 pl-3 text-right tabular-nums">
+                    <Difference value={row.difference} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-gray-50 font-semibold text-gray-900">
+                <td className="py-2 pr-3 pl-2">Total takings</td>
+                <td className="py-2 px-3 text-right tabular-nums">{money(totals.expected)}</td>
+                <td className="py-2 px-3 text-right tabular-nums">{money(totals.counted)}</td>
+                <td className="py-2 pl-3 pr-2 text-right tabular-nums">
+                  <Difference value={totals.difference} />
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      <div className="mt-3 space-y-2 text-sm">
+        {mixUp && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+            <strong>{mixUp.over}</strong> is {money(mixUp.overBy)} over and <strong>{mixUp.short}</strong> is{" "}
+            {money(mixUp.shortBy)} short — nearly the same amount. That usually means some sales were recorded as{" "}
+            {mixUp.short} but paid with {mixUp.over}. Taken together the till is{" "}
+            {Math.abs(totals.difference) < 1
+              ? "exact"
+              : `${money(Math.abs(totals.difference))} ${totals.difference > 0 ? "over" : "short"}`}
+            .
+          </p>
+        )}
+        {notEntered.length > 0 && (
+          <p className="text-gray-600">
+            Nothing was entered for {notEntered.map((row) => row.tender).join(", ")} at close, so the total counts{" "}
+            {notEntered.length === 1 ? "it" : "them"} as nothing.
+          </p>
+        )}
+        {!perTender && rows.length > 0 && (
+          <p className="text-gray-600">
+            This till was closed with one counted total, not a count for each payment method, so only the total can be compared.
+          </p>
+        )}
+        {cashRow && (
+          <p className="text-gray-600">
+            Cash that should be in the drawer at close: {money(float + cashRow.expected)}
+            <span className="text-gray-400"> (float {money(float)} + cash sales {money(cashRow.expected)})</span>
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 

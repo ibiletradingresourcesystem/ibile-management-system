@@ -206,11 +206,12 @@ export default async function handler(req, res) {
       salesMap[key] = (salesMap[key] || 0) + (tx.total || 0);
       txMap[key] = (txMap[key] || 0) + 1;
 
-      // Calculate COGS from items
+      // Calculate COGS from items: the cost saved on the line when sold, else the product's current cost
       if (Array.isArray(tx.items)) {
         for (const item of tx.items) {
           const qty = item.qty || item.quantity || 1;
-          const cost = item.productId ? (costMap.get(item.productId.toString()) || 0) : 0;
+          const recorded = Number(item.costPrice) || 0;
+          const cost = recorded > 0 ? recorded : item.productId ? (costMap.get(item.productId.toString()) || 0) : 0;
           totalCOGS += cost * qty;
         }
       }

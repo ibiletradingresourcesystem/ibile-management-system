@@ -293,6 +293,18 @@ export default async function handler(req, res) {
         : [];
       const changedParts = new Set();
 
+      // What the system holds as these lines are counted, so the count is compared with the shelf
+      // as it is now. One read for the whole batch.
+      const lineFor = (entry) =>
+        stockTake.items.id(entry?.itemId) || sentParts.map((part) => part.items.id(entry?.itemId)).find(Boolean);
+      const countedLines = counts.filter((entry) => !entry?.clear).map(lineFor).filter(Boolean);
+      const liveProducts = countedLines.length
+        ? await Product.find({ _id: { $in: [...new Set(countedLines.map((line) => String(line.productId)))] } })
+            .select("quantity costPrice")
+            .lean()
+        : [];
+      const liveById = new Map(liveProducts.map((product) => [String(product._id), product]));
+
       for (const entry of counts) {
         let item = stockTake.items.id(entry?.itemId);
         if (!item) {
@@ -330,6 +342,15 @@ export default async function handler(req, res) {
         if (!Number.isFinite(qty) || qty < 0) {
           rejected.push({ itemId: entry.itemId, reason: "A count must be a number of zero or more" });
           continue;
+        }
+
+        const live = liveById.get(String(item.productId));
+        if (live) {
+          // The loose-units line has no system figure of its own: stock is held in packs
+          if (item.countType !== "loose-units") item.systemQty = Number(live.quantity) || 0;
+          item.costPrice = item.countType === "loose-units"
+            ? Math.round(((Number(live.costPrice) || 0) / (item.qtyPerPack || 1)) * 100) / 100
+            : Number(live.costPrice) || 0;
         }
 
         item.countedQty = qty;

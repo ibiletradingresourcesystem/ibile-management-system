@@ -1,4 +1,5 @@
 import { mongooseConnect } from "@/lib/mongodb";
+import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import Hero from "@/models/Hero";
 import "@/models/Campaign";
 import "@/models/Promotion";
@@ -111,6 +112,10 @@ function isLinkedScheduleActive(hero, now) {
 }
 
 export default async function handler(req, res) {
+  const authError = authMiddleware(req, res);
+  if (authError) return authError;
+  if (!isStaff(req)) return res.status(403).json({ error: "Insufficient permissions" });
+
   await mongooseConnect();
 
   try {

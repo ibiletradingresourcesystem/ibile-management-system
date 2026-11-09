@@ -54,8 +54,8 @@ export default async function handler(req, res) {
     const end = toKey ? new Date(shopDaysBounds(toKey).end.getTime() - 1) : range.end;
     const periodLabel = fromKey || toKey ? `${lagosDate(start)} to ${lagosDate(end)}` : range.label;
 
-    const { sales, refunds, expenses, voidedCount, productMap, categoryTreatments } = await loadFinancialPeriod({ start, end });
-    const summary = summarizePeriod({ sales, refunds, expenses, productMap, categoryTreatments, voidedCount });
+    const { sales, refunds, expenses, stockLosses, voidedCount, productMap, categoryTreatments } = await loadFinancialPeriod({ start, end });
+    const summary = summarizePeriod({ sales, refunds, expenses, stockLosses, productMap, categoryTreatments, voidedCount });
 
     const entries = await JournalEntry.find(
       { status: "POSTED", date: { $gte: start, $lte: end } },

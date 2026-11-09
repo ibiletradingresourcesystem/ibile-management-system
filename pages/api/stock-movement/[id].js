@@ -7,6 +7,7 @@ import { authMiddleware, isStaff, isBasicStaff } from "@/lib/auth-middleware";
 import { formatVendorMovementLabel } from "@/lib/vendorDisplay";
 import { deriveChildQty } from "@/lib/syncPackQty";
 import { sanitizeMultilineText } from "@/lib/textSanitizers";
+import { postStockMovementEntry } from "@/lib/accounting";
 
 /**
  * How a movement of each reason changes global stock, per unit.
@@ -161,10 +162,12 @@ export default async function handler(req, res) {
 
     const session = await mongoose.startSession();
     let touchedProductIds = [];
+    let savedMovement = null;
 
     try {
       await session.withTransaction(async () => {
         const movement = await StockMovement.findById(id).session(session);
+        savedMovement = movement;
         if (!movement) {
           const err = new Error("Movement not found");
           err.statusCode = 404;
@@ -265,6 +268,13 @@ export default async function handler(req, res) {
     }
 
     await session.endSession();
+
+    // A corrected loss corrects its entry in the books
+    try {
+      await postStockMovementEntry(savedMovement);
+    } catch (acctErr) {
+      console.error("Accounting auto-post failed for stock movement:", id, acctErr.message);
+    }
 
     // Child pack quantities are derived, so refresh them outside the transaction
     for (const productId of [...new Set(touchedProductIds)]) {

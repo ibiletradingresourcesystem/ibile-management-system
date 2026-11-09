@@ -1,5 +1,5 @@
 import { connectToDatabase } from "@/lib/mongodb";
-import { getTokenFromRequest, verifyToken } from "@/lib/jwt";
+import { authMiddleware } from "@/lib/auth-middleware";
 import Staff from "@/models/Staff";
 import nodemailer from "nodemailer";
 
@@ -8,11 +8,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const token = getTokenFromRequest(req);
-  const decoded = verifyToken(token);
-  if (!decoded) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
+  const authError = authMiddleware(req, res);
+  if (authError) return authError;
 
   const { staffId, email } = req.body;
   if (!staffId || !email) {

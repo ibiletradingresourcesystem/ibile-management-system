@@ -1,23 +1,17 @@
 import User from "@/models/User";
 import bcrypt from "bcryptjs";
 import { connectToDatabase } from "@/lib/mongodb";
-import { getTokenFromRequest, verifyToken } from "@/lib/jwt";
+import { authMiddleware, isAdmin } from "@/lib/auth-middleware";
 import { resolveStaffLink } from "@/lib/linkedStaff";
 
-function requireAdmin(req) {
-  const token = getTokenFromRequest(req);
-  if (!token) return null;
-  const decoded = verifyToken(token);
-  if (!decoded || decoded.role !== "admin") return null;
-  return decoded;
-}
-
 export default async function handler(req, res) {
-  await connectToDatabase();
-  const admin = requireAdmin(req);
-  if (!admin) {
+  const authError = authMiddleware(req, res);
+  if (authError) return authError;
+  if (!isAdmin(req)) {
     return res.status(403).json({ error: "Admin access required" });
   }
+
+  await connectToDatabase();
 
   // GET - List all users
   if (req.method === "GET") {

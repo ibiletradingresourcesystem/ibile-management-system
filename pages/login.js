@@ -47,17 +47,16 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
   const [setupLoading, setSetupLoading] = useState(false);
   const [setupMessage, setSetupMessage] = useState("");
 
-  // Determine if selected user is admin
+  // Admins are not assigned a location here, so they can pick any
   const selectedUser = staffList.find((u) => u.name === name);
-  const isSelectedAdmin = selectedUser?.role === "admin";
   const userAssignedLocation = selectedUser?.assignedLocation || "";
 
-  // When user changes, auto-set location for non-admins
+  // When user changes, auto-set their assigned location
   useEffect(() => {
-    if (name && !isSelectedAdmin && userAssignedLocation) {
+    if (name && userAssignedLocation) {
       setLocation(userAssignedLocation);
     }
-  }, [name, isSelectedAdmin, userAssignedLocation]);
+  }, [name, userAssignedLocation]);
 
   /* ===== Init Store ===== */
   useEffect(() => {
@@ -94,10 +93,10 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
     setLoading(true);
     try {
       const user = staffList.find((u) => u.name === name);
-      if (!user?.email) throw new Error("User email not found");
+      if (!user?._id) throw new Error("User not found");
 
       const res = await apiClient.post("/api/auth/login", {
-        email: user.email,
+        userId: user._id,
         password,
       });
 
@@ -359,22 +358,22 @@ export default function Login({ staffList, locations, businessName, poweredBy, n
             <select
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              disabled={name && !isSelectedAdmin && !!userAssignedLocation}
+              disabled={name && !!userAssignedLocation}
               className={`form-input mb-4 appearance-none ${
-                name && !isSelectedAdmin && userAssignedLocation ? "bg-gray-100 text-gray-600 cursor-not-allowed" : ""
+                name && userAssignedLocation ? "bg-gray-100 text-gray-600 cursor-not-allowed" : ""
               }`}
             >
-              {(isSelectedAdmin || !name) ? (
+              {(!userAssignedLocation || !name) ? (
                 availableLocations.map((loc) => (
                   <option key={loc} value={loc}>{loc}</option>
                 ))
               ) : (
-                <option value={userAssignedLocation || location}>
-                  {userAssignedLocation || location}
+                <option value={userAssignedLocation}>
+                  {userAssignedLocation}
                 </option>
               )}
             </select>
-            {name && !isSelectedAdmin && userAssignedLocation && (
+            {name && userAssignedLocation && (
               <p className="text-xs text-gray-500 -mt-3 mb-3 text-center">
                 Assigned to {userAssignedLocation}
               </p>
@@ -507,8 +506,9 @@ export async function getServerSideProps() {
   const adminCount = await User.countDocuments({ role: "admin" });
   const noAdmin = adminCount === 0;
 
-  // Fetch all users (for login dropdown)
-  const adminUsers = await User.find({}, "name email role").lean();
+  // Fetch all users (for login dropdown). This page is public, so names and ids only: an email or
+  // a role sent here would tell anyone who to try
+  const adminUsers = await User.find({}, "name role").lean();
 
   // Fetch staff to get assigned locations
   const staffData = await Staff.find({}, "name location role").lean();
@@ -530,8 +530,9 @@ export async function getServerSideProps() {
   return {
     props: {
       staffList: adminUsers.map((u) => ({
-        ...JSON.parse(JSON.stringify(u)),
-        assignedLocation: staffLocationMap[u.name] || "",
+        _id: String(u._id),
+        name: u.name,
+        assignedLocation: u.role === "admin" ? "" : staffLocationMap[u.name] || "",
       })),
       locations,
       businessName: store?.businessName || store?.name || "BizSuits",

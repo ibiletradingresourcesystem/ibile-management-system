@@ -34,7 +34,7 @@ const JournalEntrySchema = new Schema(
     reference: { type: String, default: "" }, // e.g. "TXN-12345", "EXP-001", "PO-00123"
     referenceType: {
       type: String,
-      enum: ["MANUAL", "SALE", "CREDIT_SALE", "CREDIT_PAYMENT", "EXPENSE", "PURCHASE_ORDER", "SALARY", "REFUND", "OTHER"],
+      enum: ["MANUAL", "SALE", "CREDIT_SALE", "CREDIT_PAYMENT", "EXPENSE", "PURCHASE_ORDER", "SALARY", "REFUND", "STOCK_ADJUSTMENT", "OTHER"],
       default: "MANUAL",
     },
     referenceId: { type: Schema.Types.ObjectId }, // Link to source document

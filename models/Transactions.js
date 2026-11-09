@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import Product from "./Product";
 
 const itemSchema = new mongoose.Schema(
   {
@@ -8,6 +9,7 @@ const itemSchema = new mongoose.Schema(
     quantity: Number, // Quantity from POS
     salePriceIncTax: Number, // Standardized field for reports
     qty: Number, // Standardized field for reports
+    costPrice: Number, // What one unit cost when it was sold (stamped on save)
   },
   {
     _id: false,
@@ -126,6 +128,25 @@ TransactionSchema.index({ salesChannel: 1, createdAt: -1 });
 TransactionSchema.index({ sourceOrderId: 1 }, { sparse: true });
 TransactionSchema.index({ status: 1, creditStatus: 1, createdAt: -1 });
 TransactionSchema.index({ creditCustomerId: 1, creditStatus: 1, createdAt: -1 });
+
+// Each line keeps what the goods cost when they were sold, so a later cost change leaves past
+// profit alone. A new sale takes its costs from the product records; an edited sale keeps the costs
+// its lines already carry. A product with no cost yet is left unstamped, so the reports use its cost
+// once it is entered.
+TransactionSchema.pre("save", async function stampLineCosts() {
+  if (!this.isNew && !this.isModified("items")) return;
+  const unstamped = (this.items || []).filter((item) => item?.productId && (this.isNew || !(Number(item.costPrice) > 0)));
+  if (unstamped.length === 0) return;
+
+  const products = await Product.find({ _id: { $in: unstamped.map((item) => item.productId) } })
+    .select("_id costPrice")
+    .lean();
+  const costs = new Map(products.map((product) => [String(product._id), Number(product.costPrice) || 0]));
+  for (const item of unstamped) {
+    const cost = costs.get(String(item.productId));
+    if (cost > 0) item.costPrice = cost;
+  }
+});
 
 // Avoid re-registering the model in development
 const Transaction =

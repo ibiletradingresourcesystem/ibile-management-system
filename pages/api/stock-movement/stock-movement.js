@@ -8,6 +8,7 @@ import { isValidObjectId } from "mongoose";
 import { authMiddleware, isStaff, isBasicStaff } from "@/lib/auth-middleware";
 import { BASIC_STAFF_MOVEMENT_REASON } from "@/lib/permission-utils";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
+import { postStockMovementEntry } from "@/lib/accounting";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -225,6 +226,14 @@ export default async function handler(req, res) {
       });
     } finally {
       await session.endSession();
+    }
+
+    // A loss written off reaches the books. The stock has moved, so a failure here is only logged;
+    // the accounting sync posts it next time
+    try {
+      await postStockMovementEntry(movement);
+    } catch (acctErr) {
+      console.error("Accounting auto-post failed for stock movement:", movement._id, acctErr.message);
     }
 
     // 4. Post-transaction: derive child quantities (safe to do outside transaction)

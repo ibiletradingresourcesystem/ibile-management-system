@@ -5,6 +5,7 @@ import { Loader } from "@/components/ui";
 import { apiClient } from "@/lib/api-client";
 import { showAlertDialog, showConfirmDialog } from "@/lib/dialogs";
 import { formatCurrency } from "@/lib/format";
+import { dayKeyOf } from "@/lib/tradingDay";
 import { useAuth } from "@/lib/useAuth";
 import SeedDataModal from "@/components/SeedDataModal";
 import { amountStoreOwes, deriveVendorCredit } from "@/lib/orderPayments";
@@ -137,6 +138,7 @@ export default function PurchaseOrdersPage() {
   const [editIndex, setEditIndex] = useState(null);
   const [editedPayment, setEditedPayment] = useState("");
   const [editedPaymentDate, setEditedPaymentDate] = useState("");
+  const [editedOrderDate, setEditedOrderDate] = useState("");
   const [isBusy, setIsBusy] = useState(false);
 
   // Pagination
@@ -413,6 +415,7 @@ export default function PurchaseOrdersPage() {
     setEditIndex(idx);
     setEditedPayment(String(order.paymentMade ?? ""));
     setEditedPaymentDate(order.paymentDate ? new Date(order.paymentDate).toISOString().slice(0, 10) : "");
+    setEditedOrderDate(dayKeyOf(getOrderDate(order)) || "");
   }
 
   async function handleSaveEdit(idx) {
@@ -423,6 +426,8 @@ export default function PurchaseOrdersPage() {
     try {
       await apiClient.put(`/api/purchase-orders/${order._id}`, {
         action: "update-payment", paymentMade: payNum, paymentDate: editedPaymentDate || new Date().toISOString(),
+        // Only when it was changed, so saving a payment leaves the order's date exactly as it was
+        ...(editedOrderDate && editedOrderDate !== dayKeyOf(getOrderDate(order)) ? { date: editedOrderDate } : {}),
       });
       setEditIndex(null);
       fetchOrders();
@@ -654,7 +659,11 @@ export default function PurchaseOrdersPage() {
                           onChange={() => toggleCheck(order._id)} />
                       )}
                     </td>
-                    <td className="text-gray-700 whitespace-nowrap">{order.date ? new Date(order.date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"}</td>
+                    <td className="text-gray-700 whitespace-nowrap">
+                      {editIndex === idx && order.kind !== "cash"
+                        ? <input type="date" aria-label="Order date" value={editedOrderDate} onChange={(e) => setEditedOrderDate(e.target.value)} className="form-input text-xs w-28" />
+                        : order.date ? new Date(order.date).toLocaleDateString() : order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "—"}
+                    </td>
                     <td className="font-medium text-gray-800">{order.vendorName || "—"}</td>
                     <td className="text-xs text-gray-500">{order.contact || "—"}</td>
                     <td className="text-xs text-gray-600 max-w-[16rem] truncate" title={order.productLabel || order.products?.[0]?.name || ""}>

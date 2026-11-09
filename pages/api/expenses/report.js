@@ -1,9 +1,13 @@
 // pages/api/expenses/report.js
 import { mongooseConnect } from "@/lib/mongodb";
+import { authMiddleware } from "@/lib/auth-middleware";
 import Expense from "@/models/Expense";
 import PDFDocument from "pdfkit";
 
 export default async function handler(req, res) {
+  const authError = authMiddleware(req, res);
+  if (authError) return authError;
+
   if (req.method !== "GET") {
     return res.status(405).json({ message: "Method not allowed" });
   }

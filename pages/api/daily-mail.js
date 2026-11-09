@@ -8,20 +8,18 @@ import { mongooseConnect } from "@/lib/mongoose";
 import { Transaction } from "@/models/Transactions";
 import Expense from "@/models/Expense";
 import { createMailTransport, getMailEnvValue, getMailFromAddress } from "@/lib/mail";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
-import jwt from "jsonwebtoken";
+import { verifyToken } from "@/lib/jwt";
 
 export default async function handler(req, res) {
   // Auth: Allow CRON_SECRET, JWT, or Vercel cron
   if (process.env.NODE_ENV === "production") {
     const key = req.query.key;
     const auth = req.headers.authorization;
-    if (key === process.env.CRON_SECRET || auth === `Bearer ${process.env.CRON_SECRET}`) {
+    const cronSecret = process.env.CRON_SECRET;
+    if (cronSecret && (key === cronSecret || auth === `Bearer ${cronSecret}`)) {
       // Cron authorized
     } else if (auth?.startsWith("Bearer ")) {
-      try {
-        jwt.verify(auth.substring(7), process.env.JWT_SECRET);
-      } catch {
+      if (!verifyToken(auth.substring(7))) {
         return res.status(401).json({ error: "Unauthorized" });
       }
     } else {

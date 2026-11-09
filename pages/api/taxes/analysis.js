@@ -18,12 +18,13 @@ export default async function handler(req, res) {
     const { period = "last-month" } = req.query;
     const now = new Date();
     const { start, end, label, days, to } = buildPeriodRange(period, now);
-    const { sales, refunds, expenses, voidedCount, productMap, categoryTreatments } = await loadFinancialPeriod({ start, end });
+    const { sales, refunds, expenses, stockLosses, voidedCount, productMap, categoryTreatments } = await loadFinancialPeriod({ start, end });
 
     const summary = computeTaxAnalysis({
       sales,
       refunds,
       expenses,
+      stockLosses,
       productMap,
       categoryTreatments,
       voidedCount,

@@ -69,6 +69,16 @@ const StockTakeSchema = new Schema(
     approvedAt: { type: Date, default: null },
     adjustmentApplied: { type: Boolean, default: false },
     adjustedAt: { type: Date, default: null },
+    // What applying this stock take changed each product's stock by, and that change at cost:
+    // a later correction moves stock by the difference, and the books read the value
+    appliedAdjustments: [
+      {
+        _id: false,
+        productId: { type: Schema.Types.ObjectId, ref: "Product" },
+        quantity: Number,
+        value: Number,
+      },
+    ],
 
     // Sent from a phone part-way through (pages/api/stock-take/mobile/send.js): the counted lines
     // became a stock take of their own (sentFrom on it), and the rest stayed here to count

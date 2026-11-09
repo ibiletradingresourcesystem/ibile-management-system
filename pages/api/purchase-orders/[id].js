@@ -77,7 +77,14 @@ export default async function handler(req, res) {
 
       // Update payment
       if (action === "update-payment") {
-        const { paymentMade, paymentDate } = req.body;
+        const { paymentMade, paymentDate, date } = req.body;
+        if (date !== undefined) {
+          const orderDate = new Date(date);
+          if (!date || Number.isNaN(orderDate.getTime())) {
+            return res.status(400).json({ error: "Enter a valid date" });
+          }
+          order.date = orderDate;
+        }
         order.paymentMade = paymentMade !== undefined ? Number(paymentMade) : order.paymentMade;
         order.paymentDate = paymentDate || order.paymentDate;
         Object.assign(order, derivePaymentState(order));

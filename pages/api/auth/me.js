@@ -1,6 +1,6 @@
 import User from "@/models/User";
 import { connectToDatabase } from "@/lib/mongodb";
-import { getTokenFromRequest, verifyToken } from "@/lib/jwt";
+import { authMiddleware } from "@/lib/auth-middleware";
 import { normalizePermissions } from "@/lib/permission-utils";
 
 export default async function handler(req, res) {
@@ -8,27 +8,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const token = getTokenFromRequest(req);
-  if (!token) {
-    return res.status(401).json({ error: "Missing authentication token" });
-  }
+  // Refuses a deactivated user, and fills in the role and permissions they have now
+  const authError = authMiddleware(req, res);
+  if (authError) return authError;
 
-  const decoded = verifyToken(token);
-  if (!decoded?.id) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
-
-  // Fast path: if token has permissions cached and no refresh requested, skip DB
+  // Fast path: no database trip unless a refresh is asked for
   const wantRefresh = req.query.refresh === "1";
-  if (!wantRefresh && decoded.permissions) {
+  if (!wantRefresh && req.user.permissions) {
     return res.status(200).json({
       user: {
-        id: decoded.id,
-        email: decoded.email,
-        name: decoded.name,
-        role: decoded.role,
+        id: req.user.id,
+        email: req.user.email,
+        name: req.user.name,
+        role: req.user.role,
         isActive: true,
-        permissions: normalizePermissions(decoded.permissions),
+        permissions: normalizePermissions(req.user.permissions),
       },
     });
   }
@@ -36,7 +30,7 @@ export default async function handler(req, res) {
   // Full DB check (refresh or legacy token without permissions)
   await connectToDatabase();
 
-  const user = await User.findById(decoded.id).select("name email role permissions isActive").lean();
+  const user = await User.findById(req.user.id).select("name email role permissions isActive").lean();
   if (!user || !user.isActive) {
     return res.status(401).json({ error: "Account is unavailable" });
   }

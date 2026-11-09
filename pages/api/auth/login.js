@@ -1,35 +1,20 @@
 import { createToken } from '@/lib/jwt';
 import User from '@/models/User';
 import bcrypt from 'bcryptjs';
+import { isValidObjectId } from 'mongoose';
 import { connectToDatabase } from '@/lib/mongodb';
 import { normalizePermissions } from '@/lib/permission-utils';
+import { LOCKED_MESSAGE, clearFailedLogins, isLockedOut, recordFailedLogin } from '@/lib/loginAttempts';
 
-const LOGIN_WINDOW_MS = 10 * 60 * 1000;
-const MAX_FAILED_ATTEMPTS = 5;
-const loginAttempts = new Map();
-
-function getAttemptKey(req, email = "") {
-  const ip =
-    req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
-    req.socket?.remoteAddress ||
-    "unknown-ip";
-  return `${String(email).toLowerCase()}::${ip}`;
-}
-
-function registerFailure(key) {
-  const now = Date.now();
-  const entry = loginAttempts.get(key) || { count: 0, firstAttemptAt: now };
-  if (now - entry.firstAttemptAt > LOGIN_WINDOW_MS) {
-    entry.count = 0;
-    entry.firstAttemptAt = now;
+/** The account being signed in to: picked from the keypad's list (id), or typed (email). */
+async function findUser({ userId, email }) {
+  if (typeof userId === 'string') {
+    return isValidObjectId(userId) ? User.findById(userId) : null;
   }
-  entry.count += 1;
-  loginAttempts.set(key, entry);
-  return entry;
-}
-
-function clearFailure(key) {
-  loginAttempts.delete(key);
+  // A string only: an object here would be run as a database query
+  if (typeof email !== 'string') return null;
+  const typed = email.trim();
+  return User.findOne({ email: { $in: [typed, typed.toLowerCase()] } });
 }
 
 export default async function handler(req, res) {
@@ -38,46 +23,39 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { email, password } = req.body;
+    const { userId, email, password } = req.body || {};
 
-    if (!email || !password) {
+    if ((!email && !userId) || typeof password !== 'string' || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
-    }
-
-    const attemptKey = getAttemptKey(req, email);
-    const currentEntry = loginAttempts.get(attemptKey);
-    if (
-      currentEntry &&
-      currentEntry.count >= MAX_FAILED_ATTEMPTS &&
-      Date.now() - currentEntry.firstAttemptAt <= LOGIN_WINDOW_MS
-    ) {
-      return res.status(429).json({
-        error: "Too many failed login attempts. Please try again later.",
-      });
     }
 
     await connectToDatabase();
 
-    const user = await User.findOne({ email });
+    const user = await findUser({ userId, email });
 
     if (!user) {
-      registerFailure(attemptKey);
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const account = `user:${user._id}`;
+
+    if (await isLockedOut(account, req)) {
+      return res.status(429).json({ error: LOCKED_MESSAGE });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      registerFailure(attemptKey);
+      await recordFailedLogin(account, req);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     if (!user.isActive) {
-      registerFailure(attemptKey);
+      await recordFailedLogin(account, req);
       return res.status(401).json({ error: 'Account is inactive' });
     }
 
-    clearFailure(attemptKey);
+    await clearFailedLogins(account, req);
 
     const token = createToken(
       {

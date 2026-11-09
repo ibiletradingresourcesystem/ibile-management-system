@@ -13,6 +13,7 @@ import StockTake from "@/models/StockTake";
 import bcrypt from "bcryptjs";
 import { createToken } from "@/lib/jwt";
 import { normalizeStaffRole } from "@/lib/pos-permissions";
+import { LOCKED_MESSAGE, clearFailedLogins, isLockedOut, recordFailedLogin } from "@/lib/loginAttempts";
 import crypto from "crypto";
 
 /**
@@ -107,11 +108,21 @@ export default async function handler(req, res) {
 
   const { username, password, stockTakeId } = req.body || {};
 
-  if (!username || !password) {
+  if (typeof username !== "string" || typeof password !== "string" || !username || !password) {
     return res.status(400).json({ error: "Username and password are required" });
   }
 
+  // A sign-in is for one count that is open now, not a general pass
+  if (!/^[0-9a-fA-F]{24}$/.test(String(stockTakeId || ""))) {
+    return res.status(400).json({ error: "This stock take link is not valid." });
+  }
+
   try {
+    const open = await StockTake.exists({ _id: stockTakeId, status: { $in: ["draft", "in-progress"] } });
+    if (!open) {
+      return res.status(400).json({ error: "This stock take is no longer open for counting." });
+    }
+
     // Find staff by name (case-insensitive) or email
     const staff = await Staff.findOne({
       $or: [
@@ -125,17 +136,26 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    // Shared with the till's PIN sign-in, so guesses there and here add up
+    const account = `staff:${staff._id}`;
+    if (await isLockedOut(account, req)) {
+      return res.status(429).json({ error: LOCKED_MESSAGE });
+    }
+
     // Verify password
     if (!staff.password || !(await verifyPassword(password, staff.password))) {
+      await recordFailedLogin(account, req);
       return res.status(401).json({ error: "Invalid credentials" });
     }
+
+    await clearFailedLogins(account, req);
 
     // A signed session token — a plain base64 payload could be written by anyone
     const token = createToken(
       {
         staffId: String(staff._id),
         staffName: staff.name,
-        stockTakeId: stockTakeId ? String(stockTakeId) : null,
+        stockTakeId: String(stockTakeId),
         scope: MOBILE_SCOPE,
         // Only an admin is shown the system quantity while counting (see ./count.js)
         role: normalizeStaffRole(staff.role),

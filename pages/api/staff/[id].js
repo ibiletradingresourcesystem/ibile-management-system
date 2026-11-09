@@ -1,6 +1,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import { Staff } from "@/models/Staff";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { authMiddleware, isAdmin, isStaff } from "@/lib/auth-middleware";
+import { userCan } from "@/lib/permission-utils";
 import {
   normalizePosPermissions,
   normalizeStaffRole,
@@ -18,6 +19,12 @@ export default async function handler(req, res) {
   await mongooseConnect();
 
   const { id } = req.query;
+
+  // Manage Staff changes everything about a staff member; POS Roles only their role and access
+  const managesStaff = userCan(req.user, "manage.staff");
+  if (!managesStaff && req.method !== "PUT") {
+    return res.status(403).json({ error: "Insufficient permissions" });
+  }
 
   if (req.method === "PUT") {
     try {
@@ -42,6 +49,9 @@ export default async function handler(req, res) {
 
       // Only recalculate posPermissions if explicitly provided or role changed
       const existingStaff = await Staff.findById(id).select("role posPermissions").lean();
+      if (normalizedRole === "admin" && normalizeStaffRole(existingStaff?.role) !== "admin" && !isAdmin(req)) {
+        return res.status(403).json({ error: "Only an admin can give someone the admin role" });
+      }
       let resolvedPermissions;
       if (posPermissions !== undefined) {
         // Explicit permissions sent — normalize them
@@ -54,25 +64,27 @@ export default async function handler(req, res) {
         resolvedPermissions = existingStaff?.posPermissions || normalizePosPermissions(normalizedRole, {});
       }
 
-      const updateData = {
-        name,
-        // location, and the locationName and locationId the till reads
-        ...(await staffLocationFields(location)),
-        role: normalizedRole,
-        posPermissions: resolvedPermissions,
-        accountName: accountName || "",
-        accountNumber: accountNumber || "",
-        bankName: bankName || "",
-        salary: salary ? parseInt(salary) : 0,
-        isActive: isActive !== undefined ? isActive : true,
-      };
+      const updateData = managesStaff
+        ? {
+            name,
+            // location, and the locationName and locationId the till reads
+            ...(await staffLocationFields(location)),
+            role: normalizedRole,
+            posPermissions: resolvedPermissions,
+            accountName: accountName || "",
+            accountNumber: accountNumber || "",
+            bankName: bankName || "",
+            salary: salary ? parseInt(salary) : 0,
+            isActive: isActive !== undefined ? isActive : true,
+          }
+        : { role: normalizedRole, posPermissions: resolvedPermissions };
 
-      if (req.body.photo !== undefined) {
+      if (managesStaff && req.body.photo !== undefined) {
         updateData.photo = req.body.photo;
       }
 
       // Only hash password if provided
-      if (password) {
+      if (managesStaff && password) {
         const bcrypt = require("bcryptjs");
         updateData.password = await bcrypt.hash(password, 10);
       }

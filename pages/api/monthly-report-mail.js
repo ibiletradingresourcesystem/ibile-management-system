@@ -4,7 +4,7 @@ import Product from "@/models/Product";
 import Store from "@/models/Store";
 import Transaction from "@/models/Transactions";
 import Expense from "@/models/Expense";
-import jwt from "jsonwebtoken";
+import { verifyToken } from "@/lib/jwt";
 import { createMailTransport, getMailEnvValue, getMailFromAddress } from "@/lib/mail";
 import { aggregateProductSales } from "@/lib/product-sales-report";
 import { generateMonthlyReportInsight, buildMonthlyReportAIHtml } from "@/lib/ai/monthlyReportAI";
@@ -80,24 +80,15 @@ export default async function handler(req, res) {
       const auth = req.headers.authorization;
 
       // Vercel Cron sends Authorization: Bearer <CRON_SECRET>
-      if (
-        key === process.env.CRON_SECRET ||
-        auth === `Bearer ${process.env.CRON_SECRET}`
-      ) {
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && (key === cronSecret || auth === `Bearer ${cronSecret}`)) {
         console.log("[Monthly Mail] ✅ Authorized via CRON_SECRET");
       } else if (auth && auth.startsWith("Bearer ")) {
-        // Verify JWT token for admin users
-        try {
-          const token = auth.substring(7);
-          if (!process.env.JWT_SECRET) {
-            return res.status(500).json({ error: "JWT_SECRET not configured" });
-          }
-          jwt.verify(token, process.env.JWT_SECRET);
-          console.log("[Monthly Mail] ✅ Authorized via JWT token");
-        } catch (tokenErr) {
-          console.log("[Monthly Mail] ❌ Invalid JWT token:", tokenErr.message);
+        if (!verifyToken(auth.substring(7))) {
+          console.log("[Monthly Mail] ❌ Invalid JWT token");
           return res.status(401).json({ error: "Unauthorized" });
         }
+        console.log("[Monthly Mail] ✅ Authorized via JWT token");
       } else {
         console.log("[Monthly Mail] ❌ No valid authorization");
         return res.status(401).json({ error: "Unauthorized" });

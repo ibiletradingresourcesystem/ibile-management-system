@@ -2,12 +2,17 @@ import { mongooseConnect } from "@/lib/mongodb";
 import Staff from "@/models/Staff";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { authMiddleware, isAdmin, isStaff } from "@/lib/auth-middleware";
+import { userCan } from "@/lib/permission-utils";
 import {
   normalizePosPermissions,
   normalizeStaffRole,
 } from "@/lib/pos-permissions";
 import { staffLocationFields } from "@/lib/staffLocation";
+
+// Pages that only pick a staff member get names and locations; pay, bank details and onboarding
+// papers are for those who manage staff
+const PRIVATE_FIELDS = "-accountName -accountNumber -bankName -salary -penalty -onboardingToken -onboardingData -guarantor";
 
 let staffIndexesSynced = false;
 
@@ -39,8 +44,14 @@ export default async function handler(req, res) {
   // Fire and forget - don't block the request
   ensureStaffIndexes();
 
+  const managesStaff = userCan(req.user, "manage.staff");
+
   if (req.method === "GET") {
     try {
+      if (!managesStaff) {
+        return res.status(200).json(await Staff.find().select(`-password ${PRIVATE_FIELDS}`).lean());
+      }
+
       const staff = await Staff.find().select("-password").lean();
 
       // Auto-generate onboardingToken for any staff missing it
@@ -66,6 +77,10 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    if (!managesStaff) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+
     const {
       name,
       password,
@@ -84,6 +99,9 @@ export default async function handler(req, res) {
 
     try {
       const normalizedRole = normalizeStaffRole(role);
+      if (normalizedRole === "admin" && !isAdmin(req)) {
+        return res.status(403).json({ error: "Only an admin can give someone the admin role" });
+      }
       const hashedPassword = await bcrypt.hash(password, 10);
       const onboardingToken = crypto.randomBytes(24).toString("hex");
       const staff = await Staff.create({
@@ -100,7 +118,8 @@ export default async function handler(req, res) {
         photo: req.body.photo || "",
         onboardingToken,
       });
-      return res.status(201).json(staff);
+      const { password: _passwordHash, ...created } = staff.toObject();
+      return res.status(201).json(created);
     } catch (error) {
       console.error("Error creating staff:", error);
       return res.status(500).json({ error: "Error creating staff", details: error.message });
