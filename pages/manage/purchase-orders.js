@@ -127,10 +127,20 @@ export default function PurchaseOrdersPage() {
   const [quickForm, setQuickForm] = useState({
     vendor: "", party: "", accountName: "", accountNumber: "", bankName: "",
     amount: "", paymentDate: new Date().toISOString().split("T")[0], notes: "", products: "", purpose: "vendor-payment",
+    title: "", categoryId: "",
   });
   // What the money was for decides which way it runs and where it lands.
   const quickPurpose = findPurpose(quickForm.purpose) || CASH_PURPOSES[0];
   const [savingQuick, setSavingQuick] = useState(false);
+  const [expenseCategories, setExpenseCategories] = useState([]);
+
+  // Categories for an expense paid by memo, read the first time one is entered
+  useEffect(() => {
+    if (!showQuickEntry || !quickPurpose.recordsExpense || expenseCategories.length > 0) return;
+    apiClient.get("/api/expenses/expense-category")
+      .then(({ data }) => setExpenseCategories(Array.isArray(data) ? data : []))
+      .catch(() => setExpenseCategories([]));
+  }, [showQuickEntry, quickPurpose.recordsExpense, expenseCategories.length]);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [cashEntries, setCashEntries] = useState([]);
 
@@ -336,7 +346,7 @@ export default function PurchaseOrdersPage() {
     setQuickForm({
       vendor: "", party: "", accountName: "", accountNumber: "", bankName: "",
       amount: "", paymentDate: new Date().toISOString().split("T")[0],
-      notes: "", products: "", purpose: "vendor-payment",
+      notes: "", products: "", purpose: "vendor-payment", title: "", categoryId: "",
     });
   }
 
@@ -344,6 +354,7 @@ export default function PurchaseOrdersPage() {
     e.preventDefault();
     if (!quickForm.amount) return;
     if (quickPurpose.needsVendor && !quickForm.vendor) return;
+    if (quickPurpose.recordsExpense && (!quickForm.title.trim() || !quickForm.categoryId)) return;
 
     setSavingQuick(true);
     try {
@@ -362,9 +373,11 @@ export default function PurchaseOrdersPage() {
         });
         fetchOrders();
       } else {
-        // Everything else is money moving on its own account.
+        // Everything else is money moving on its own account; an expense paid by memo is kept
+        // with the expenses, from Bank
         const { data } = await apiClient.post("/api/cash-entries", {
           purpose: quickForm.purpose,
+          ...(quickPurpose.recordsExpense ? { title: quickForm.title, categoryId: quickForm.categoryId } : {}),
           party: quickForm.party,
           accountName: quickForm.accountName,
           accountNumber: quickForm.accountNumber,
@@ -867,6 +880,34 @@ export default function PurchaseOrdersPage() {
                     placeholder={quickPurpose.defaultParty || "Name of the person or business"}
                   />
                 </div>
+              )}
+
+              {quickPurpose.recordsExpense && (
+                <>
+                  <div>
+                    <label className="form-label">What it was for *</label>
+                    <input
+                      type="text"
+                      value={quickForm.title}
+                      onChange={(e) => setQuickForm({ ...quickForm, title: e.target.value })}
+                      className="form-input"
+                      placeholder="e.g. Generator repair"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Expense category *</label>
+                    <select
+                      value={quickForm.categoryId}
+                      onChange={(e) => setQuickForm({ ...quickForm, categoryId: e.target.value })}
+                      className="form-select"
+                      required
+                    >
+                      <option value="">Select category</option>
+                      {expenseCategories.map((category) => <option key={category._id} value={category._id}>{category.name}</option>)}
+                    </select>
+                  </div>
+                </>
               )}
 
               <div>

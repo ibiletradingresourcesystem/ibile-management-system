@@ -42,9 +42,18 @@ const ExpenseSchema = new Schema(
 
     description: String,
 
-    // Source linkage (e.g. petty-cash-transaction)
+    // Source linkage (e.g. petty-cash-transaction; payment-tracker for an expense paid by memo)
     sourceType: { type: String, default: "" },
     sourceId: { type: String, default: "" },
+
+    // Expenses are paid in cash, except those sent from the bank on a payment memo, entered on
+    // the payment tracker's Quick Entry. Decides which account the books take it from.
+    paidFrom: { type: String, enum: ["cash", "bank"], default: "cash" },
+    /** Who a memo payment went to, and where, for the transfer memo. */
+    paidTo: { type: String, trim: true, default: "" },
+    accountName: { type: String, trim: true, default: "" },
+    accountNumber: { type: String, trim: true, default: "" },
+    bankName: { type: String, trim: true, default: "" },
 
     // Vendor reference (for petty cash expenses)
     vendor: {
@@ -59,6 +68,9 @@ const ExpenseSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// The payment tracker lists the expenses it recorded
+ExpenseSchema.index({ sourceType: 1, expenseDate: -1 });
 
 export default models.Expense ||
   mongoose.model("Expense", ExpenseSchema);

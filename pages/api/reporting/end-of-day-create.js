@@ -193,6 +193,7 @@ export default async function handler(req, res) {
         {
           closedAt: now,
           closedBy: closedBy || req.user?.id || null,
+          closedByStaffName: req.user?.name || "",
           physicalCount: safePhysicalCount,
           totalSales,
           transactionCount,

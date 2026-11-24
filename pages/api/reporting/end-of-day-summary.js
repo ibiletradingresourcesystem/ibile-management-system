@@ -1,5 +1,6 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import EndOfDayReport from "@/models/EndOfDayReport";
+import Till from "@/models/Till";
 import { buildLocationCache, resolveLocationName } from "@/lib/serverLocationHelper";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 import { normalizeEndOfDayReports } from "@/lib/end-of-day-report-normalize";
@@ -110,6 +111,17 @@ export default async function handler(req, res) {
         },
         reports: [],
       });
+    }
+
+    // Reports made before the till recorded its closer only name the opener; the till itself kept
+    // who closed it
+    const unnamedTillIds = reports.filter((report) => !report.closedByStaffName && report.tillId).map((report) => report.tillId);
+    if (unnamedTillIds.length > 0) {
+      const tills = await Till.find({ _id: { $in: unnamedTillIds } }).select("_id closedByStaffName").lean();
+      const closerByTill = new Map(tills.map((till) => [String(till._id), till.closedByStaffName || ""]));
+      for (const report of reports) {
+        if (!report.closedByStaffName) report.closedByStaffName = closerByTill.get(String(report.tillId)) || "";
+      }
     }
 
     // Build location cache using centralized helper

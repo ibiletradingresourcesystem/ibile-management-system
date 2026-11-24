@@ -43,6 +43,11 @@ const TillSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Set by the till when it closes; the end-of-day list falls back to it for older reports
+    closedByStaffName: {
+      type: String,
+      default: "",
+    },
     device: {
       type: String,
       default: 'POS Terminal',

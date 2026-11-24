@@ -486,7 +486,8 @@ export default function EndOfDayReporting() {
                               <div className="md:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                 <SessionFact label="Opened" value={report.openedAt ? new Date(report.openedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "—"} />
                                 <SessionFact label="Closed" value={report.closedAt ? new Date(report.closedAt).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "—"} />
-                                <SessionFact label="Closed by" value={report.staffName || "—"} />
+                                {/* staffName is who opened the till; the closer is recorded separately */}
+                                <SessionFact label="Closed by" value={report.closedByStaffName || "Not recorded"} />
                                 <SessionFact
                                   label="Opening float"
                                   value={money(report.openingBalance)}
@@ -523,7 +524,7 @@ export default function EndOfDayReporting() {
                                   </div>
                                 ) : (
                                   <p className="text-sm text-gray-400">
-                                    No sales matched to this till session — the report was closed by {report.staffName || "N/A"}.
+                                    No sales matched to this till session — the till was opened by {report.staffName || "N/A"}.
                                   </p>
                                 )}
                               </div>
