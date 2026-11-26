@@ -4,7 +4,7 @@ import StockTake from "@/models/StockTake";
 import Product from "@/models/Product";
 import Category from "@/models/Category";
 import Vendor from "@/models/Vendor";
-import { deriveChildQty } from "@/lib/syncPackQty";
+import { deriveChildQuantity } from "@/lib/packUnits";
 import { authMiddleware, isAdmin, isBasicStaff, isStaff } from "@/lib/auth-middleware";
 import mongoose, { isValidObjectId } from "mongoose";
 import { completePartiallyCountedPackGroups, markItemCounted, markItemZeroed, recalcSummary } from "@/lib/stockTakeCounts";
@@ -53,6 +53,12 @@ function rejectLockedEdit(res, req, stockTake) {
 }
 
 const roundQty = (value) => Math.round(value * 1e6) / 1e6;
+
+/**
+ * A stock figure worked out in the database and rounded the same way, so a count on a pack leaves
+ * no 0.0000003 of a carton behind. Adding 0 turns a rounded −0 into 0.
+ */
+const roundedQuantity = (expression) => ({ $add: [{ $round: [expression, 6] }, 0] });
 
 /**
  * What the counts change each product's stock by: the count (full packs plus loose units) against
@@ -134,12 +140,17 @@ function stockWritesFor(stockTake, changes, liveQuantities = new Map()) {
     // A zeroed product moves from what it holds now to 0, sales since the zeroing and stock that had
     // gone negative included; a counted one by what the count found against the system then
     const zeroFromLive = change.zeroed && liveQuantities.has(productId);
-    const quantity = zeroFromLive ? roundQty(alreadyApplied - liveQuantities.get(productId)) : change.quantity;
+    const live = zeroFromLive ? liveQuantities.get(productId) : 0;
+    const quantity = zeroFromLive ? roundQty(alreadyApplied - live) : change.quantity;
     const difference = roundQty(quantity - alreadyApplied);
     if (appliedBeforeRecords) {
       bulkOps.push({ updateOne: { filter: { _id: productId }, update: { $set: { quantity: counted } } } });
+    } else if (zeroFromLive) {
+      // Set to 0, not moved by what it held: a pack whose singles were sold holds a fraction
+      // (−31/24 cartons), and adding back a rounded figure left −0.0000003 behind
+      if (live !== 0) bulkOps.push({ updateOne: { filter: { _id: productId }, update: { $set: { quantity: 0 } } } });
     } else if (difference !== 0) {
-      bulkOps.push({ updateOne: { filter: { _id: productId }, update: { $inc: { quantity: difference } } } });
+      bulkOps.push({ updateOne: { filter: { _id: productId }, update: [{ $set: { quantity: roundedQuantity({ $add: ["$quantity", difference] }) } }] } });
     }
     if (!appliedBeforeRecords) {
       applied.set(productId, { productId, quantity, value: Math.round(quantity * costPrice * 100) / 100 });
@@ -149,11 +160,34 @@ function stockWritesFor(stockTake, changes, liveQuantities = new Map()) {
   return { bulkOps, appliedAdjustments: [...applied.values()].filter((entry) => entry.quantity !== 0) };
 }
 
-/** Packs' child products take their stock from the pack. Only what actually changed is re-worked. */
-async function refreshChildQuantities(bulkOps) {
-  for (const { updateOne } of bulkOps) {
-    await deriveChildQty(updateOne.filter._id);
+/**
+ * The children of every product on the stock take take their stock from it again, whether or not
+ * its own stock moved: a child is never on the list to be counted, so one left out of step (a
+ * carton at 0 whose single bottle shows −6) was never put right. Two reads for the whole list.
+ * @returns {Promise<number>} how many children changed
+ */
+async function refreshChildQuantities(parentIds) {
+  const ids = [...new Set([...parentIds].map(String))].filter(isValidObjectId);
+  if (ids.length === 0) return 0;
+  const [parents, children] = await Promise.all([
+    Product.find({ _id: { $in: ids } }, { quantity: 1, qtyPerPack: 1 }).lean(),
+    Product.find(
+      { parentProduct: { $in: ids }, isChildProduct: true, packType: { $ne: "pack" } },
+      { quantity: 1, unitsPerChild: 1, parentProduct: 1 }
+    ).lean(),
+  ]);
+  const parentById = new Map(parents.map((parent) => [String(parent._id), parent]));
+  const childOps = [];
+  for (const child of children) {
+    const parent = parentById.get(String(child.parentProduct));
+    if (!parent) continue;
+    const quantity = deriveChildQuantity(parent.quantity, parent, child);
+    if (child.quantity !== quantity) {
+      childOps.push({ updateOne: { filter: { _id: child._id }, update: { $set: { quantity } } } });
+    }
   }
+  if (childOps.length > 0) await Product.bulkWrite(childOps);
+  return childOps.length;
 }
 
 /**
@@ -165,10 +199,8 @@ async function syncAppliedCounts(stockTake, productIds) {
   if (!stockTake.adjustmentApplied) return "";
   const changes = stockChangesFromCounts(stockTake, productIds);
   const { bulkOps, appliedAdjustments } = stockWritesFor(stockTake, changes, await liveQuantitiesFor(changes));
-  if (bulkOps.length > 0) {
-    await Product.bulkWrite(bulkOps);
-    await refreshChildQuantities(bulkOps);
-  }
+  if (bulkOps.length > 0) await Product.bulkWrite(bulkOps);
+  await refreshChildQuantities(changes.map((change) => change.productId));
   stockTake.appliedAdjustments = appliedAdjustments;
   stockTake.adjustedAt = new Date();
   return bulkOps.length > 0 ? ` — stock updated for ${bulkOps.length} product(s)` : "";
@@ -681,6 +713,7 @@ export default async function handler(req, res) {
 
         let bulkOps = [];
         let appliedAdjustments = [];
+        let countedProductIds = [];
         const adjustedAt = new Date();
 
         // Stock moves by a difference now, so it must happen exactly once: the flag and the stock
@@ -690,6 +723,7 @@ export default async function handler(req, res) {
         try {
           await dbSession.withTransaction(async () => {
             const changes = stockChangesFromCounts(stockTake);
+            countedProductIds = changes.map((change) => change.productId);
             ({ bulkOps, appliedAdjustments } = stockWritesFor(stockTake, changes, await liveQuantitiesFor(changes, dbSession)));
             const claimed = await StockTake.updateOne(
               { _id: stockTake._id, status: "approved", adjustmentApplied: { $ne: true } },
@@ -710,7 +744,7 @@ export default async function handler(req, res) {
           await dbSession.endSession();
         }
 
-        await refreshChildQuantities(bulkOps);
+        const childCount = await refreshChildQuantities(countedProductIds);
 
         stockTake.adjustmentApplied = true;
         stockTake.adjustedAt = adjustedAt;
@@ -720,7 +754,7 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
           success: true,
-          message: `Adjustments applied to ${adjustedCount} product(s)`,
+          message: `Adjustments applied to ${adjustedCount} product(s)${childCount ? `, and ${childCount} linked child product(s) brought in line` : ""}`,
           adjustedCount,
           stockTake: stockTake.toObject(),
         });
