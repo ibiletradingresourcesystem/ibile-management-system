@@ -7,7 +7,7 @@ import { Loader } from "@/components/ui";
 import useProgress from "@/lib/useProgress";
 import { useIndexedDBCache, clearCache } from "@/lib/useIndexedDBCache";
 import { getCachedCategories } from "@/lib/categoriesCache";
-import { getPackSize } from "@/lib/packUnits";
+import { countableQuantity, formatPackQuantity, getPackSize, isLeftoverFraction, isPackProduct, singleUnitQuantity } from "@/lib/packUnits";
 import { useTableSort, SortableTh } from "@/components/SortableTable";
 import ExportMenu from "@/components/ExportMenu";
 import { apiClient } from "@/lib/api-client";
@@ -103,12 +103,30 @@ function formatQuantity(value) {
 
 // Units inside the pack's stock. Every child draws from the same units, so they are never summed.
 function getInnerUnitQuantity(product) {
-  return Number(product?.quantity || 0) * getPackSize(product);
+  return singleUnitQuantity(product);
+}
+
+/**
+ * The stock as a person reads it. A pack says what it holds, "1 pack · 5 units" or "1 unit",
+ * rather than a decimal of a pack that rounds a single can down to "0".
+ */
+function formatStock(product) {
+  if (isPackProduct(product)) return formatPackQuantity(product?.quantity, getPackSize(product));
+  return formatQuantity(countableQuantity(product));
+}
+
+function isAdminUser() {
+  try {
+    return JSON.parse(localStorage.getItem("user") || "{}").role === "admin";
+  } catch {
+    return false;
+  }
 }
 
 function getInnerUnitLabel(product, childProducts = []) {
   if (childProducts.length === 0) return "-";
-  return `${formatQuantity(getInnerUnitQuantity(product))} inner units`;
+  const units = getInnerUnitQuantity(product);
+  return `${formatQuantity(units)} inner unit${units === 1 ? "" : "s"}`;
 }
 
 function quoteCsvValue(value) {
@@ -154,10 +172,8 @@ function matchesStockState(product, stockFilter) {
     return true;
   }
 
-  const quantity = Number(product?.quantity) || 0;
-
   if (stockFilter === "positiveStock") {
-    return quantity > 0;
+    return countableQuantity(product) > 0;
   }
 
   // Each card picks exactly one band, so the cards no longer overlap: a product that
@@ -177,7 +193,9 @@ export default function StockManagement() {
   const queryLocation = typeof router.query.location === "string" ? router.query.location : "";
 
   const fetchStockProducts = useCallback(async () => {
-    const res = await fetch("/api/stock-management/location-stock");
+    // Past the browser's own copy: the route allows a stale one for two minutes, so Refresh Data and
+    // the reload after an archive showed the old list. The page keeps its own copy (below) anyway.
+    const res = await fetch("/api/stock-management/location-stock", { cache: "no-store" });
     if (!res.ok) {
       const errorData = await res.json().catch(() => ({}));
       throw new Error(errorData.message || "Failed to fetch products");
@@ -405,7 +423,7 @@ export default function StockManagement() {
     {
       category: (item) => categoryMap[item.category] || item.category || "",
       status: (item) => {
-        const qty = Number(item?.quantity || 0);
+        const qty = countableQuantity(item);
         const min = Number(item?.minStock || 0);
         // Out of stock first, then low, then healthy — the order that matters.
         if (qty <= 0) return 0;
@@ -419,7 +437,8 @@ export default function StockManagement() {
     { key: "name", label: "Product", width: 2.6 },
     { key: "category", label: "Category", width: 1.5, value: (p) => categoryMap[p.category] || p.category || "" },
     { key: "locationName", label: "Location", width: 1.4 },
-    { key: "quantity", label: "Current Stock", type: "number", align: "right", width: 1.1 },
+    { key: "quantity", label: "Current Stock", align: "right", width: 1.3, value: (p) => formatStock(p) },
+    { key: "singleUnits", label: "Single Units", type: "number", align: "right", width: 1, value: (p) => (isPackProduct(p) ? singleUnitQuantity(p) : "") },
     { key: "minStock", label: "Min Stock", type: "number", align: "right", width: 1 },
     { key: "costPrice", label: "Unit Cost", type: "currency", align: "right", width: 1.2 },
     {
@@ -428,7 +447,7 @@ export default function StockManagement() {
       type: "currency",
       align: "right",
       width: 1.3,
-      value: (p) => (Number(p.quantity) || 0) * (Number(p.costPrice) || 0),
+      value: (p) => countableQuantity(p) * (Number(p.costPrice) || 0),
     },
   ];
 
@@ -442,8 +461,9 @@ export default function StockManagement() {
         "Name": product.name || "N/A",
         "Category": categoryMap[product.category] || product.category || "Uncategorized",
         "Location": product.stockLocationLabel || getProductLocationLabel(product),
-        "Current Stock": formatQuantity(product.quantity),
-        "Inner Unit Stock": childProducts.length > 0 ? formatQuantity(innerQuantity) : "",
+        "Current Stock": formatQuantity(countableQuantity(product)),
+        // Every pack, children or not: the single units say exactly what the decimal of a pack rounds
+        "Inner Unit Stock": isPackProduct(product) || childProducts.length > 0 ? formatQuantity(innerQuantity) : "",
         "Min Stock": formatQuantity(product.minStock),
         "Max Stock": formatQuantity(product.maxStock),
         "Unit Cost": Number(product.costPrice || 0),
@@ -454,9 +474,9 @@ export default function StockManagement() {
 
   const handleDownloadStockReport = useCallback((mode = "all") => {
     const sourceProducts = mode === "positive"
-      ? filteredItems.filter((product) => Number(product.quantity || 0) > 0)
+      ? filteredItems.filter((product) => countableQuantity(product) > 0)
       : mode === "negative"
-        ? filteredItems.filter((product) => Number(product.quantity || 0) < 0)
+        ? filteredItems.filter((product) => countableQuantity(product) < 0)
         : filteredItems;
 
     const normalizedLocation = normalizeLocationValue(selectedLocation || "all").replace(/[^a-z0-9]+/g, "-") || "all";
@@ -464,12 +484,27 @@ export default function StockManagement() {
     downloadCsv(filename, buildReportRows(sourceProducts));
   }, [buildReportRows, filteredItems, selectedLocation]);
 
-  const totalStock = useMemo(
-    () =>
-      parentProducts
-        .reduce((sum, item) => sum + (item.quantity || 0), 0),
-    [parentProducts]
-  );
+  // What is on the shelf, in single units: a carton of 24 counts as 24. Products at 0 or below add
+  // nothing; the Negative Stock card and the table's footer show those on their own.
+  const { totalStock, inStockCount } = useMemo(() => {
+    let units = 0;
+    let count = 0;
+    for (const item of parentProducts) {
+      if (countableQuantity(item) <= 0) continue;
+      units += singleUnitQuantity(item);
+      count += 1;
+    }
+    return { totalStock: Math.round(units * 100) / 100, inStockCount: count };
+  }, [parentProducts]);
+
+  // Stored figures that are not 0 but less than a thousandth of a unit: left from adding
+  // fractions of a pack. They read as 0 everywhere here; an admin can set them to 0 for good.
+  const leftoverCount = useMemo(() => products.filter((product) => !isDerivedChild(product) && isLeftoverFraction(product)).length, [products]);
+  const [canTidy, setCanTidy] = useState(false);
+  const [tidying, setTidying] = useState(false);
+  // Hidden once cleared, even if a cached list still shows the old figures for a moment
+  const [tidied, setTidied] = useState(false);
+  useEffect(() => setCanTidy(isAdminUser()), []);
   // One pass, one band each: the five cards below add up to every product listed.
   const stateCounts = useMemo(() => {
     const counts = { negative: 0, none: 0, critical: 0, low: 0, healthy: 0 };
@@ -483,7 +518,7 @@ export default function StockManagement() {
   const negativeStockCount = stateCounts.negative;
 
   const stockValueOf = useCallback(
-    (product) => (Number(product?.quantity) || 0) * (Number(product?.costPrice) || 0),
+    (product) => countableQuantity(product) * (Number(product?.costPrice) || 0),
     []
   );
 
@@ -501,13 +536,14 @@ export default function StockManagement() {
     let noStockProducts = 0;
 
     for (const product of filteredItems) {
-      const quantity = Number(product.quantity) || 0;
+      const quantity = countableQuantity(product);
       const value1 = stockValueOf(product);
-      units += quantity;
       value += value1;
+      // In single units, and only what is there: the negative ones are shown on their own
+      if (quantity > 0) units += singleUnitQuantity(product);
       if (quantity < 0) {
         negativeProducts += 1;
-        negativeUnits += quantity;
+        negativeUnits += singleUnitQuantity(product);
         negativeValue += value1;
       }
       if (quantity === 0) noStockProducts += 1;
@@ -559,7 +595,7 @@ export default function StockManagement() {
 
   const handleArchiveSelected = useCallback(async () => {
     if (selectedProducts.length === 0) return;
-    const withStock = selectedProducts.filter((product) => Number(product.quantity) > 0);
+    const withStock = selectedProducts.filter((product) => countableQuantity(product) > 0);
     const names = selectedProducts.slice(0, 5).map((product) => product.name).join(", ");
     const more = selectedProducts.length > 5 ? ` and ${selectedProducts.length - 5} more` : "";
 
@@ -612,6 +648,28 @@ export default function StockManagement() {
     }
   }, [selectedProducts, refreshProducts]);
 
+  const handleTidyLeftovers = useCallback(async () => {
+    const confirmed = await showConfirmDialog({
+      title: "Set leftover fractions to 0?",
+      message: `${leftoverCount} product${leftoverCount === 1 ? "" : "s"} hold less than a thousandth of a single unit. Each is set to exactly 0, and its linked child products follow. No real stock changes.`,
+      confirmLabel: "Set to 0",
+      cancelLabel: "Leave them",
+    });
+    if (!confirmed) return;
+    setTidying(true);
+    try {
+      const { data } = await apiClient.post("/api/stock-management/clear-leftovers", {});
+      setTidied(true);
+      await Promise.allSettled([clearCache("stock_products_cache"), clearCache("products_cache")]);
+      await refreshProducts();
+      await showAlertDialog({ title: "Leftovers cleared", message: data?.message || "Done.", tone: "success" });
+    } catch (err) {
+      await showAlertDialog({ title: "Could not clear them", message: err.response?.data?.message || "Something went wrong.", tone: "danger" });
+    } finally {
+      setTidying(false);
+    }
+  }, [leftoverCount, refreshProducts]);
+
   return (
     <Layout>
       <div className="page-container">
@@ -636,7 +694,7 @@ export default function StockManagement() {
                 {
                   label: "Stock Value",
                   value: formatCurrency(
-                    sortedItems.reduce((sum, p) => sum + (Number(p.quantity) || 0) * (Number(p.costPrice) || 0), 0)
+                    sortedItems.reduce((sum, p) => sum + stockValueOf(p), 0)
                   ),
                 },
               ]}
@@ -675,6 +733,19 @@ export default function StockManagement() {
           </div>
         )}
 
+        {!loading && canTidy && !tidied && leftoverCount > 0 && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <p className="text-sm text-amber-900">
+              <span className="font-semibold">{leftoverCount} product{leftoverCount === 1 ? "" : "s"}</span> hold a tiny
+              leftover fraction (like 0.0000003 of a carton) from adding up parts of a pack. They are counted as 0 here,
+              but the till and the web shop still see the fraction.
+            </p>
+            <button type="button" onClick={handleTidyLeftovers} disabled={tidying} className="btn-action-secondary shrink-0 disabled:opacity-60">
+              {tidying ? "Setting to 0..." : "Set them to 0"}
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <Loader size="md" text="Loading stock data..." progress={progress} />
@@ -686,9 +757,10 @@ export default function StockManagement() {
             <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 xl:gap-4 mb-6">
               <StatCard
                 label="Total Stock"
-                value={`${parseFloat(totalStock.toFixed(2)).toLocaleString()} units`}
-                active={selectedStockFilter === "all"}
-                onClick={() => setSelectedStockFilter("all")}
+                value={`${totalStock.toLocaleString()} units`}
+                hint={`${inStockCount.toLocaleString()} products in stock · packs as single units`}
+                active={selectedStockFilter === "positiveStock"}
+                onClick={() => setSelectedStockFilter("positiveStock")}
               />
               <StatCard
                 label="Well Stocked"
@@ -851,7 +923,7 @@ export default function StockManagement() {
                     </tr>
                   ) : (
                     sortedItems.map((product) => {
-                      const qty = product.quantity ?? 0;
+                      const qty = countableQuantity(product);
                       const childProducts = childProductsByParent.get(getProductId(product)) || [];
                       const status = getProductStatus(product);
 
@@ -878,7 +950,7 @@ export default function StockManagement() {
                           <td className="px-6 py-4 text-gray-700">{categoryMap[product.category] || product.category || "Uncategorized"}</td>
                           <td className="px-6 py-4 text-gray-700">{product.stockLocationLabel || getProductLocationLabel(product)}</td>
                           <td className={`px-6 py-4 font-semibold ${qty < 0 ? "text-red-600" : "text-gray-900"}`}>
-                            {formatQuantity(qty)}
+                            {formatStock(product)}
                           </td>
                           <td className="px-6 py-4 text-blue-700 font-semibold">
                             {getInnerUnitLabel(product, childProducts)}
@@ -915,7 +987,7 @@ export default function StockManagement() {
                     )}
                   </td>
                   <td className="px-6 py-3 text-sm font-semibold text-gray-900">
-                    {formatQuantity(tableTotals.units)} units
+                    {formatQuantity(tableTotals.units)} units in stock
                   </td>
                   <td colSpan="3" className="px-6 py-3 text-sm text-right font-semibold text-gray-700">
                     Total stock value
