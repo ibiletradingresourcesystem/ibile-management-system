@@ -91,6 +91,36 @@ export default function SalaryMemoPage() {
 
   const total = useMemo(() => payrollTotal(rows), [rows]);
   const incomplete = rows.filter((row) => !row.accountNumber || !row.bankName);
+  const [paymentNote, setPaymentNote] = useState(null);
+
+  /**
+   * Download the memo, then record what it pays as this month's salary payment: it reaches Salary
+   * Expense in the accounts and shows in the payment tracker. Downloading again updates it.
+   */
+  const downloadAndRecord = async () => {
+    setPaymentNote(null);
+    let saved = false;
+    try {
+      saved = await memoRef.current?.generatePDF();
+    } catch (err) {
+      console.error("Salary memo PDF failed:", err);
+      setPaymentNote({ tone: "error", text: "The PDF could not be made, so no payment was recorded." });
+      return;
+    }
+    if (!saved) return;
+
+    try {
+      const { data } = await apiClient.post("/api/staff/salary-payments", { ids: rows.map((row) => row._id), part, of: partCount });
+      const amount = `₦${Math.round(data.amount).toLocaleString("en-NG")}`;
+      const others = data.alreadyPaid?.length ? ` ${data.alreadyPaid.join(", ")} also appear on another salary memo this month: check they are not paid twice.` : "";
+      setPaymentNote({
+        tone: data.alreadyPaid?.length ? "warning" : "ok",
+        text: `${data.updated ? "Salary payment updated" : "Salary payment recorded"}: ${amount} from the bank, in the payment tracker.${others}`,
+      });
+    } catch (err) {
+      setPaymentNote({ tone: "error", text: err.response?.data?.error || "The PDF downloaded, but the salary payment could not be recorded. Download it again to retry." });
+    }
+  };
 
   if (loading) return <div className="p-10 text-center text-gray-500">Loading memo…</div>;
   if (error && rows.length === 0) return <div className="p-10 text-center text-red-600">{error}</div>;
@@ -155,7 +185,7 @@ export default function SalaryMemoPage() {
             </div>
 
             <button
-              onClick={() => memoRef.current?.generatePDF()}
+              onClick={downloadAndRecord}
               disabled={downloading || rows.length === 0}
               className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2.5 rounded-md shadow transition disabled:opacity-50"
             >
@@ -185,6 +215,11 @@ export default function SalaryMemoPage() {
               </p>
             )}
             {error && <p className="text-xs text-red-600">{error}</p>}
+            {paymentNote && (
+              <p className={`text-sm ${paymentNote.tone === "error" ? "text-red-600" : paymentNote.tone === "warning" ? "text-amber-700" : "text-emerald-700"}`}>
+                {paymentNote.text}
+              </p>
+            )}
           </div>
         </div>
 

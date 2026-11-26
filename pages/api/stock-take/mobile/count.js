@@ -333,6 +333,7 @@ export default async function handler(req, res) {
           item.countedAt = null;
           item.countedBy = "";
           item.reason = "";
+          item.zeroed = false;
           updated++;
           saved.push(publicItem(item, withSystem));
           continue;
@@ -354,6 +355,8 @@ export default async function handler(req, res) {
         }
 
         item.countedQty = qty;
+        // A count on the shelf, not a zeroing
+        item.zeroed = false;
         item.variance = qty - item.systemQty;
         item.varianceValue = item.variance * (item.costPrice || 0);
         item.status = "counted";

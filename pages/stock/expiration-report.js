@@ -3,7 +3,6 @@ import { useRouter } from 'next/router';
 import Layout from '@/components/Layout';
 import { Loader } from '@/components/ui';
 import useProgress from '@/lib/useProgress';
-import { showToastMessage } from '@/lib/toast-state';
 import ExportMenu from '@/components/ExportMenu';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -12,8 +11,7 @@ import {
   faCheckCircle,
   faSearch,  faClock,
   faBox,
-  faExchangeAlt,
-  faBell
+  faExchangeAlt
 } from '@fortawesome/free-solid-svg-icons';
 
 export default function ExpirationReport() {
@@ -24,7 +22,6 @@ export default function ExpirationReport() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'soldOut', 'critical', 'warning', 'ok'
   const [sortBy, setSortBy] = useState('daysRemaining'); // 'daysRemaining', 'expiryDate', 'name'
-  const [dismissedSoldOutAlert, setDismissedSoldOutAlert] = useState(false);
 
   // Fetch stock movements with batch details on mount
   useEffect(() => {
@@ -79,17 +76,8 @@ export default function ExpirationReport() {
         const expiringBatches = allBatches.filter(b => b.expiryDate);
         console.log(`Found ${expiringBatches.length} batches with expiry dates out of ${allBatches.length} total`);
         
+        // A finished batch has nothing left to expire, so it raises no alert; it stays listed as Sold out
         setBatches(expiringBatches);
-
-        // Notify if there are sold-out batches
-        const soldOutCount = expiringBatches.filter(b => b.soldOut || Number(b.remainingQuantity ?? b.quantity ?? 0) <= 0).length;
-        if (soldOutCount > 0) {
-          showToastMessage({
-            title: "Sold-Out Products",
-            text: `${soldOutCount} batch${soldOutCount > 1 ? 'es' : ''} sold out. Review the expiration report for details.`,
-            fallbackTone: "warning",
-          });
-        }
       } catch (err) {
         console.error('Error fetching batches:', err);
         setBatches([]);
@@ -258,32 +246,6 @@ export default function ExpirationReport() {
             />
           </div>
 
-          {/* Sold-Out Alert Banner */}
-          {stats.soldOut > 0 && !dismissedSoldOutAlert && (
-            <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
-              <FontAwesomeIcon icon={faBell} className="text-amber-600 text-base mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="font-semibold text-amber-800">Sold-Out Batches Detected</p>
-                <p className="text-sm text-amber-700 mt-1">
-                  {stats.soldOut} batch{stats.soldOut > 1 ? 'es have' : ' has'} been completely sold out.
-                  These products may need restocking or the expired batch records can be reviewed.
-                </p>
-                <button
-                  onClick={() => setFilterStatus('soldOut')}
-                  className="mt-2 text-sm font-medium text-amber-800 underline hover:text-amber-900"
-                >
-                  View sold-out batches
-                </button>
-              </div>
-              <button
-                onClick={() => setDismissedSoldOutAlert(true)}
-                className="text-amber-400 hover:text-amber-600 text-lg font-bold leading-none"
-                aria-label="Dismiss"
-              >
-                &times;
-              </button>
-            </div>
-          )}
 
           {/* Summary Cards — each one filters the list below it */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">

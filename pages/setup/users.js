@@ -62,9 +62,8 @@ const ALL_PERMISSIONS = [
     { key: "expenses.tax-analysis", label: "Tax Analysis" },
     { key: "expenses.tax-personal", label: "Personal Tax Calculator" },
   ]},
-  { key: "accounting", label: "Accounting", description: "Chart of accounts, journals, ledger, reports", children: [
+  { key: "accounting", label: "Accounting", description: "Chart of accounts, ledger, reports", children: [
     { key: "accounting.chart-of-accounts", label: "Chart of Accounts" },
-    { key: "accounting.journal-entries", label: "Journal Entries" },
     { key: "accounting.general-ledger", label: "General Ledger" },
     { key: "accounting.reports", label: "Financial Reports" },
   ]},
@@ -110,7 +109,7 @@ function getDefaultPermissions(role) {
     case "account": return [
       "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal",
       "reporting", "reporting.sales-report", "reporting.eod", "reporting.transactions", "reporting.stock-history-levels",
-      "accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.reports",
+      "accounting", "accounting.chart-of-accounts", "accounting.general-ledger", "accounting.reports",
     ];
     default: return [];
   }

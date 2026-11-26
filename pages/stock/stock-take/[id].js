@@ -431,9 +431,22 @@ export default function StockTakeDetail() {
     const discrepancies = reviewItemGroups.filter((group) => group.hasVariance).length;
     const correct = reviewItemGroups.filter((group) => group.isCounted && !group.hasVariance).length;
     const uncounted = reviewItemGroups.filter((group) => !group.isPartiallyCounted).length;
+    // Stock gone below zero that no one found on the shelf: Zero Uncounted sets these to 0 too
+    const belowZero = reviewItems.filter((item) => (
+      item.countType !== "loose-units" && Number(item.systemQty) < 0 && !(Number(item.countedQty) > 0) && !item.zeroed
+    )).length;
 
-    return { total, discrepancies, correct, uncounted };
-  }, [reviewItemGroups]);
+    return { total, discrepancies, correct, uncounted, belowZero };
+  }, [reviewItemGroups, reviewItems]);
+
+  // The review cards filter the list below them
+  const [reviewFilter, setReviewFilter] = useState("all");
+  const shownReviewGroups = useMemo(() => {
+    if (reviewFilter === "discrepancies") return reviewItemGroups.filter((group) => group.hasVariance);
+    if (reviewFilter === "correct") return reviewItemGroups.filter((group) => group.isCounted && !group.hasVariance);
+    if (reviewFilter === "uncounted") return reviewItemGroups.filter((group) => !group.isPartiallyCounted);
+    return reviewItemGroups;
+  }, [reviewItemGroups, reviewFilter]);
 
   const countStats = useMemo(() => {
     const total = reviewItemGroups.length;
@@ -606,7 +619,7 @@ export default function StockTakeDetail() {
   const handleZeroUncounted = async () => {
     const shouldZero = await showConfirmDialog({
       title: "Zero all uncounted items?",
-      message: "Every uncounted item will be saved with an actual quantity of 0.",
+      message: "Every uncounted item, and every item whose stock has gone below zero, will be set to 0. When the stock take is applied, each of them ends at exactly 0, even if it sold in the meantime.",
       tone: "warning",
       confirmLabel: "Zero uncounted",
       cancelLabel: "Keep uncounted",
@@ -1020,17 +1033,24 @@ export default function StockTakeDetail() {
           ) : isReviewMode ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+                {/* Each card shows only its lines in the list below; the chosen one is filled in */}
                 {[
-                  { label: "All Items", value: reviewStats.total, accent: "border-sky-500 text-sky-600" },
-                  { label: "Discrepancies", value: reviewStats.discrepancies, accent: "border-red-400 text-red-500" },
-                  { label: "Correct", value: reviewStats.correct, accent: "border-green-400 text-green-500" },
-                  { label: "Uncounted", value: reviewStats.uncounted, accent: "border-gray-700 text-gray-800" },
+                  { key: "all", label: "All Items", value: reviewStats.total, accent: "border-sky-500 text-sky-600", fill: "bg-sky-50" },
+                  { key: "discrepancies", label: "Discrepancies", value: reviewStats.discrepancies, accent: "border-red-400 text-red-500", fill: "bg-red-50" },
+                  { key: "correct", label: "Correct", value: reviewStats.correct, accent: "border-green-400 text-green-500", fill: "bg-green-50" },
+                  { key: "uncounted", label: "Uncounted", value: reviewStats.uncounted, accent: "border-gray-700 text-gray-800", fill: "bg-gray-100" },
                 ].map((card) => (
-                  <div key={card.label} className={`rounded-xl border-2 bg-white px-6 py-5 text-center ${card.accent}`}>
-                    <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">Showing</div>
-                    <div className={`mt-3 text-4xl font-light ${card.accent.split(" ").at(-1) || "text-gray-900"}`}>{card.value}</div>
+                  <button
+                    type="button"
+                    key={card.key}
+                    onClick={() => setReviewFilter(card.key)}
+                    aria-pressed={reviewFilter === card.key}
+                    className={`rounded-xl border-2 px-6 py-5 text-center transition hover:shadow-md ${card.accent} ${reviewFilter === card.key ? `${card.fill} shadow-md` : "bg-white"}`}
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">{reviewFilter === card.key ? "Showing" : "Show"}</div>
+                    <div className={`mt-3 text-4xl font-light ${card.accent.split(" ")[1] || "text-gray-900"}`}>{card.value}</div>
                     <div className="mt-3 text-lg font-medium uppercase tracking-wide text-gray-700">{card.label}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
 
@@ -1058,7 +1078,7 @@ export default function StockTakeDetail() {
                       <>
                         <button
                           onClick={handleZeroUncounted}
-                          disabled={reviewStats.uncounted === 0 || !!actionLoading}
+                          disabled={(reviewStats.uncounted === 0 && reviewStats.belowZero === 0) || !!actionLoading}
                           className="btn-action text-sm disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Zero Uncounted
@@ -1083,7 +1103,7 @@ export default function StockTakeDetail() {
                 <table className="w-full min-w-[1040px] text-sm">
                   <CountTableHead quantityLabel="Expected Stock" countLabel="Actual Stock" />
                   <tbody>
-                    {reviewItemGroups.map((group, index) => {
+                    {shownReviewGroups.map((group, index) => {
                       const hasPackAndLoose = Boolean(group.standard && group.loose);
                       const discrepantItems = group.items.filter((item) => (
                         item.countedQty !== null && item.countedQty !== undefined && Number(item.variance || 0) !== 0
@@ -1159,10 +1179,10 @@ export default function StockTakeDetail() {
                     })}
                   </tbody>
                 </table>
-                {reviewItemGroups.length === 0 && (
+                {shownReviewGroups.length === 0 && (
                   <div className="text-center py-12 text-gray-400">
                     <FontAwesomeIcon icon={faBalanceScale} className="w-10 h-10 mb-3" />
-                    <p>No items available for review</p>
+                    <p>{reviewItemGroups.length === 0 ? "No items available for review" : "No items in this group"}</p>
                   </div>
                 )}
               </div>

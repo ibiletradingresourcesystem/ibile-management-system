@@ -19,8 +19,7 @@ import Expense from "@/models/Expense";
 import ExpenseCategory from "@/models/ExpenseCategory";
 import Store from "@/models/Store";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
-import { expenseAsEntry, findPurpose, MEMO_EXPENSE_SOURCE, purposeDirection } from "@/lib/cashEntries";
-import { postCashEntry, postExpenseEntry } from "@/lib/accounting";
+import { expenseAsEntry, findPurpose, MEMO_EXPENSE_SOURCE, MEMO_EXPENSE_SOURCES, purposeDirection } from "@/lib/cashEntries";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
 
 /** The location the money moved at, when the entry does not name one. */
@@ -43,7 +42,7 @@ export default async function handler(req, res) {
       const limit = Math.min(Number(req.query.limit) || 25, 200);
       const [cashEntries, memoExpenses] = await Promise.all([
         CashEntry.find({}).sort({ date: -1, createdAt: -1 }).limit(limit).lean(),
-        Expense.find({ sourceType: MEMO_EXPENSE_SOURCE }).sort({ expenseDate: -1, createdAt: -1 }).limit(limit).lean(),
+        Expense.find({ sourceType: { $in: MEMO_EXPENSE_SOURCES } }).sort({ expenseDate: -1, createdAt: -1 }).limit(limit).lean(),
       ]);
       const entries = [...cashEntries, ...memoExpenses.map(expenseAsEntry)]
         .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))
@@ -94,15 +93,8 @@ export default async function handler(req, res) {
           bankName: sanitizePlainText(bankName || ""),
         });
 
-        let posted = true;
-        try {
-          await postExpenseEntry(expense.toObject());
-        } catch (postErr) {
-          posted = false;
-          console.error("Memo expense posting failed:", expense._id, postErr.message);
-        }
-
-        return res.status(201).json({ success: true, entry: expenseAsEntry(expense.toObject()), expense, posted });
+        // The books read it from the expense itself (lib/accounting.js)
+        return res.status(201).json({ success: true, entry: expenseAsEntry(expense.toObject()), expense });
       }
 
       const entry = await CashEntry.create({
@@ -121,16 +113,8 @@ export default async function handler(req, res) {
         staffName: req.user?.name || "",
       });
 
-      // The books should never be the reason an entry cannot be recorded.
-      let posted = true;
-      try {
-        await postCashEntry(entry.toObject());
-      } catch (postErr) {
-        posted = false;
-        console.error("Cash entry posting failed:", entry._id, postErr.message);
-      }
-
-      return res.status(201).json({ success: true, entry, posted });
+      // The books read it from the entry itself (lib/accounting.js)
+      return res.status(201).json({ success: true, entry });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

@@ -375,7 +375,7 @@ export default function PurchaseOrdersPage() {
       } else {
         // Everything else is money moving on its own account; an expense paid by memo is kept
         // with the expenses, from Bank
-        const { data } = await apiClient.post("/api/cash-entries", {
+        await apiClient.post("/api/cash-entries", {
           purpose: quickForm.purpose,
           ...(quickPurpose.recordsExpense ? { title: quickForm.title, categoryId: quickForm.categoryId } : {}),
           party: quickForm.party,
@@ -387,13 +387,6 @@ export default function PurchaseOrdersPage() {
           notes: quickForm.notes,
         });
         fetchCashEntries();
-        if (data && data.posted === false) {
-          await showAlertDialog({
-            title: "Recorded, but not posted",
-            message: "The entry was saved. It could not be written to the books — run Sync Accounting once the chart of accounts is set up.",
-            tone: "warning",
-          });
-        }
       }
 
       setShowQuickEntry(false);
@@ -438,7 +431,8 @@ export default function PurchaseOrdersPage() {
     setIsBusy(true);
     try {
       await apiClient.put(`/api/purchase-orders/${order._id}`, {
-        action: "update-payment", paymentMade: payNum, paymentDate: editedPaymentDate || new Date().toISOString(),
+        // Nothing paid means no pay date
+        action: "update-payment", paymentMade: payNum, paymentDate: payNum > 0 ? editedPaymentDate || new Date().toISOString() : "",
         // Only when it was changed, so saving a payment leaves the order's date exactly as it was
         ...(editedOrderDate && editedOrderDate !== dayKeyOf(getOrderDate(order)) ? { date: editedOrderDate } : {}),
       });
@@ -712,7 +706,8 @@ export default function PurchaseOrdersPage() {
                       )}
                     </td>
                     <td className="text-xs whitespace-nowrap">
-                      {editIndex === idx ? <input type="date" value={editedPaymentDate} onChange={(e) => setEditedPaymentDate(e.target.value)} className="form-input text-xs w-28" /> : (order.paymentDate ? new Date(order.paymentDate).toLocaleDateString() : "—")}
+                      {/* An unpaid order has no pay date, whatever an older save left on it */}
+                      {editIndex === idx ? <input type="date" value={editedPaymentDate} onChange={(e) => setEditedPaymentDate(e.target.value)} className="form-input text-xs w-28" /> : (order.paymentDate && Number(order.paymentMade) > 0 ? new Date(order.paymentDate).toLocaleDateString() : "—")}
                     </td>
                     <td className="text-right whitespace-nowrap tabular-nums">
                       {(() => {
@@ -766,7 +761,7 @@ export default function PurchaseOrdersPage() {
                     </td>
                     <td className="text-center">
                       <a
-                        href={`/memo/${order._id}`}
+                        href={order.memoHref || `/memo/${order._id}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn-action btn-action-secondary btn-xs inline-block"

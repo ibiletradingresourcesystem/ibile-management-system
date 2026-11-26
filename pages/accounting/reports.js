@@ -4,10 +4,11 @@ import Layout from "@/components/Layout";
 import { Loader } from "@/components/ui";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/router";
-import { Printer, RefreshCw, TrendingUp, TrendingDown, Scale, FileText } from "lucide-react";
+import { Printer, TrendingUp, TrendingDown, Scale, FileText } from "lucide-react";
 import ExportMenu from "@/components/ExportMenu";
 import { printReport } from "@/lib/reportExport";
 import { useTableSort, SortableTh } from "@/components/SortableTable";
+import { getTodayDateKey } from "@/lib/dateFilter";
 
 const TABS = [
   { key: "profit-loss", label: "Profit & Loss", icon: TrendingUp },
@@ -35,26 +36,15 @@ function statementAmount(row) {
   return row.display ?? Math.abs(row.amount);
 }
 
-function formatSyncTime(value) {
-  if (!value) return "No recent sync";
-  return new Date(value).toLocaleString("en-NG");
-}
-
 export default function AccountingReportsPage() {
   const router = useRouter();
   const [tab, setTab] = useState("profit-loss");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  // Bringing the books up to date by itself as the page opens
-  const [autoSyncing, setAutoSyncing] = useState(false);
-  const [booksVersion, setBooksVersion] = useState(0);
-  const [syncStatus, setSyncStatus] = useState(null);
-  const [syncMessage, setSyncMessage] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Opens on this month: reading all time on every visit was slow and rarely what was wanted
+  const [dateFrom, setDateFrom] = useState(() => `${getTodayDateKey().slice(0, 7)}-01`);
+  const [dateTo, setDateTo] = useState(() => getTodayDateKey());
   const [error, setError] = useState("");
-  const [reconciliation, setReconciliation] = useState(null);
   const printRef = useRef(null);
 
   function getPeriodLabel() {
@@ -168,38 +158,7 @@ export default function AccountingReportsPage() {
 
   useEffect(() => {
     fetchReport();
-  }, [tab, dateFrom, dateTo, booksVersion]);
-
-  useEffect(() => {
-    refreshSyncStatus();
-    autoSync();
-  }, []);
-
-  /**
-   * The statements are read from posted entries, and sales reach those only through a sync. It
-   * used to run only when someone pressed Sync, so the figures here could be days behind the till.
-   * The page now asks for one as it opens; the server skips it if the books were synced in the
-   * last few minutes, and the figures are read again once it has run.
-   */
-  async function autoSync() {
-    try {
-      setAutoSyncing(true);
-      const res = await fetch("/api/accounting/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auto: true }),
-      });
-      if (!res.ok) return;
-      const payload = await res.json();
-      setSyncStatus(payload.status || null);
-      // Read again for whatever tab and dates are showing by now
-      if (payload.result && !payload.result.skipped) setBooksVersion((version) => version + 1);
-    } catch {
-      // The figures already on screen stay; Sync is still there to try again
-    } finally {
-      setAutoSyncing(false);
-    }
-  }
+  }, [tab, dateFrom, dateTo]);
 
   // The standalone /accounting/trial-balance, /profit-loss and /balance-sheet
   // pages now redirect here carrying ?tab=, so honour it on arrival.
@@ -208,39 +167,6 @@ export default function AccountingReportsPage() {
     const requested = String(router.query.tab || "");
     if (requested && TABS.some((t) => t.key === requested)) setTab(requested);
   }, [router.isReady, router.query.tab]);
-
-  async function refreshSyncStatus() {
-    try {
-      const res = await fetch("/api/accounting/sync");
-      if (!res.ok) return;
-
-      const payload = await res.json();
-      setSyncStatus(payload.status || null);
-    } catch {
-      // Leave the reports view usable even if sync status is temporarily unavailable.
-    }
-  }
-
-  /**
-   * The books and the tax dashboard are built on one basis now, so the two
-   * should agree for any period. This is what says whether they do.
-   */
-  async function refreshReconciliation() {
-    try {
-      const params = new URLSearchParams();
-      if (dateFrom) params.set("from", dateFrom);
-      if (dateTo) params.set("to", dateTo);
-      const res = await fetch(`/api/accounting/reconciliation?${params}`);
-      if (!res.ok) {
-        setReconciliation(null);
-        return;
-      }
-      setReconciliation(await res.json());
-    } catch {
-      // A reconciliation that cannot be fetched must not hide the statement.
-      setReconciliation(null);
-    }
-  }
 
   async function fetchReport() {
     try {
@@ -252,8 +178,6 @@ export default function AccountingReportsPage() {
       const res = await fetch(`/api/accounting/reports?${params}`);
       if (res.ok) {
         setData(await res.json());
-        void refreshSyncStatus();
-        void refreshReconciliation();
       } else {
         setError("Failed to load report");
       }
@@ -263,36 +187,6 @@ export default function AccountingReportsPage() {
       setLoading(false);
     }
   }
-
-  async function handleManualSync() {
-    try {
-      setSyncing(true);
-      setError("");
-      setSyncMessage("");
-
-      const res = await fetch("/api/accounting/sync", { method: "POST" });
-      const payload = await res.json();
-      if (!res.ok) {
-        throw new Error(payload.message || "Failed to sync accounting");
-      }
-
-      const result = payload.result || {};
-      setSyncStatus(payload.status || null);
-      setSyncMessage(
-        `Accounting synced. ${result.salesSynced || 0} sales, ${result.expensesSynced || 0} expenses, ${result.purchaseOrdersSynced || 0} purchase orders refreshed.`
-      );
-
-      await fetchReport();
-    } catch (syncError) {
-      setError(syncError.message || "Failed to sync accounting");
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  const syncSummary = syncStatus?.lastSummary
-    ? `${syncStatus.lastSummary.salesSynced || 0} sales, ${syncStatus.lastSummary.expensesSynced || 0} expenses, ${syncStatus.lastSummary.purchaseOrdersSynced || 0} purchase orders`
-    : "";
 
   return (
     <Layout>
@@ -305,9 +199,6 @@ export default function AccountingReportsPage() {
             <p className="page-subtitle">View your business financial statements</p>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button onClick={handleManualSync} disabled={syncing} className="btn-action btn-action-primary disabled:opacity-60 disabled:cursor-not-allowed" title={`Last synced: ${formatSyncTime(syncStatus?.lastSyncAt)}${syncSummary ? ` | ${syncSummary}` : ""}`}>
-                <RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing..." : "Sync"}
-              </button>
               <button onClick={handlePrint} disabled={loading || !data} className="btn-action btn-action-secondary disabled:opacity-50 inline-flex items-center gap-2">
                 <Printer size={18} /> Print
               </button>
@@ -316,14 +207,10 @@ export default function AccountingReportsPage() {
         </div>
 
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">{error}</div>}
-        {syncMessage && <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">{syncMessage}</div>}
 
         <div className="theme-note-primary mb-6 rounded-xl border px-4 py-3 text-sm">
-          {autoSyncing
-            ? "Bringing the books up to date with the latest sales, expenses and purchase orders…"
-            : `The books are brought up to date from sales, expenses and purchase orders when this page opens (at most every few minutes). Last brought up to date: ${formatSyncTime(syncStatus?.lastSyncAt)}. Use Sync to do it now.`}
+          The statements are worked out from the sales, refunds, expenses, vendor payments, quick entries, salary payments and stock losses themselves each time they open, so they always show the actual figures. They open on this month: change the dates to see another period.
         </div>
-
         {/* Tabs */}
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
           {TABS.map((t) => {
@@ -373,7 +260,7 @@ export default function AccountingReportsPage() {
           </div>
         ) : (
           <div ref={printRef}>
-            {tab === "profit-loss" && <ProfitLoss data={data} dateFrom={dateFrom} dateTo={dateTo} reconciliation={reconciliation} />}
+            {tab === "profit-loss" && <ProfitLoss data={data} dateFrom={dateFrom} dateTo={dateTo} />}
             {tab === "balance-sheet" && <BalanceSheet data={data} dateFrom={dateFrom} dateTo={dateTo} />}
             {tab === "trial-balance" && <TrialBalance data={data} dateFrom={dateFrom} dateTo={dateTo} />}
           </div>
@@ -404,100 +291,7 @@ function ExecutiveMetricCard({ title, value, helper, tone = "neutral" }) {
   );
 }
 
-/**
- * Books against till. Both sides read sales the same way (lib/financial-basis.js),
- * so anything left over is a posting problem — a sale the books never saw, or an
- * entry still standing for a sale that was voided — and it is named as such.
- */
-function ReconciliationPanel({ reconciliation }) {
-  if (!reconciliation?.lines) return null;
-
-  const { lines, issues = {}, agrees, period } = reconciliation;
-  const rows = [
-    { key: "revenue", label: "Revenue (net of VAT and refunds)" },
-    { key: "vat", label: "VAT payable" },
-    { key: "costOfSales", label: "Cost of sales" },
-    { key: "refunds", label: "Refunds" },
-    { key: "expenses", label: "Operating expenses" },
-    { key: "stockPurchases", label: "Stock bought (to inventory)" },
-  ].filter((row) => lines[row.key]);
-
-  const notes = [];
-  if (issues.unpostedSales > 0) {
-    notes.push(`${issues.unpostedSales} sale${issues.unpostedSales === 1 ? "" : "s"} worth ${formatMoney(issues.unpostedSalesValue || 0)} have no journal entry — run Sync Accounting.`);
-  }
-  if (issues.stalePostedVoids > 0) {
-    notes.push(`${issues.stalePostedVoids} posted entr${issues.stalePostedVoids === 1 ? "y" : "ies"} still stand${issues.stalePostedVoids === 1 ? "s" : ""} for a voided sale — a sync strikes them off.`);
-  }
-  if (issues.incompleteCostLines > 0) {
-    notes.push(`${issues.incompleteCostLines} sold line${issues.incompleteCostLines === 1 ? " has" : "s have"} no cost price, so cost of sales is understated.`);
-  }
-  if (issues.stockPurchaseExpenses > 0) {
-    notes.push(`${issues.stockPurchaseExpenses} expense${issues.stockPurchaseExpenses === 1 ? "" : "s"} treated as stock buying: held as inventory, not charged to profit until sold.`);
-  }
-  if (issues.voidedSales > 0) {
-    notes.push(`${issues.voidedSales} voided sale${issues.voidedSales === 1 ? "" : "s"} excluded from both reports.`);
-  }
-
-  return (
-    <div className="content-card mt-6">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-        <div>
-          <h3 className="text-base font-semibold text-gray-900">Books vs Transactions</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
-            The same period read off the till and off the posted entries{period?.label ? ` — ${period.label}` : ""}. The
-            {" "}<a href="/accounting/tax-analysis" className="theme-link font-medium">tax dashboard</a> quotes the transactions column.
-          </p>
-        </div>
-        <span
-          className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-            agrees ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
-          }`}
-        >
-          {agrees ? "In agreement" : "Needs attention"}
-        </span>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Figure</th>
-              <th className="text-right">Transactions</th>
-              <th className="text-right">Posted books</th>
-              <th className="text-right">Difference</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const line = lines[row.key];
-              return (
-                <tr key={row.key}>
-                  <td className="font-medium text-gray-800">{row.label}</td>
-                  <td className="text-right font-mono">{formatMoney(line.source)}</td>
-                  <td className="text-right font-mono">{formatMoney(line.posted)}</td>
-                  <td className={`text-right font-mono font-semibold ${line.agrees ? "text-gray-500" : "text-amber-700"}`}>
-                    {line.agrees ? "—" : formatMoney(line.difference)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {notes.length > 0 && (
-        <ul className="mt-4 space-y-1 text-xs text-gray-600 list-disc list-inside">
-          {notes.map((note, index) => (
-            <li key={index}>{note}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function ProfitLoss({ data, dateFrom, dateTo, reconciliation }) {
+function ProfitLoss({ data, dateFrom, dateTo }) {
   if (!data) return null;
   const netIncome = data.netIncome || 0;
   const summary = data.summary || {};
@@ -551,8 +345,6 @@ function ProfitLoss({ data, dateFrom, dateTo, reconciliation }) {
         <PLSection title="Revenue" items={data.revenue || []} total={data.totalRevenue || 0} color="green" />
         <PLSection title="Expenses" items={data.expenses || []} total={data.totalExpenses || 0} color="red" />
       </div>
-
-      <ReconciliationPanel reconciliation={reconciliation} />
     </div>
   );
 }
@@ -714,7 +506,7 @@ function TrialBalance({ data, dateFrom, dateTo }) {
             </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-500">No posted journal entries found</td></tr>
+                <tr><td colSpan={5} className="px-4 py-12 text-center text-gray-500">Nothing was recorded in these dates</td></tr>
               ) : rows.map((row) => (
                 <tr key={row._id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2 font-mono theme-accent-text">{row.code}</td>

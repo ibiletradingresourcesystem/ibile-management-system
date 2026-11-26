@@ -9,6 +9,8 @@ import { createMailTransport, getMailEnvValue, getMailFromAddress } from "@/lib/
 import { aggregateProductSales } from "@/lib/product-sales-report";
 import { generateMonthlyReportInsight, buildMonthlyReportAIHtml } from "@/lib/ai/monthlyReportAI";
 import { buildBusinessExtrasHtml, expensesInRange, loadBusinessExtras, reportMonth } from "@/lib/monthlyBusinessReport";
+import { getCategoryTreatments } from "@/lib/accounting";
+import { splitStockPurchases } from "@/lib/financial-basis";
 
 /**
  * The monthly business report, emailed on the 1st (vercel.json) for the month just ended.
@@ -166,9 +168,16 @@ export default async function handler(req, res) {
     }).lean();
     console.log(`[Monthly Mail] Found ${transactions.length} completed transactions`);
 
-    // 3. Get expenses for the month, each counted once (lib/monthlyBusinessReport.js)
-    const expenses = await Expense.find(expensesInRange(monthStart, nextMonthStart)).lean();
-    console.log(`[Monthly Mail] Found ${expenses.length} expenses`);
+    // 3. Get expenses for the month, each counted once (lib/monthlyBusinessReport.js). Stock bought
+    // through expenses (petty cash buys fresh stock daily or weekly) is in cost of goods when it
+    // sells, so it is set apart: taking it off profit again turned margins negative
+    const [monthExpenses, treatments] = await Promise.all([
+      Expense.find(expensesInRange(monthStart, nextMonthStart)).lean(),
+      getCategoryTreatments(),
+    ]);
+    const { operating: expenses, stock: stockExpenses } = splitStockPurchases(monthExpenses, treatments);
+    const stockBoughtThroughExpenses = stockExpenses.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0);
+    console.log(`[Monthly Mail] Found ${monthExpenses.length} expenses, ${stockExpenses.length} of them stock purchases`);
 
     // Credit sales only where the business gives credit: one with no credit sale ever recorded
     // gets no credit figures, sections or queries
@@ -928,7 +937,7 @@ export default async function handler(req, res) {
             <div style="background: rgba(255, 255, 255, 0.15); padding: 18px; border-radius: 8px; border-left: 4px solid rgba(255, 255, 255, 0.4); backdrop-filter: blur(10px);">
               <p style="margin: 0; opacity: 0.85; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">💸 Total Expenses</p>
               <p style="margin: 12px 0 0 0; font-size: 28px; font-weight: bold; line-height: 1;">${formatMoney(totalExpenses)}</p>
-              <p style="margin: 8px 0 0 0; opacity: 0.7; font-size: 11px;">${expenses.length} expense items</p>
+              <p style="margin: 8px 0 0 0; opacity: 0.7; font-size: 11px;">${expenses.length} expense items${stockBoughtThroughExpenses > 0 ? ` · ${formatMoney(stockBoughtThroughExpenses)} of stock bought through expenses (petty cash) is counted in cost of goods instead` : ""}</p>
             </div>
 
             <!-- Net Profit -->

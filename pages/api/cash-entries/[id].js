@@ -1,8 +1,8 @@
 /**
  * API: /api/cash-entries/[id]
  *
- * DELETE — remove an entry raised in error, and strike off the journal entry it
- * posted so the books do not keep money that never moved.
+ * DELETE — remove an entry raised in error. The books are worked out from the records, so it is
+ * out of them as soon as it is gone.
  *
  * An expense paid by memo is found here too, so its memo can be raised and a mistaken one removed
  * from the tracker.
@@ -11,22 +11,8 @@ import { mongooseConnect } from "@/lib/mongodb";
 import { isValidObjectId } from "mongoose";
 import CashEntry from "@/models/CashEntry";
 import Expense from "@/models/Expense";
-import JournalEntry from "@/models/JournalEntry";
 import { authMiddleware, isAdmin, isStaff } from "@/lib/auth-middleware";
-import { expenseAsEntry, MEMO_EXPENSE_SOURCE } from "@/lib/cashEntries";
-
-async function voidPosted(referenceType, referenceId, reason) {
-  const posted = await JournalEntry.find({ referenceType, referenceId, status: { $ne: "VOIDED" } });
-  await Promise.all(
-    posted.map((journal) => {
-      journal.status = "VOIDED";
-      journal.voidedAt = new Date();
-      journal.voidReason = reason;
-      return journal.save();
-    })
-  );
-  return posted.length;
-}
+import { expenseAsEntry, MEMO_EXPENSE_SOURCES } from "@/lib/cashEntries";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -42,7 +28,7 @@ export default async function handler(req, res) {
     try {
       const entry = await CashEntry.findById(id).lean();
       if (entry) return res.status(200).json({ success: true, entry });
-      const expense = await Expense.findOne({ _id: id, sourceType: MEMO_EXPENSE_SOURCE }).lean();
+      const expense = await Expense.findOne({ _id: id, sourceType: { $in: MEMO_EXPENSE_SOURCES } }).lean();
       if (!expense) return res.status(404).json({ error: "Entry not found" });
       return res.status(200).json({ success: true, entry: expenseAsEntry(expense) });
     } catch (err) {
@@ -56,15 +42,11 @@ export default async function handler(req, res) {
 
     try {
       const entry = await CashEntry.findByIdAndDelete(id);
-      if (entry) {
-        const voidedEntries = await voidPosted("OTHER", entry._id, "Cash entry deleted");
-        return res.status(200).json({ success: true, voidedEntries });
-      }
+      if (entry) return res.status(200).json({ success: true });
 
-      const expense = await Expense.findOneAndDelete({ _id: id, sourceType: MEMO_EXPENSE_SOURCE });
+      const expense = await Expense.findOneAndDelete({ _id: id, sourceType: { $in: MEMO_EXPENSE_SOURCES } });
       if (!expense) return res.status(404).json({ error: "Entry not found" });
-      const voidedEntries = await voidPosted("EXPENSE", expense._id, "Expense deleted");
-      return res.status(200).json({ success: true, voidedEntries });
+      return res.status(200).json({ success: true });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

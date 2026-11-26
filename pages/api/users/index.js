@@ -72,7 +72,7 @@ export default async function handler(req, res) {
           "stock", "stock.management", "stock.movement", "stock.stock-take", "stock.stock-take-report", "stock.expiration-report", "stock.stock-history-levels",
           "reporting", "reporting.sales-report", "reporting.eod", "reporting.time-intervals", "reporting.time-comparisons", "reporting.products", "reporting.employees", "reporting.locations", "reporting.categories", "reporting.transactions", "reporting.stock-history-levels",
           "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal",
-          "accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.reports",
+          "accounting", "accounting.chart-of-accounts", "accounting.general-ledger", "accounting.reports",
           "support", "till",
         ];
       } else if (safeRole === "inventory") {
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
         safePermissions = [
           "expenses", "expenses.entry", "expenses.analysis", "expenses.tax-analysis", "expenses.tax-personal",
           "reporting", "reporting.sales-report", "reporting.eod", "reporting.transactions", "reporting.stock-history-levels",
-          "accounting", "accounting.chart-of-accounts", "accounting.journal-entries", "accounting.general-ledger", "accounting.reports",
+          "accounting", "accounting.chart-of-accounts", "accounting.general-ledger", "accounting.reports",
         ];
       }
 

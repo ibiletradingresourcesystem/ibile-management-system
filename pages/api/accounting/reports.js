@@ -1,8 +1,13 @@
 import { mongooseConnect } from "@/lib/mongodb";
-import JournalEntry from "@/models/JournalEntry";
 import Account from "@/models/Account";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
+import { accountGuide, buildLiveEntries, entrySource } from "@/lib/accounting";
 import { dayKeyOf, shopDaysBounds } from "@/lib/tradingDay";
+
+/*
+ * The statements are worked out from the records each time (lib/accounting.js buildLiveEntries):
+ * the actual figures, never a copy posted earlier.
+ */
 
 /**
  * Accounts are read whether active or not: an account switched off still holds what was posted to
@@ -23,6 +28,8 @@ export default async function handler(req, res) {
 
   try {
     const { report, from, to, accountId } = req.query;
+    // "fresh=1" reads the records again rather than the last minute's copy
+    const fresh = req.query.fresh === "1";
 
     // "From" and "To" are whole days in Lagos. Read as dates on the server they meant midnight UTC,
     // so everything on the "To" day after 1am was left out, and the first hour of "From" with it.
@@ -30,17 +37,11 @@ export default async function handler(req, res) {
     const toKey = to ? dayKeyOf(to) : null;
     const periodStart = fromKey ? shopDaysBounds(fromKey).start : null;
     const periodEnd = toKey ? shopDaysBounds(toKey).end : null;
-    const dateFilter = {};
-    if (periodStart) dateFilter.$gte = periodStart;
-    if (periodEnd) dateFilter.$lt = periodEnd;
 
     // ───── TRIAL BALANCE ─────
     if (report === "trial-balance") {
       const accounts = await Account.find(ALL_ACCOUNTS).sort({ code: 1 }).lean();
-      const postedFilter = { status: "POSTED" };
-      if (periodStart || periodEnd) postedFilter.date = dateFilter;
-
-      const entries = await JournalEntry.find(postedFilter, { lines: 1 }).lean();
+      const entries = await buildLiveEntries({ start: periodStart, end: periodEnd, fresh });
 
       // Aggregate debits/credits per account
       const balances = {};
@@ -82,10 +83,7 @@ export default async function handler(req, res) {
 
     // ───── PROFIT & LOSS ─────
     if (report === "profit-loss") {
-      const postedFilter = { status: "POSTED" };
-      if (periodStart || periodEnd) postedFilter.date = dateFilter;
-
-      const entries = await JournalEntry.find(postedFilter, { lines: 1 }).lean();
+      const entries = await buildLiveEntries({ start: periodStart, end: periodEnd, fresh });
       const accounts = await Account.find({ ...ALL_ACCOUNTS, type: { $in: ["REVENUE", "EXPENSE"] } }).sort({ code: 1 }).lean();
 
       const balances = {};
@@ -172,10 +170,8 @@ export default async function handler(req, res) {
 
     // ───── BALANCE SHEET ─────
     if (report === "balance-sheet") {
-      const postedFilter = { status: "POSTED" };
-      if (periodEnd) postedFilter.date = { $lt: periodEnd };
-
-      const entries = await JournalEntry.find(postedFilter, { lines: 1 }).lean();
+      // Everything up to the balance sheet's date
+      const entries = await buildLiveEntries({ end: periodEnd, fresh });
       const accounts = await Account.find({ ...ALL_ACCOUNTS, type: { $in: ["ASSET", "LIABILITY", "EQUITY"] } }).sort({ code: 1 }).lean();
 
       const balances = {};
@@ -276,65 +272,52 @@ export default async function handler(req, res) {
       const account = await Account.findById(accountId).lean();
       if (!account) return res.status(404).json({ success: false, message: "Account not found" });
 
-      const postedFilter = { status: "POSTED", "lines.account": accountId };
-      if (periodStart || periodEnd) postedFilter.date = dateFilter;
+      // Everything up to the end of the period: what came before it is the opening balance
+      const entries = await buildLiveEntries({ end: periodEnd, fresh });
+      const signed = (line) => (account.normalBalance === "DEBIT" ? line.debit - line.credit : line.credit - line.debit);
 
       let openingBalance = account.openingBalance || 0;
-      if (periodStart) {
-        const openingEntries = await JournalEntry.find({
-          status: "POSTED",
-          "lines.account": accountId,
-          date: { $lt: periodStart },
-        }, { lines: 1 }).lean();
-
-        for (const entry of openingEntries) {
-          for (const line of entry.lines) {
-            if (line.account.toString() !== accountId) continue;
-            if (account.normalBalance === "DEBIT") {
-              openingBalance += (line.debit - line.credit);
-            } else {
-              openingBalance += (line.credit - line.debit);
-            }
-          }
-        }
-      }
-
-      const entries = await JournalEntry.find(postedFilter)
-        .sort({ date: 1, createdAt: 1 })
-        .lean();
-
-      // Build ledger rows with running balance
-      let runningBalance = openingBalance;
+      let runningBalance = 0;
       const rows = [];
 
       for (const entry of entries) {
+        const beforePeriod = periodStart && entry.date < periodStart;
         for (const line of entry.lines) {
           if (line.account.toString() !== accountId) continue;
-          
-          if (account.normalBalance === "DEBIT") {
-            runningBalance += (line.debit - line.credit);
-          } else {
-            runningBalance += (line.credit - line.debit);
+          if (beforePeriod) {
+            openingBalance += signed(line);
+            continue;
           }
 
+          runningBalance += signed(line);
+          // Each line says which record it came from, and where to find it
+          const source = entrySource(entry);
           rows.push({
             date: entry.date,
-            entryNumber: entry.entryNumber,
-            entryId: entry._id,
             description: entry.description,
             lineDescription: line.description,
             debit: line.debit,
             credit: line.credit,
-            balance: Math.round(runningBalance * 100) / 100,
+            runningChange: runningBalance,
             reference: entry.reference,
             referenceType: entry.referenceType,
+            referenceId: entry.referenceId,
+            sourceLabel: source.label,
+            sourceHref: source.href,
           });
         }
       }
 
+      // The balance after each line, from the opening balance
+      for (const row of rows) {
+        row.balance = Math.round((openingBalance + row.runningChange) * 100) / 100;
+        delete row.runningChange;
+      }
+      runningBalance += openingBalance;
+
       return res.status(200).json({
         success: true,
-        account: { _id: account._id, code: account.code, name: account.name, type: account.type },
+        account: { _id: account._id, code: account.code, name: account.name, type: account.type, guide: accountGuide(account.code) },
         openingBalance: Math.round(openingBalance * 100) / 100,
         rows,
         closingBalance: Math.round(runningBalance * 100) / 100,

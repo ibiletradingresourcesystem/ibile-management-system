@@ -179,7 +179,7 @@ export default async function handler(req, res) {
         products,
         grandTotal,
         paymentMade,
-        paymentDate: order.paymentDate || "",
+        paymentDate: paymentMade > 0 ? order.paymentDate || "" : "",
         ...derivePaymentState({ grandTotal, paymentMade, payBeforeSupply, receivedStatus: order.received ? "Received" : "Pending" }),
         payBeforeSupply,
         sourceApp: source,

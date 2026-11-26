@@ -1,6 +1,6 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import Account from "@/models/Account";
-import { seedDefaultAccounts } from "@/lib/accounting";
+import { accountGuide, ensureSystemAccounts, seedDefaultAccounts } from "@/lib/accounting";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
 
 export default async function handler(req, res) {
@@ -12,15 +12,17 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === "GET") {
-      // Seed defaults on first load
+      // Seed defaults on first load, and add accounts the rules need to an older chart
       await seedDefaultAccounts();
+      await ensureSystemAccounts();
 
       const accounts = await Account.find()
         .sort({ code: 1 })
         .lean();
 
       res.setHeader("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
-      return res.status(200).json({ success: true, accounts });
+      // Each with what posts to it, so the chart says where its figures come from
+      return res.status(200).json({ success: true, accounts: accounts.map((account) => ({ ...account, guide: accountGuide(account.code) })) });
     }
 
     if (req.method === "POST") {

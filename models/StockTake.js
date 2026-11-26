@@ -22,6 +22,9 @@ const StockTakeItemSchema = new Schema({
   countedBy: { type: String, default: "" },
   countType: { type: String, enum: ["standard", "loose-units"], default: "standard" },
   qtyPerPack: { type: Number, default: 0 },
+  // Set to 0 by Zero All or Zero Uncounted, not counted on the shelf: applying it sets the product
+  // to exactly 0, whatever sold since, so a line that had gone negative ends at 0 too
+  zeroed: { type: Boolean, default: false },
 });
 
 const StockTakeSchema = new Schema(

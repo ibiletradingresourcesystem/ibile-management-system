@@ -5,8 +5,134 @@ import { Loader } from "@/components/ui";
 import { useState, useEffect } from "react";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { showToastMessage } from "@/lib/toast-state";
-import { Plus, Pencil, Trash2, X, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, X, Check, ChevronDown, ChevronRight, Download, Trash2, Archive } from "lucide-react";
 import { useTableSort, SortableTh, compareValues, getFieldValue } from "@/components/SortableTable";
+import { getTodayDateKey } from "@/lib/dateFilter";
+
+function isAdminUser() {
+  try {
+    return JSON.parse(localStorage.getItem("user") || "{}").role === "admin";
+  } catch {
+    return false;
+  }
+}
+
+function formatSize(bytes) {
+  if (!bytes) return "";
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/**
+ * The journal the books used to be stored in. Nothing reads it now (the books are worked out from
+ * the records), so an admin can keep a copy and then delete it to free the database space.
+ * Shown only while it still exists.
+ */
+function OldJournalPanel() {
+  const [info, setInfo] = useState(null);
+  const [progress, setProgress] = useState("");
+  const [downloaded, setDownloaded] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!isAdminUser()) return;
+    fetch("/api/accounting/journal-archive")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setInfo(data?.success ? data : null))
+      .catch(() => setInfo(null));
+  }, []);
+
+  if (!info || !info.entries) return null;
+
+  async function handleDownload() {
+    try {
+      const parts = [];
+      for (let part = 1; part <= info.parts; part += 1) {
+        setProgress(info.parts > 1 ? `Downloading part ${part} of ${info.parts}...` : "Downloading...");
+        const res = await fetch(`/api/accounting/journal-archive?format=csv&part=${part}`);
+        if (!res.ok) throw new Error(`Part ${part} failed to download`);
+        parts.push(await res.text());
+      }
+      const blob = new Blob(parts, { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `old-journal-${getTodayDateKey()}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      setDownloaded(true);
+      showToastMessage({ title: "Old journal", text: "Downloaded. Keep the file somewhere safe before deleting.", fallbackTone: "success" });
+    } catch (err) {
+      showToastMessage({ title: "Old journal", text: err.message || "Download failed", fallbackTone: "danger" });
+    } finally {
+      setProgress("");
+    }
+  }
+
+  async function handleDelete() {
+    const confirmed = await showConfirmDialog({
+      title: "Delete the old journal?",
+      message: `This removes ${info.entries.toLocaleString()} stored journal entries from the database for good. The reports do not use them any more, so nothing on any page changes. Make sure the downloaded copy is saved first.`,
+      tone: "danger",
+      confirmLabel: "Delete old journal",
+      cancelLabel: "Keep it",
+    });
+    if (!confirmed) return;
+    try {
+      setDeleting(true);
+      const res = await fetch("/api/accounting/journal-archive", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "DELETE" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Delete failed");
+      showToastMessage({ title: "Old journal", text: data.message, fallbackTone: "success" });
+      setInfo(null);
+    } catch (err) {
+      showToastMessage({ title: "Old journal", text: err.message || "Delete failed", fallbackTone: "danger" });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const dates = info.oldest && info.newest
+    ? ` from ${new Date(info.oldest).toLocaleDateString()} to ${new Date(info.newest).toLocaleDateString()}`
+    : "";
+  const size = formatSize(info.sizeBytes);
+
+  return (
+    <div className="content-card mb-6 border border-amber-200 bg-amber-50">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <Archive size={22} className="text-amber-700 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold text-gray-900">Old journal still in the database</p>
+            <p className="text-sm text-gray-700">
+              {info.entries.toLocaleString()} stored entries{dates}{size ? `, taking about ${size}` : ""}. The books no longer
+              use them: every report is worked out from the records. Download a copy, then delete it to free the space.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={handleDownload} disabled={Boolean(progress) || deleting} className="btn-action btn-action-secondary disabled:opacity-60">
+            <Download size={16} /> {progress || "Download copy"}
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={!downloaded || Boolean(progress) || deleting}
+            title={downloaded ? "" : "Download a copy first"}
+            className="btn-action btn-action-danger disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Trash2 size={16} /> {deleting ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ACCOUNT_TYPES = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
 const TYPE_COLORS = {
@@ -208,6 +334,8 @@ export default function ChartOfAccountsPage() {
           </button>
         </div>
 
+        <OldJournalPanel />
+
         {/* Form */}
         {showForm && (
           <div className="content-card mb-6">
@@ -329,6 +457,7 @@ export default function ChartOfAccountsPage() {
                         <SortableTh sortKey="subType" activeKey={sortKey} dir={sortDir} onSort={toggleSort}>Sub-Type</SortableTh>
                         <SortableTh sortKey="normalBalance" activeKey={sortKey} dir={sortDir} onSort={toggleSort} className="w-20">Balance</SortableTh>
                         <SortableTh sortKey="openingBalance" activeKey={sortKey} dir={sortDir} onSort={toggleSort} align="right" className="w-20">Opening</SortableTh>
+                        <th className="text-left px-4 py-2 font-semibold text-gray-600 min-w-[260px]">What posts here</th>
                         <th className="text-right px-4 py-2 font-semibold text-gray-600 w-28">Actions</th>
                       </tr>
                     </thead>
@@ -343,12 +472,16 @@ export default function ChartOfAccountsPage() {
                           <td className="px-4 py-2 text-gray-600">{acc.subType || "—"}</td>
                           <td className="px-4 py-2 text-gray-600">{acc.normalBalance === "DEBIT" ? "Dr" : "Cr"}</td>
                           <td className="px-4 py-2 text-gray-700 font-medium">{(acc.openingBalance || 0).toLocaleString()}</td>
+                          <td className="px-4 py-2 text-xs text-gray-600">
+                            {acc.guide || acc.description || <span className="text-gray-400">Nothing posts here automatically</span>}
+                            {!acc.isActive && <span className="ml-2 text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Inactive</span>}
+                          </td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex justify-end gap-1">
                               <button onClick={() => startEdit(acc)} className="text-xs px-2.5 py-1 text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 font-medium transition">
                                 Edit
                               </button>
-                              {!acc.isSystem && (
+                              {!acc.isSystem && !acc.guide && (
                                 <button onClick={() => handleDelete(acc._id)} className="text-xs px-2.5 py-1 text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100 font-medium transition">
                                   Delete
                                 </button>

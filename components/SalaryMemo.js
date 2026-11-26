@@ -34,6 +34,8 @@ const SalaryMemo = forwardRef(
           const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
           pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
           pdf.save(`Ibile Payroll ${today}${partCount > 1 ? ` Part ${part}` : ""}.pdf`);
+          // The page records the payment only once the file is made
+          return true;
         } finally {
           onDownloading?.(false);
         }

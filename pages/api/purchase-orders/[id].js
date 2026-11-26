@@ -10,7 +10,6 @@ import { isValidObjectId } from "mongoose";
 import Store from "@/models/Store";
 import StockOrder from "@/models/StockOrder";
 import { derivePaymentState } from "@/lib/purchaseOrders";
-import { postPurchaseOrderPayment } from "@/lib/accounting";
 import { sanitizeMultilineText, sanitizePlainText } from "@/lib/textSanitizers";
 
 /**
@@ -86,7 +85,8 @@ export default async function handler(req, res) {
           order.date = orderDate;
         }
         order.paymentMade = paymentMade !== undefined ? Number(paymentMade) : order.paymentMade;
-        order.paymentDate = paymentDate || order.paymentDate;
+        // Nothing paid means no pay date
+        order.paymentDate = Number(order.paymentMade) > 0 ? paymentDate || order.paymentDate || new Date().toISOString() : "";
         Object.assign(order, derivePaymentState(order));
         // A payment belongs to the place that made it, so the credit it leaves can
         // be read per location rather than floating free of the business.
@@ -94,16 +94,6 @@ export default async function handler(req, res) {
           order.location = await defaultBusinessLocation();
         }
         await order.save();
-
-        // Auto-post accounting journal entry for PO payment
-        try {
-          const paymentAmount = paymentMade !== undefined ? Number(paymentMade) : 0;
-          if (paymentAmount > 0) {
-            await postPurchaseOrderPayment(order, paymentAmount);
-          }
-        } catch (acctErr) {
-          console.error("Accounting auto-post failed for PO payment:", order._id, acctErr.message);
-        }
 
         return res.status(200).json({ success: true, order });
       }

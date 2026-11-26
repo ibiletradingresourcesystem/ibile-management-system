@@ -7,7 +7,6 @@ import { authMiddleware, isStaff, isBasicStaff } from "@/lib/auth-middleware";
 import { formatVendorMovementLabel } from "@/lib/vendorDisplay";
 import { deriveChildQty } from "@/lib/syncPackQty";
 import { sanitizeMultilineText } from "@/lib/textSanitizers";
-import { postStockMovementEntry } from "@/lib/accounting";
 
 /**
  * How a movement of each reason changes global stock, per unit.
@@ -81,6 +80,10 @@ export default async function handler(req, res) {
               costPrice: product?.costPrice || 0,
               salePrice: product?.salePriceIncTax || 0,
               barcode: product?.barcode || "",
+              // The batch's expiry, so a date forgotten at upload can be added when editing
+              expiryDate: p.expiryDate || null,
+              // Sent back so saving the edit screen does not wipe a line's note
+              notes: p.notes || "",
             };
           })
         );
@@ -268,13 +271,6 @@ export default async function handler(req, res) {
     }
 
     await session.endSession();
-
-    // A corrected loss corrects its entry in the books
-    try {
-      await postStockMovementEntry(savedMovement);
-    } catch (acctErr) {
-      console.error("Accounting auto-post failed for stock movement:", id, acctErr.message);
-    }
 
     // Child pack quantities are derived, so refresh them outside the transaction
     for (const productId of [...new Set(touchedProductIds)]) {

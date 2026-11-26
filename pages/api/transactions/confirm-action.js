@@ -2,7 +2,6 @@ import { mongooseConnect } from "@/lib/mongodb";
 import { Transaction } from "@/models/Transactions";
 import PendingTransactionAction from "@/models/PendingTransactionAction";
 import { applyInventoryDelta } from "@/lib/transaction-utils";
-import { postRefundEntry } from "@/lib/accounting";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -161,12 +160,6 @@ async function applyApprovedAction(res, pendingAction) {
       refundReason: pendingAction.reason || "Admin-approved refund",
       inventoryRestockedAt: restock ? new Date() : transaction.inventoryRestockedAt,
     }, { new: true, runValidators: true });
-
-    try {
-      await postRefundEntry(refunded);
-    } catch (acctErr) {
-      console.error("Accounting auto-post failed for refund:", refunded._id, acctErr.message);
-    }
 
     return renderPage(
       res,

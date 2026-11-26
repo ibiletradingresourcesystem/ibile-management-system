@@ -111,7 +111,8 @@ export default async function handler(req, res) {
         products: normalizedProducts,
         grandTotal: grandTotalValue,
         paymentMade: paymentMadeValue,
-        paymentDate: paymentDate || "",
+        // Nothing paid means no pay date
+        paymentDate: paymentMadeValue > 0 ? paymentDate || "" : "",
         balance: payment.balance,
         vendorCredit: payment.vendorCredit,
         status: payment.status,

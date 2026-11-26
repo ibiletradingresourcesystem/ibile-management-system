@@ -1,4 +1,5 @@
 import Layout from "@/components/Layout";
+import ReportTimeRange from "@/components/ReportTimeRange";
 import Loader from "@/components/Loader";
 import { isInTimeRange, REPORT_TIME_ZONE, timeRangeQuery } from "@/lib/dateFilter";
 import useProgress from "@/lib/useProgress";
@@ -208,24 +209,7 @@ export default function CategoriesSales() {
           <div className="content-card mb-6">
             <h3 className="text-base font-semibold text-gray-800 mb-4">Filters</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Show data from</label>
-                <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="form-select">
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="last7">Last 7 Days</option>
-                  <option value="last14">Last 14 Days</option>
-                  <option value="last30">Last 30 Days</option>
-                  <option value="last60">Last 60 Days</option>
-                  <option value="last90">Last 90 Days</option>
-                  <option value="thisWeek">This Week</option>
-                  <option value="thisMonth">This Month</option>
-                  <option value="thisYear">This Year</option>
-                  <option value="lastWeek">Last Week</option>
-                  <option value="lastMonth">Last Month</option>
-                  <option value="lastYear">Last Year</option>
-                </select>
-              </div>
+              <ReportTimeRange value={timeRange} onChange={setTimeRange} />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Location</label>
                 <select value={location} onChange={(e) => setLocation(e.target.value)} className="form-select">

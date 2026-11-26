@@ -1,9 +1,7 @@
 import { mongooseConnect } from "@/lib/mongoose";
 import { Transaction } from "@/models/Transactions";
-import JournalEntry from "@/models/JournalEntry";
 import { authMiddleware, isAdmin, isStaff } from "@/lib/auth-middleware";
 import { applyInventoryDelta } from "@/lib/transaction-utils";
-import { postRefundEntry } from "@/lib/accounting";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -84,15 +82,6 @@ export default async function handler(req, res) {
         runValidators: true,
       });
 
-      // Auto-post refund journal entry
-      if (status === "refunded" && updated) {
-        try {
-          await postRefundEntry(updated);
-        } catch (acctErr) {
-          console.error("Accounting auto-post failed for refund:", updated._id, acctErr.message);
-        }
-      }
-
       return res.status(200).json({ success: true, transaction: updated });
     } catch (err) {
       console.error("Error updating transaction:", err);
@@ -131,10 +120,8 @@ export default async function handler(req, res) {
         });
       }
 
-      // Remove all related journal entries (SALE, REFUND, CREDIT_SALE, CREDIT_PAYMENT)
-      await JournalEntry.deleteMany({ referenceId: transaction._id });
-
-      // Delete the transaction itself
+      // Delete the transaction itself; the books are worked out from the records, so it is out of
+      // them as well
       await Transaction.findByIdAndDelete(id);
 
       return res.status(200).json({ success: true, message: "Transaction and related records deleted." });

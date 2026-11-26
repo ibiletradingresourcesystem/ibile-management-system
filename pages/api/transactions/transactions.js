@@ -1,4 +1,5 @@
 import Transaction from "@/models/Transactions";
+import Product from "@/models/Product";
 import "@/models/Staff";
 import { mongooseConnect } from "@/lib/mongodb";
 import { authMiddleware, isStaff } from "@/lib/auth-middleware";
@@ -8,11 +9,26 @@ import {
   applyInventoryDelta,
   toSafeNumber,
 } from "@/lib/transaction-utils";
-import { postCreditRecoveryEntry, postCreditSaleEntry, postSaleEntry } from "@/lib/accounting";
 import { buildDateRangeFilter, MAX_RANGE_RECORDS, wantsEveryRecord } from "@/lib/apiRange";
 
 async function connectDB() {
   await mongooseConnect();
+}
+
+/**
+ * Current costs of the products on lines that carry no cost of their own (sold before costs were
+ * saved on the sale), so a report can work out margins. Asked for with costs=true; one small read.
+ */
+async function currentCostsForUnstampedLines(transactions) {
+  const ids = new Set();
+  for (const tx of transactions) {
+    for (const item of tx.items || []) {
+      if (item?.productId && !(Number(item.costPrice) > 0)) ids.add(String(item.productId));
+    }
+  }
+  if (ids.size === 0) return {};
+  const products = await Product.find({ _id: { $in: [...ids] } }, { costPrice: 1 }).lean();
+  return Object.fromEntries(products.map((product) => [String(product._id), Number(product.costPrice) || 0]));
 }
 
 /** Totals, top products and per-staff/location splits. Heavy, so only when asked for. */
@@ -301,27 +317,11 @@ async function handlePOST(req, res) {
       }
 
       if (status === "credit") {
-        try {
-          await postCreditSaleEntry(transaction);
-          if (Number(transaction.creditPaidAmount || 0) > 0) {
-            await postCreditRecoveryEntry(transaction);
-          }
-        } catch (acctErr) {
-          console.error("Accounting auto-post failed for credit transaction:", transaction._id, acctErr.message);
-        }
-
         return res.status(201).json({
           success: true,
           message: "Credit transaction saved",
           transaction,
         });
-      }
-
-      // Auto-post accounting journal entry
-      try {
-        await postSaleEntry(transaction);
-      } catch (acctErr) {
-        console.error("Accounting auto-post failed for transaction:", transaction._id, acctErr.message);
       }
     }
 
@@ -395,6 +395,7 @@ async function handleGET(req, res) {
       return res.status(200).json({
         success: true,
         transactions,
+        ...(req.query.costs === "true" ? { productCosts: await currentCostsForUnstampedLines(transactions) } : {}),
         pagination: {
           enabled: false,
           page: 1,

@@ -1,8 +1,9 @@
 import Layout from "@/components/Layout";
+import ReportTimeRange from "@/components/ReportTimeRange";
 import Loader from "@/components/Loader";
 import useProgress from "@/lib/useProgress";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { isInTimeRange, REPORT_TIME_ZONE, timeRangeQuery } from "@/lib/dateFilter";
+import { isInTimeRange, REPORT_TIME_ZONE, timeRangeLabel, timeRangeQuery } from "@/lib/dateFilter";
 import { aggregateProductSales } from "@/lib/product-sales-report";
 import {
   getAllocatedLineItems,
@@ -249,24 +250,7 @@ export default function ProductsSales() {
           {/* Filters */}
           <div className="content-card mb-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Show data from</label>
-                <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="form-select">
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="last7">Last 7 days</option>
-                  <option value="last14">Last 14 days</option>
-                  <option value="last30">Last 30 days</option>
-                  <option value="last60">Last 60 days</option>
-                  <option value="last90">Last 90 days</option>
-                  <option value="thisWeek">This Week</option>
-                  <option value="lastWeek">Last Week</option>
-                  <option value="thisMonth">This Month</option>
-                  <option value="lastMonth">Last Month</option>
-                  <option value="thisYear">This Year</option>
-                  <option value="lastYear">Last Year</option>
-                </select>
-              </div>
+              <ReportTimeRange value={timeRange} onChange={setTimeRange} />
             </div>
           </div>
 
@@ -334,7 +318,7 @@ export default function ProductsSales() {
                   </div>
                   <ExportMenu
                     title="Sales by Product"
-                    subtitle={"Range: " + timeRange}
+                    subtitle={"Range: " + timeRangeLabel(timeRange)}
                     columns={productExportColumns}
                     rows={visibleProducts}
                     summary={[

@@ -1,7 +1,7 @@
 import { mongooseConnect } from "@/lib/mongodb";
 import Account from "@/models/Account";
-import JournalEntry from "@/models/JournalEntry";
 import { authMiddleware, isStaff, isAdmin } from "@/lib/auth-middleware";
+import { accountGuide } from "@/lib/accounting";
 
 export default async function handler(req, res) {
   const authError = authMiddleware(req, res);
@@ -42,10 +42,9 @@ export default async function handler(req, res) {
       if (!account) return res.status(404).json({ success: false, message: "Account not found" });
       if (account.isSystem) return res.status(400).json({ success: false, message: "Cannot delete system accounts" });
 
-      // Check if account has journal entries
-      const hasEntries = await JournalEntry.exists({ "lines.account": id, status: "POSTED" });
-      if (hasEntries) {
-        return res.status(400).json({ success: false, message: "Cannot delete account with posted journal entries. Deactivate it instead." });
+      // An account the books post to would leave its records out of them
+      if (accountGuide(account.code)) {
+        return res.status(400).json({ success: false, message: "The books post to this account, so it cannot be deleted. Deactivate it instead." });
       }
 
       await Account.findByIdAndDelete(id);

@@ -1,12 +1,14 @@
 import Layout from "@/components/Layout";
+import ReportTimeRange from "@/components/ReportTimeRange";
 import Loader from "@/components/Loader";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { isInTimeRange, timeRangeQuery } from "@/lib/dateFilter";
+import { isInTimeRange, timeRangeLabel, timeRangeQuery } from "@/lib/dateFilter";
 import useProgress from "@/lib/useProgress";
 import {
   getReportDevice,
   getReportLocation,
   getReportStaffName,
+  getTransactionCost,
   getTransactionDiscount,
   getTransactionItemQuantity,
   getTransactionNetSales,
@@ -49,7 +51,7 @@ export default function EmployeesSales() {
     try {
       setLoading(true);
       start();
-      const res = await fetch(`/api/transactions/transactions?${timeRangeQuery(timeRange)}`);
+      const res = await fetch(`/api/transactions/transactions?${timeRangeQuery(timeRange)}&costs=true`);
       onFetch();
       const txRes = await res.json();
       if (!txRes.success || !txRes.transactions) { setData(null); setLoading(false); complete(); return; }
@@ -70,7 +72,7 @@ export default function EmployeesSales() {
             name: staffName, mainLocation: getReportLocation(tx),
             transactionQty: 0, refundQty: 0, refundValue: 0,
             noSaleQty: 0, voidedQty: 0, voidedValue: 0,
-            itemQty: 0, salesIncTax: 0, discounts: 0, taxAmount: 0,
+            itemQty: 0, salesIncTax: 0, discounts: 0, taxAmount: 0, cost: 0,
           };
         }
         if (isCompletedSale(tx)) {
@@ -79,6 +81,7 @@ export default function EmployeesSales() {
           staffMap[staffName].salesIncTax += getTransactionNetSales(tx);
           staffMap[staffName].discounts += getTransactionDiscount(tx);
           staffMap[staffName].taxAmount += getTransactionTax(tx);
+          staffMap[staffName].cost += getTransactionCost(tx, txRes.productCosts);
         } else if (isRefundedSale(tx)) {
           staffMap[staffName].refundQty += 1;
           staffMap[staffName].refundValue += getTransactionRefundValue(tx);
@@ -87,17 +90,21 @@ export default function EmployeesSales() {
 
       const staffData = Object.values(staffMap).map((s) => {
         const netSales = s.salesIncTax;
+        const netSalesExcTax = Math.max(0, netSales - s.taxAmount);
+        // Margin is sales before VAT less what the goods cost
+        const grossMargin = netSalesExcTax - s.cost;
         return {
           ...s,
           netSalesIncVat: netSales,
-          netSalesExcTax: Math.max(0, netSales - s.taxAmount),
+          netSalesExcTax,
           avgTransaction: s.transactionQty > 0 ? netSales / s.transactionQty : 0,
-          avgMargin: 0, grossMargin: 0, marginPercent: 0,
+          grossMargin,
+          avgMargin: s.transactionQty > 0 ? grossMargin / s.transactionQty : 0,
+          marginPercent: netSalesExcTax > 0 ? (grossMargin / netSalesExcTax) * 100 : 0,
         };
       }).sort((a, b) => b.salesIncTax - a.salesIncTax);
 
-      const rangeLabels = { today: "Today", yesterday: "Yesterday", last7: "Last 7 Days", last14: "Last 14 Days", last30: "Last 30 Days", last90: "Last 90 Days", thisMonth: "This Month", lastMonth: "Last Month", thisYear: "This Year", all: "All Time" };
-      setData({ employees: staffData, dateRange: rangeLabels[timeRange] || timeRange });
+      setData({ employees: staffData, dateRange: timeRangeLabel(timeRange) });
       complete();
     } catch (err) { console.error("Error fetching data:", err); complete(); }
     finally { setLoading(false); }
@@ -119,7 +126,10 @@ export default function EmployeesSales() {
       : 0,
     netSalesIncVat: tableData.reduce((s, r) => s + r.netSalesIncVat, 0),
     netSalesExcTax: tableData.reduce((s, r) => s + r.netSalesExcTax, 0),
+    grossMargin: tableData.reduce((s, r) => s + r.grossMargin, 0),
   };
+  totals.avgMargin = totals.transactionQty > 0 ? totals.grossMargin / totals.transactionQty : 0;
+  totals.marginPercent = totals.netSalesExcTax > 0 ? (totals.grossMargin / totals.netSalesExcTax) * 100 : 0;
 
   return (
     <Layout title="Sales By Employee">
@@ -142,24 +152,7 @@ export default function EmployeesSales() {
           {/* Filters */}
           <div className="content-card mb-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Show data from</label>
-                <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="form-select">
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="last7">Last 7 days</option>
-                  <option value="last14">Last 14 days</option>
-                  <option value="last30">Last 30 days</option>
-                  <option value="last60">Last 60 days</option>
-                  <option value="last90">Last 90 days</option>
-                  <option value="thisWeek">This Week</option>
-                  <option value="thisMonth">This Month</option>
-                  <option value="thisYear">This Year</option>
-                  <option value="lastWeek">Last Week</option>
-                  <option value="lastMonth">Last Month</option>
-                  <option value="lastYear">Last Year</option>
-                </select>
-              </div>
+              <ReportTimeRange value={timeRange} onChange={setTimeRange} />
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Location</label>
                 <select value={location} onChange={(e) => setLocation(e.target.value)} className="form-select">
@@ -258,9 +251,9 @@ export default function EmployeesSales() {
                       <td className="px-4 py-3 text-right">{formatCurrency(totals.avgTransaction)}</td>
                       <td className="px-4 py-3 text-right">{formatCurrency(totals.netSalesIncVat)}</td>
                       <td className="px-4 py-3 text-right">{formatCurrency(totals.netSalesExcTax)}</td>
-                      <td className="px-4 py-3 text-right">0.00</td>
-                      <td className="px-4 py-3 text-right">0.00</td>
-                      <td className="px-4 py-3 text-right">0.00%</td>
+                      <td className="px-4 py-3 text-right">{formatCurrency(totals.avgMargin)}</td>
+                      <td className="px-4 py-3 text-right">{formatCurrency(totals.grossMargin)}</td>
+                      <td className="px-4 py-3 text-right">{totals.marginPercent.toFixed(2)}%</td>
                     </tr>
                   </tbody>
                 </table>

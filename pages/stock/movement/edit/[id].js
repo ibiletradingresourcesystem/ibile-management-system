@@ -18,6 +18,13 @@ import { ArrowLeft, Save, PackageCheck, RotateCcw, AlertTriangle } from "lucide-
 
 const STATUS_OPTIONS = ["Pending", "Sent", "Received"];
 
+/** A stored expiry (saved as midnight UTC from a date picker) as the picker's YYYY-MM-DD. */
+function toDateInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
 export default function EditStockMovementPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -47,6 +54,8 @@ export default function EditStockMovementPage() {
           sentQty: Number(p.quantity) || 0,
           receivedQty: String(Number(p.quantity) || 0),
           notes: p.notes || "",
+          expiryDate: toDateInput(p.expiryDate),
+          savedExpiryDate: toDateInput(p.expiryDate),
         }))
       );
     } catch (err) {
@@ -74,7 +83,7 @@ export default function EditStockMovementPage() {
   };
 
   const resetChanges = () => {
-    setLines((prev) => prev.map((line) => ({ ...line, receivedQty: String(line.sentQty) })));
+    setLines((prev) => prev.map((line) => ({ ...line, receivedQty: String(line.sentQty), expiryDate: line.savedExpiryDate })));
     setNotes(movement?.notes || "");
     setStatus(movement?.status || "Received");
   };
@@ -128,6 +137,8 @@ export default function EditStockMovementPage() {
           productId: line.productId,
           quantity: Number(line.receivedQty),
           notes: line.notes,
+          // Only a changed date is sent, so an untouched batch keeps its expiry exactly
+          ...(line.expiryDate !== line.savedExpiryDate ? { expiryDate: line.expiryDate || null } : {}),
         })),
         notes,
         status,
@@ -252,6 +263,7 @@ export default function EditStockMovementPage() {
                   <th style={{ textAlign: "right", width: "130px" }}>Received</th>
                   <th style={{ textAlign: "right" }}>Variance</th>
                   <th style={{ textAlign: "right" }}>Line Value</th>
+                  <th style={{ minWidth: "150px" }}>Expiry Date</th>
                   <th style={{ minWidth: "180px" }}>Line Note</th>
                 </tr>
               </thead>
@@ -293,6 +305,16 @@ export default function EditStockMovementPage() {
                       </td>
                       <td style={{ textAlign: "right" }}>{formatCurrency(safeReceived * line.costPrice)}</td>
                       <td>
+                        {/* Add the batch's expiry if it was left out at upload, or correct it */}
+                        <input
+                          type="date"
+                          value={line.expiryDate}
+                          onChange={(e) => updateLine(index, "expiryDate", e.target.value)}
+                          className="form-input"
+                          aria-label={`Expiry date for ${line.productName}`}
+                        />
+                      </td>
+                      <td>
                         <input
                           type="text"
                           value={line.notes}
@@ -307,7 +329,7 @@ export default function EditStockMovementPage() {
                 })}
                 {lines.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center text-gray-500 py-8">
+                    <td colSpan={8} className="text-center text-gray-500 py-8">
                       This movement has no product lines.
                     </td>
                   </tr>

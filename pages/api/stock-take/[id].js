@@ -7,8 +7,7 @@ import Vendor from "@/models/Vendor";
 import { deriveChildQty } from "@/lib/syncPackQty";
 import { authMiddleware, isAdmin, isBasicStaff, isStaff } from "@/lib/auth-middleware";
 import mongoose, { isValidObjectId } from "mongoose";
-import { completePartiallyCountedPackGroups, markItemCounted, recalcSummary } from "@/lib/stockTakeCounts";
-import { postStockTakeEntry } from "@/lib/accounting";
+import { completePartiallyCountedPackGroups, markItemCounted, markItemZeroed, recalcSummary } from "@/lib/stockTakeCounts";
 
 const STOCK_TAKE_PRODUCT_SELECT = "name barcode category quantity costPrice packType qtyPerPack isChildProduct parentProduct vendors locations";
 
@@ -69,7 +68,7 @@ function stockChangesFromCounts(stockTake, productIds = null) {
     const productId = String(item.productId);
     if (only && !only.has(productId)) continue;
     if (!productQtyMap.has(productId)) {
-      productQtyMap.set(productId, { packs: null, looseUnits: 0, looseUnitsCounted: false, qtyPerPack: 1, systemQty: 0, costPrice: 0 });
+      productQtyMap.set(productId, { packs: null, looseUnits: 0, looseUnitsCounted: false, qtyPerPack: 1, systemQty: 0, costPrice: 0, countedLines: 0, zeroedLines: 0 });
     }
     const entry = productQtyMap.get(productId);
 
@@ -80,6 +79,8 @@ function stockChangesFromCounts(stockTake, productIds = null) {
     }
 
     if (item.status !== "counted" || item.countedQty === null) continue;
+    entry.countedLines += 1;
+    if (item.zeroed) entry.zeroedLines += 1;
 
     if (item.countType === "loose-units") {
       entry.looseUnits = item.countedQty || 0;
@@ -95,23 +96,46 @@ function stockChangesFromCounts(stockTake, productIds = null) {
     if (!isValidObjectId(productId)) continue;
     if (entry.packs === null && !entry.looseUnitsCounted) continue;
     const counted = (entry.packs ?? 0) + entry.looseUnits / entry.qtyPerPack;
-    changes.push({ productId, counted, quantity: roundQty(counted - entry.systemQty), costPrice: entry.costPrice });
+    changes.push({
+      productId,
+      counted,
+      quantity: roundQty(counted - entry.systemQty),
+      costPrice: entry.costPrice,
+      // Every counted line of it was zeroed, not counted: it goes to exactly 0 (stockWritesFor)
+      zeroed: entry.countedLines > 0 && entry.zeroedLines === entry.countedLines,
+    });
   }
   return changes;
+}
+
+/** What the zeroed products hold now: product id → quantity. Inside a transaction when given one. */
+async function liveQuantitiesFor(changes, session = null) {
+  const ids = changes.filter((change) => change.zeroed).map((change) => change.productId);
+  if (ids.length === 0) return new Map();
+  const query = Product.find({ _id: { $in: ids } }, { quantity: 1 });
+  if (session) query.session(session);
+  const products = await query.lean();
+  return new Map(products.map((product) => [String(product._id), Number(product.quantity) || 0]));
 }
 
 /**
  * The stock writes for these changes, less whatever this stock take has already applied, and the
  * record of what it will have applied afterwards.
  */
-function stockWritesFor(stockTake, changes) {
+function stockWritesFor(stockTake, changes, liveQuantities = new Map()) {
   const applied = new Map((stockTake.appliedAdjustments || []).map((entry) => [String(entry.productId), entry]));
   // Applied before these records were kept: all that is known is the count, so it is set as it was
   const appliedBeforeRecords = stockTake.adjustmentApplied && applied.size === 0;
 
   const bulkOps = [];
-  for (const { productId, counted, quantity, costPrice } of changes) {
-    const difference = roundQty(quantity - (applied.get(productId)?.quantity || 0));
+  for (const change of changes) {
+    const { productId, counted, costPrice } = change;
+    const alreadyApplied = applied.get(productId)?.quantity || 0;
+    // A zeroed product moves from what it holds now to 0, sales since the zeroing and stock that had
+    // gone negative included; a counted one by what the count found against the system then
+    const zeroFromLive = change.zeroed && liveQuantities.has(productId);
+    const quantity = zeroFromLive ? roundQty(alreadyApplied - liveQuantities.get(productId)) : change.quantity;
+    const difference = roundQty(quantity - alreadyApplied);
     if (appliedBeforeRecords) {
       bulkOps.push({ updateOne: { filter: { _id: productId }, update: { $set: { quantity: counted } } } });
     } else if (difference !== 0) {
@@ -139,7 +163,8 @@ async function refreshChildQuantities(bulkOps) {
  */
 async function syncAppliedCounts(stockTake, productIds) {
   if (!stockTake.adjustmentApplied) return "";
-  const { bulkOps, appliedAdjustments } = stockWritesFor(stockTake, stockChangesFromCounts(stockTake, productIds));
+  const changes = stockChangesFromCounts(stockTake, productIds);
+  const { bulkOps, appliedAdjustments } = stockWritesFor(stockTake, changes, await liveQuantitiesFor(changes));
   if (bulkOps.length > 0) {
     await Product.bulkWrite(bulkOps);
     await refreshChildQuantities(bulkOps);
@@ -149,15 +174,6 @@ async function syncAppliedCounts(stockTake, productIds) {
   return bulkOps.length > 0 ? ` — stock updated for ${bulkOps.length} product(s)` : "";
 }
 
-/** The stock take's value in the books. Stock has already moved, so a failure here is only logged. */
-async function postAppliedCounts(stockTake) {
-  if (!stockTake.adjustmentApplied) return;
-  try {
-    await postStockTakeEntry(stockTake);
-  } catch (acctErr) {
-    console.error("Accounting auto-post failed for stock take:", stockTake._id, acctErr.message);
-  }
-}
 
 function isDerivedChildProduct(product) {
   return Boolean(product?.isChildProduct && product?.packType !== "pack");
@@ -561,7 +577,7 @@ export default async function handler(req, res) {
 
         recalcSummary(stockTake);
         await stockTake.save();
-        await postAppliedCounts(stockTake);
+
         return res.status(200).json({ success: true, message: `Counts updated${stockNote}`, stockTake: stockTake.toObject() });
       }
 
@@ -570,34 +586,31 @@ export default async function handler(req, res) {
 
         await refreshOpenStockTakeSystemQuantities(stockTake);
 
+        // Every uncounted line, and every line whose stock has gone below zero unless stock was
+        // actually found and counted on the shelf for it
         let updatedCount = 0;
         const zeroedProductIds = [];
         for (const item of stockTake.items) {
-          if (item.countedQty !== null) continue;
+          const belowZero = item.countType !== "loose-units" && Number(item.systemQty) < 0 && !(Number(item.countedQty) > 0);
+          const uncounted = item.countedQty === null || item.countedQty === undefined;
+          if (!uncounted && !(belowZero && !item.zeroed)) continue;
           zeroedProductIds.push(item.productId);
-
-          item.countedQty = 0;
-          item.variance = 0 - item.systemQty;
-          item.varianceValue = item.variance * item.costPrice;
-          item.status = "counted";
-          item.countedAt = new Date();
-          item.countedBy = req.user?.name || "System";
-          item.reason = item.variance !== 0 ? (item.reason || "Stock Take") : "";
+          markItemZeroed(item, req.user?.name || "System");
           updatedCount += 1;
         }
 
         if (updatedCount === 0) {
-          return res.status(400).json({ success: false, message: "There are no uncounted items to zero" });
+          return res.status(400).json({ success: false, message: "There are no uncounted or below-zero items to zero" });
         }
 
         const zeroNote = await syncAppliedCounts(stockTake, zeroedProductIds);
 
         recalcSummary(stockTake);
         await stockTake.save();
-        await postAppliedCounts(stockTake);
+
         return res.status(200).json({
           success: true,
-          message: `${updatedCount} uncounted item(s) set to zero${zeroNote}`,
+          message: `${updatedCount} uncounted or below-zero item(s) set to zero${zeroNote}`,
           stockTake: stockTake.toObject(),
         });
       }
@@ -666,15 +679,18 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, message: "Adjustments already applied" });
         }
 
-        const { bulkOps, appliedAdjustments } = stockWritesFor(stockTake, stockChangesFromCounts(stockTake));
-        const adjustedCount = bulkOps.length;
+        let bulkOps = [];
+        let appliedAdjustments = [];
         const adjustedAt = new Date();
 
         // Stock moves by a difference now, so it must happen exactly once: the flag and the stock
-        // are written together, and a second request finds the flag already set
+        // are written together, and a second request finds the flag already set. Zeroed products
+        // are read inside the same transaction, so a sale at that moment cannot slip between.
         const dbSession = await mongoose.startSession();
         try {
           await dbSession.withTransaction(async () => {
+            const changes = stockChangesFromCounts(stockTake);
+            ({ bulkOps, appliedAdjustments } = stockWritesFor(stockTake, changes, await liveQuantitiesFor(changes, dbSession)));
             const claimed = await StockTake.updateOne(
               { _id: stockTake._id, status: "approved", adjustmentApplied: { $ne: true } },
               { $set: { adjustmentApplied: true, adjustedAt, appliedAdjustments } },
@@ -699,7 +715,8 @@ export default async function handler(req, res) {
         stockTake.adjustmentApplied = true;
         stockTake.adjustedAt = adjustedAt;
         stockTake.appliedAdjustments = appliedAdjustments;
-        await postAppliedCounts(stockTake);
+
+        const adjustedCount = bulkOps.length;
 
         return res.status(200).json({
           success: true,
@@ -741,20 +758,16 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, message: "No stock-managed products are available to zero" });
         }
 
+        // Zeroed, not counted: applied, each goes to exactly 0, negative stock included
         for (const item of stockTake.items) {
-          item.countedQty = 0;
-          item.variance = 0 - item.systemQty;
-          item.varianceValue = item.variance * item.costPrice;
-          item.status = "counted";
-          item.countedAt = new Date();
-          item.countedBy = req.body.countedBy || req.user?.name || "System";
+          markItemZeroed(item, req.body.countedBy || req.user?.name || "System");
         }
 
         const allZeroNote = await syncAppliedCounts(stockTake, stockTake.items.map((item) => item.productId));
 
         recalcSummary(stockTake);
         await stockTake.save();
-        await postAppliedCounts(stockTake);
+
         return res.status(200).json({
           success: true,
           message: `All ${stockTake.items.length} items set to zero${allZeroNote}`,

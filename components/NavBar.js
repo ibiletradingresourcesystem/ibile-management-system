@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { pageTitleFor } from '@/lib/navigation';
@@ -15,7 +15,22 @@ const TopBar = ({ user, logout }) => {
   const [creditCount, setCreditCount] = useState(0);
   const [creditBalance, setCreditBalance] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
+  const bellRef = useRef(null);
   const [activeTab, setActiveTab] = useState('all');
+
+  // A click or tap anywhere outside the bell and its panel closes the panel
+  useEffect(() => {
+    if (!showNotifications) return undefined;
+    const closeIfOutside = (event) => {
+      if (bellRef.current && !bellRef.current.contains(event.target)) setShowNotifications(false);
+    };
+    document.addEventListener('mousedown', closeIfOutside);
+    document.addEventListener('touchstart', closeIfOutside);
+    return () => {
+      document.removeEventListener('mousedown', closeIfOutside);
+      document.removeEventListener('touchstart', closeIfOutside);
+    };
+  }, [showNotifications]);
   // The Credit tab goes when the last open credit does; whoever was on it lands on All
   useEffect(() => {
     if (creditCount === 0 && activeTab === 'credit') setActiveTab('all');
@@ -68,6 +83,8 @@ const TopBar = ({ user, logout }) => {
           
           const expiringBatches = batchList.filter(batch => {
             if (!batch.expiryDate) return false;
+            // A finished batch has nothing left to expire
+            if (batch.soldOut || Number(batch.remainingQuantity ?? batch.quantity ?? 0) <= 0) return false;
             const expiryDate = new Date(batch.expiryDate);
             // Include critical (≤7 days) and warning (8-30 days) statuses
             return expiryDate > now && expiryDate <= thirtyDaysFromNow;
@@ -194,7 +211,7 @@ const TopBar = ({ user, logout }) => {
 
         {/* Unified Notification Icon */}
         {showBell && (
-        <div className="relative">
+        <div className="relative" ref={bellRef}>
           <button
             className="relative p-1 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors duration-300"
             onClick={() => setShowNotifications(!showNotifications)}

@@ -441,7 +441,7 @@ function applyFilters() {
         );
         await showAlertDialog({
           title: "Transaction Refunded",
-          message: "Product quantities have been restocked and a refund journal entry has been posted.",
+          message: "Product quantities have been restocked and the refund is in the books.",
           tone: "success",
         });
       }
@@ -459,7 +459,7 @@ function applyFilters() {
   async function handleDeleteTransaction(tx) {
     const shouldDelete = await showConfirmDialog({
       title: "Permanently delete this transaction?",
-      message: "This will remove the transaction and all related accounting/journal entries. This action cannot be undone.",
+      message: "This will remove the transaction from every report and from the books. This action cannot be undone.",
       tone: "danger",
       confirmLabel: "Delete Permanently",
       cancelLabel: "Cancel",
