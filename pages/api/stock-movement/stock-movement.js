@@ -134,12 +134,14 @@ export default async function handler(req, res) {
       const targetId = String(target._id);
       const lineExpiry = expiryDate || null;
       const lineCost = Number(target.costPrice) || 0;
+      // A disposal names the expiry batch it comes off (Expiry Tracking)
+      const batchKey = typeof item.batchKey === "string" && item.batchKey.trim() ? item.batchKey.trim().slice(0, 160) : "";
       totalCostPrice += lineCost * targetQuantity;
 
       // Lines for the same product and the same expiry merge; a different expiry is
       // a different batch and keeps its own line, or the expiry report loses it.
       const existing = productsToCreate.find(
-        (p) => p.productId === targetId && String(p.expiryDate || "") === String(lineExpiry || "")
+        (p) => p.productId === targetId && String(p.expiryDate || "") === String(lineExpiry || "") && (p.batchKey || "") === batchKey
       );
       if (existing) {
         existing.quantity += targetQuantity;
@@ -154,6 +156,7 @@ export default async function handler(req, res) {
         // product's cost is changed later.
         costPrice: lineCost,
         notes: item.notes || "",
+        ...(batchKey ? { batchKey } : {}),
         isStockManaged: target.isStockManaged !== false,
       });
     }

@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useRouter } from "next/router";
-import { Fragment, useState, useEffect, useCallback } from "react";
+import { Fragment, useState, useEffect, useCallback, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faBarcode } from "@fortawesome/free-solid-svg-icons";
 import Loader from "./Loader";
@@ -16,7 +16,7 @@ import {
   getPriceBreakdown,
   VAT_RATE,
 } from "@/lib/pricing";
-import { getPackSize, getUnitsPerChild, isDerivedChild } from "@/lib/packUnits";
+import { combinePackQuantity, formatPackQuantity, getPackSize, getUnitsPerChild, isDerivedChild, splitPackQuantity } from "@/lib/packUnits";
 import AIPriceSuggestion from "@/components/AIPriceSuggestion";
 import ProductPackLinks from "@/components/ProductPackLinks";
 import { dayKeyOf } from "@/lib/tradingDay";
@@ -124,7 +124,12 @@ export default function ProductForm(props) {
   );
   const [promoEnd, setPromoEnd] = useState(toDateInputValue(props.promoEnd));
   const [promoName, setPromoName] = useState(props.promoName || "");
-  const [expiryDate, setExpiryDate] = useState(toDateInputValue(props.expiryDate || ""));
+  // Expiry batches recorded here: { key, recordId, noQuantity, expiryDate, quantity, locationId }.
+  // `expiryBatches` is every batch of the product as the server works it out, with what is left.
+  const [expiryRows, setExpiryRows] = useState([]);
+  const [expiryBatches, setExpiryBatches] = useState([]);
+  const [expiryDirty, setExpiryDirty] = useState(false);
+  const [storeLocations, setStoreLocations] = useState([]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -173,9 +178,37 @@ export default function ProductForm(props) {
     setPromoStart(toDateInputValue(props.promoStart));
     setPromoEnd(toDateInputValue(props.promoEnd));
     setPromoName(props.promoName || "");
-    setExpiryDate(toDateInputValue(props.expiryDate || ""));
     setDescriptionEdited(Boolean(props.description));
   }, [props]);
+
+  // The product's expiry batches, with what is left of each
+  const loadExpiryBatches = useCallback(async (productId) => {
+    if (!productId) return;
+    try {
+      const res = await axios.get(`/api/products/expiry-batches?productId=${productId}`);
+      const batches = res.data?.batches || [];
+      setExpiryBatches(batches);
+      setExpiryRows(
+        batches
+          .filter((batch) => batch.source === "recorded" || batch.source === "no-quantity")
+          .map((batch) => ({
+            key: batch.batchId,
+            recordId: batch.recordId || null,
+            noQuantity: batch.source === "no-quantity",
+            expiryDate: toDateInputValue(batch.expiryDate),
+            quantity: batch.source === "no-quantity" ? "" : batch.originalQuantity,
+            locationId: batch.locationId || "",
+          }))
+      );
+      setExpiryDirty(false);
+    } catch {
+      // The rest of the form works without them
+    }
+  }, []);
+
+  useEffect(() => {
+    loadExpiryBatches(props._id);
+  }, [props._id, loadExpiryBatches]);
 
   // Load categories with caching
   useEffect(() => {
@@ -210,6 +243,11 @@ export default function ProductForm(props) {
         const store = res.data?.store;
         if (store?.locations && Array.isArray(store.locations)) {
           setAllLocations(store.locations.map((loc) => loc.name || loc));
+          setStoreLocations(
+            store.locations
+              .filter((loc) => loc && loc._id && loc.isActive !== false)
+              .map((loc) => ({ _id: String(loc._id), name: loc.name || "" }))
+          );
         }
       })
       .catch(() => {});
@@ -362,6 +400,11 @@ export default function ProductForm(props) {
     if (!String(category || "").trim()) {
       nextErrors.category = "Category is required.";
     }
+    // An expiry batch needs a date, and a quantity unless it is the old date still waiting for one
+    if (expiryDirty) {
+      const missing = expiryRows.findIndex((row) => !row.expiryDate || (!row.noQuantity && (row.quantity === "" || row.quantity === null)));
+      if (missing !== -1) nextErrors.expiryBatches = `Expiry batch ${missing + 1}: enter its expiry date and quantity.`;
+    }
 
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors);
@@ -383,7 +426,7 @@ export default function ProductForm(props) {
       minStock: minStock === "" ? undefined : Number(minStock),
       // Only send qty when it was typed here, so a stale value never overwrites stock changed by sales
       quantity: quantityEdited && quantity !== "" ? Number(quantity) : undefined,
-      expiryDate,
+      // Expiry is kept as batches, saved below once the product is
       // A promotion set up on the Promotions page is left exactly as it is
       ...(showAdvancedPromotion
         ? {}
@@ -424,6 +467,22 @@ export default function ProductForm(props) {
         const res = await axios.post("/api/products", data);
         savedId = res?.data?.data?._id || null;
         setSuccessMessage("Product added successfully!");
+      }
+      if (expiryDirty && savedId && !isLinkedChild) {
+        // A row whose quantity is filled in is a batch; the old date still without one stays as it was
+        const waiting = expiryRows.find((row) => row.noQuantity && (row.quantity === "" || row.quantity === null));
+        await axios.put("/api/products/expiry-batches", {
+          productId: savedId,
+          noQuantityDate: waiting?.expiryDate || "",
+          batches: expiryRows
+            .filter((row) => row !== waiting)
+            .map((row) => ({
+              recordId: row.recordId,
+              expiryDate: row.expiryDate,
+              quantity: Number(row.quantity),
+              locationId: row.locationId || defaultBatchLocationId(storeLocations, selectedLocations),
+            })),
+        });
       }
       onSaveProcess();
 
@@ -530,7 +589,7 @@ export default function ProductForm(props) {
     : quantity === "" || quantity === null
     ? "—"
     : isPack
-    ? `${formatQty(quantity)} packs · ${formatQty(Number(quantity) * Number(qtyPerPack))} units`
+    ? `${formatPackQuantity(quantity, qtyPerPack)} (${Math.round(Number(quantity) * Number(qtyPerPack))} units in all)`
     : formatQty(quantity);
 
   return (
@@ -843,9 +902,19 @@ export default function ProductForm(props) {
 
             <Card title="Stock & packs">
               <div className="grid gap-4 sm:grid-cols-3">
-                {isAdmin && (
+                {isAdmin && isPack && (
+                  <PackQuantityField
+                    quantity={quantity}
+                    packSize={qtyPerPack}
+                    onChange={(v) => {
+                      setQuantity(v);
+                      setQuantityEdited(true);
+                    }}
+                  />
+                )}
+                {isAdmin && !isPack && (
                   <InputField
-                    label={isPack ? "Qty (packs)" : "Qty"}
+                    label="Qty"
                     name="quantity"
                     type="number"
                     value={quantity}
@@ -864,13 +933,25 @@ export default function ProductForm(props) {
                   value={minStock}
                   setValue={setMinStock}
                 />
-                <InputField
-                  label="Expiry date"
-                  type="date"
-                  value={expiryDate}
-                  setValue={setExpiryDate}
-                />
               </div>
+
+              {!isLinkedChild && (
+                <ExpiryBatchesSection
+                  rows={expiryRows}
+                  setRows={(next) => {
+                    setExpiryRows(next);
+                    setExpiryDirty(true);
+                    if (fieldErrors.expiryBatches) setFieldErrors((prev) => ({ ...prev, expiryBatches: undefined }));
+                  }}
+                  batches={expiryBatches}
+                  isPack={isPack}
+                  packSize={Number(qtyPerPack) || 1}
+                  stock={quantity}
+                  locations={storeLocations}
+                  productLocations={selectedLocations}
+                  error={fieldErrors.expiryBatches}
+                />
+              )}
 
               <div className="mt-5 border-t border-gray-100 pt-5">
                 <h3 className="text-sm font-semibold text-gray-800">Pack & child products</h3>
@@ -1426,6 +1507,208 @@ function Card({ title, description, action, className = "", children }) {
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * A pack product's stock as people count it: full packs and single units, e.g. 2 cartons and 5
+ * cans. Stock is kept in packs (2 + 5/24), so the two boxes are combined into that figure, and a
+ * stored figure is split back into them. Typing 30 units in a pack of 24 is fine: it is 1 pack
+ * and 6 units, and shows that way next time.
+ */
+function PackQuantityField({ quantity, packSize, onChange, label = "Qty", showTotal = true }) {
+  const size = Number(packSize) > 1 ? Number(packSize) : 1;
+  const splitText = (value) => {
+    if (value === "" || value === null || value === undefined || !Number.isFinite(Number(value))) return { packs: "", units: "" };
+    const { packs, units } = splitPackQuantity(value, size);
+    return { packs: String(packs), units: String(units) };
+  };
+  const [texts, setTexts] = useState(() => splitText(quantity));
+  // The figure this field last sent up, so a figure from outside (the product loading, a link that
+  // moved stock, a new pack size) is shown, and the field's own typing is left alone
+  const sent = useRef(quantity);
+  useEffect(() => {
+    if (quantity !== sent.current) {
+      sent.current = quantity;
+      setTexts(splitText(quantity));
+    }
+  }, [quantity]);
+  useEffect(() => {
+    setTexts(splitText(sent.current));
+  }, [size]);
+
+  const update = (next) => {
+    setTexts(next);
+    const value = next.packs === "" && next.units === "" ? "" : combinePackQuantity(next.packs, next.units, size);
+    sent.current = value;
+    onChange(value);
+  };
+  const total = texts.packs === "" && texts.units === "" ? null : Math.round(combinePackQuantity(texts.packs, texts.units, size) * size);
+
+  return (
+    <div className="form-group">
+      {label && <label className="form-label">{label}</label>}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <input
+            type="number"
+            name="quantityPacks"
+            aria-label="Qty in packs"
+            className="form-input"
+            value={texts.packs}
+            onChange={(e) => update({ ...texts, packs: e.target.value })}
+            placeholder="0"
+          />
+          <span className="mt-1 block text-xs text-gray-500">Packs (of {size})</span>
+        </div>
+        <div>
+          <input
+            type="number"
+            name="quantityUnits"
+            aria-label="Qty in units"
+            className="form-input"
+            value={texts.units}
+            onChange={(e) => update({ ...texts, units: e.target.value })}
+            placeholder="0"
+          />
+          <span className="mt-1 block text-xs text-gray-500">Units</span>
+        </div>
+      </div>
+      {showTotal && total !== null && <p className="mt-1 text-xs text-gray-500">{total} units in all</p>}
+    </div>
+  );
+}
+
+/** Where a batch is, unless chosen: the product's own first location, else the store's first. */
+function defaultBatchLocationId(locations, productLocations) {
+  const wanted = (productLocations || []).map((value) => String(value).trim().toLowerCase());
+  const own = locations.find((location) => wanted.includes(location.name.trim().toLowerCase()) || wanted.includes(location._id));
+  return (own || locations[0])?._id || "";
+}
+
+/** "2 packs · 5 units" for a pack product, the plain figure otherwise. */
+function stockText(value, isPack, packSize) {
+  if (value === null || value === undefined || value === "") return "—";
+  return isPack ? formatPackQuantity(value, packSize) : formatQty(value);
+}
+
+/**
+ * Which part of the stock expires when. A row recorded here labels stock already on the shelf:
+ * it never changes the stock figure. Sales then use the batches up, first to expire first, and a
+ * batch thrown away is disposed of from Expiry Tracking, so each row says what is left of it.
+ * Stock received with an expiry date is a batch already, listed below the rows to read.
+ */
+function ExpiryBatchesSection({ rows, setRows, batches, isPack, packSize, stock, locations, productLocations, error }) {
+  const nextKey = useRef(0);
+  const byKey = new Map(batches.map((batch) => [batch.batchId, batch]));
+  const received = batches.filter((batch) => batch.source === "received" && !batch.finished);
+
+  const defaultLocationId = () => defaultBatchLocationId(locations, productLocations);
+  const addRow = () => {
+    nextKey.current += 1;
+    setRows([...rows, { key: `new-${nextKey.current}`, recordId: null, noQuantity: false, expiryDate: "", quantity: "", locationId: defaultLocationId() }]);
+  };
+  const change = (key, patch) => setRows(rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  const remove = (key) => setRows(rows.filter((row) => row.key !== key));
+
+  // What is left in the batches, against the stock: a saved row moves by any change to its quantity
+  const leftOf = (row) => {
+    if (row.quantity === "" || row.quantity === null) return 0;
+    const saved = row.recordId ? byKey.get(`pb-${row.recordId}`) : null;
+    return saved ? Math.max(0, saved.remainingQuantity + (Number(row.quantity) - saved.originalQuantity)) : Number(row.quantity) || 0;
+  };
+  const inBatches = rows.reduce((sum, row) => sum + leftOf(row), 0) + received.reduce((sum, batch) => sum + (batch.remainingQuantity || 0), 0);
+  const stockNow = Number(stock);
+  const over = stock !== "" && Number.isFinite(stockNow) && inBatches > stockNow + 1e-6;
+
+  const statusOf = (row) => {
+    if (row.noQuantity && (row.quantity === "" || row.quantity === null)) {
+      return <span className="text-amber-700">No quantity yet: enter how many expire on this date.</span>;
+    }
+    const saved = row.recordId ? byKey.get(`pb-${row.recordId}`) : null;
+    if (!saved) return <span className="text-gray-500">New: saved with the product.</span>;
+    const parts = [];
+    if (saved.soldQuantity > 0) parts.push(`${stockText(saved.soldQuantity, isPack, packSize)} sold`);
+    if (saved.disposedQuantity > 0) parts.push(`${stockText(saved.disposedQuantity, isPack, packSize)} disposed`);
+    if (saved.otherQuantity > 0) parts.push(`${stockText(saved.otherQuantity, isPack, packSize)} moved out`);
+    const head = saved.finished
+      ? <span className="font-semibold text-gray-700">{saved.finishedBy === "disposed" ? "Disposed" : "Sold out"}</span>
+      : <span className="font-semibold text-emerald-700">{stockText(saved.remainingQuantity, isPack, packSize)} left</span>;
+    return <span>{head}{parts.length > 0 && <span className="text-gray-500"> · {parts.join(" · ")}</span>}</span>;
+  };
+
+  return (
+    <div className="mt-5 border-t border-gray-100 pt-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800">Expiry batches</h3>
+          <p className="text-xs text-gray-500">How many of the stock on the shelf expire on each date. Recording a batch does not change the stock.</p>
+        </div>
+        <button type="button" onClick={addRow} className="btn-action-secondary !py-1.5 text-sm">+ Add batch</button>
+      </div>
+
+      {rows.length === 0 && received.length === 0 && <p className="mt-3 text-sm text-gray-500">No expiry batches.</p>}
+
+      <div className="mt-3 space-y-3">
+        {rows.map((row, index) => (
+          <div key={row.key} data-expiry-row={index} className={`rounded-lg border p-3 ${row.noQuantity ? "border-amber-200 bg-amber-50/50" : "border-gray-200"}`}>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-start">
+              <div className="form-group">
+                <label className="form-label">Expiry date</label>
+                <input type="date" name="batchExpiry" className="form-input" value={row.expiryDate} onChange={(e) => change(row.key, { expiryDate: e.target.value })} />
+              </div>
+              {isPack ? (
+                <PackQuantityField label="Quantity" showTotal={false} quantity={row.quantity} packSize={packSize} onChange={(value) => change(row.key, { quantity: value })} />
+              ) : (
+                <div className="form-group">
+                  <label className="form-label">Quantity</label>
+                  <input type="number" name="batchQuantity" min="0" className="form-input" value={row.quantity} onChange={(e) => change(row.key, { quantity: e.target.value })} placeholder="0" />
+                </div>
+              )}
+              {locations.length > 1 ? (
+                <div className="form-group">
+                  <label className="form-label">Location</label>
+                  <select name="batchLocation" className="form-select" value={row.locationId || defaultLocationId()} onChange={(e) => change(row.key, { locationId: e.target.value })}>
+                    <option value="">—</option>
+                    {locations.map((location) => <option key={location._id} value={location._id}>{location.name}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div className="form-group">
+                  <label className="form-label">Location</label>
+                  <p className="py-2 text-sm text-gray-700">{locations.find((location) => location._id === (row.locationId || defaultLocationId()))?.name || "—"}</p>
+                </div>
+              )}
+              <button type="button" onClick={() => remove(row.key)} className="self-end rounded border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100" aria-label={`Remove expiry batch ${index + 1}`}>
+                Remove
+              </button>
+            </div>
+            <p className="mt-2 text-xs" data-expiry-status>{statusOf(row)}</p>
+          </div>
+        ))}
+      </div>
+
+      {received.length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Received with stock</p>
+          <ul className="mt-1 space-y-1 text-sm text-gray-700">
+            {received.map((batch) => (
+              <li key={batch.batchId}>
+                Expires {toDateInputValue(batch.expiryDate)} · {batch.locationName || "—"} ·{" "}
+                <span className="font-semibold">{stockText(batch.remainingQuantity, isPack, packSize)} left</span> of {stockText(batch.originalQuantity, isPack, packSize)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {over && (
+        <p className="mt-3 text-xs font-medium text-amber-700" data-expiry-warning>
+          These batches add up to {stockText(inBatches, isPack, packSize)}, more than the {stockText(stockNow, isPack, packSize)} in stock.
+        </p>
+      )}
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    </div>
   );
 }
 

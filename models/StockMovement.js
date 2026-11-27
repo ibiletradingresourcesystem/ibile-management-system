@@ -86,6 +86,9 @@ const StockMovementSchema = new Schema(
         },
         costPrice: Number,
         notes: String,
+        // On a disposal: the expiry batch the stock came off (lib/expiryBatches.js), so the batch
+        // shows as disposed rather than sold
+        batchKey: String,
       },
     ],
 

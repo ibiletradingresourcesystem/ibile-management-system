@@ -11,6 +11,8 @@ import { generateMonthlyReportInsight, buildMonthlyReportAIHtml } from "@/lib/ai
 import { buildBusinessExtrasHtml, expensesInRange, loadBusinessExtras, reportMonth } from "@/lib/monthlyBusinessReport";
 import { getCategoryTreatments } from "@/lib/accounting";
 import { splitStockPurchases } from "@/lib/financial-basis";
+import { loadExpiryBatches } from "@/lib/expiryBatches";
+import { formatPackQuantity } from "@/lib/packUnits";
 
 /**
  * The monthly business report, emailed on the 1st (vercel.json) for the month just ended.
@@ -406,16 +408,25 @@ export default async function handler(req, res) {
       if (minStock > 0 && quantity <= minStock) {
         lowStockProducts.push({ name: productName, location: where, quantity, minStock });
       }
-      const expiryDateValue = product.expiryDate ? new Date(product.expiryDate) : null;
-      if (expiryDateValue && quantity > 0 && expiryDateValue <= expiringSoonCutoff) {
-        expiringSoonProducts.push({
-          name: productName,
-          location: where,
-          quantity,
-          expiryDate: expiryDateValue,
-          daysToExpiry: Math.ceil((expiryDateValue.getTime() - today.getTime()) / msPerDay),
-        });
-      }
+    }
+
+    // Expiring stock by batch, by what is left of each (lib/expiryBatches.js): a product's whole
+    // stock is not all of one date. A finished batch (sold or disposed) has nothing left to expire.
+    const expiryBatches = await loadExpiryBatches().catch((error) => {
+      console.error("Monthly report: expiry batches failed:", error.message);
+      return [];
+    });
+    for (const batch of expiryBatches) {
+      if (batch.finished) continue;
+      const expiryDateValue = batch.expiryDate ? new Date(batch.expiryDate) : null;
+      if (!expiryDateValue || expiryDateValue > expiringSoonCutoff) continue;
+      expiringSoonProducts.push({
+        name: batch.productName,
+        location: batch.locationName || stockLocationLabel,
+        quantity: batch.needsQuantity ? "qty not set" : formatPackQuantity(batch.remainingQuantity, batch.packSize),
+        expiryDate: expiryDateValue,
+        daysToExpiry: Math.ceil((expiryDateValue.getTime() - today.getTime()) / msPerDay),
+      });
     }
 
     // =====================
@@ -471,9 +482,7 @@ export default async function handler(req, res) {
     const grossProfitMonth = totalSales - totalCogsMonth;
     const netProfitMonth = grossProfitMonth - totalExpenses;
 
-    expiringSoonProducts.sort(
-      (a, b) => a.expiryDate - b.expiryDate || a.quantity - b.quantity,
-    );
+    expiringSoonProducts.sort((a, b) => a.expiryDate - b.expiryDate);
     lowStockProducts.sort((a, b) => a.quantity - b.quantity);
 
     // =====================
