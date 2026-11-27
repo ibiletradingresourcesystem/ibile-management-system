@@ -234,7 +234,7 @@ function buildStockTakeItems(products = []) {
     if (product.packType === "pack" && (product.qtyPerPack || 1) > 1) {
       items.push({
         productId: product._id,
-        productName: `${product.name} (Loose Units)`,
+        productName: `${product.name} (Units)`,
         barcode: product.barcode ? `${product.barcode}-LU` : "",
         category: product.category || "",
         systemQty: 0,

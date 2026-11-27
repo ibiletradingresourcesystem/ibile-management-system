@@ -21,6 +21,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/router";
 import Head from "next/head";
 import MobileBarcodeScanner from "@/components/MobileBarcodeScanner";
+import { formatPackQuantity } from "@/lib/packUnits";
+import { productBaseName } from "@/lib/stockTakeCounts";
 
 const PIN_LENGTH = 4;
 
@@ -72,10 +74,14 @@ function barcodeKey(code) {
   return /^\d+$/.test(text) ? text.replace(/^0+/, "") || "0" : text;
 }
 
-/** The keys a line answers to. A pack's loose-units line carries the pack's code + "-LU". */
+/**
+ * The keys a line answers to: its own codes, and for a pack its child products' codes too (a
+ * single can opens its carton). A pack's units line carries the pack's code + "-LU".
+ */
 function lineKeys(item) {
-  return String(item.barcode || "")
-    .replace(/-LU$/i, "")
+  return [item.barcode, item.childBarcodes]
+    .map((codes) => String(codes || "").replace(/-LU$/i, ""))
+    .join(",")
     .split(/[,;\s|]+/)
     .filter(Boolean)
     .map(barcodeKey);
@@ -83,11 +89,35 @@ function lineKeys(item) {
 
 const isCounted = (item) => item.countedQty !== null && item.countedQty !== undefined;
 
-/** What a line counts in: "Full packs of 24", "Loose units", or nothing for a plain product. */
+/** What a line counts in: "Packs of 24", "Units", or nothing for a plain product. */
 function countUnit(item) {
-  if (item.countType === "loose-units") return "Loose units";
-  if ((item.qtyPerPack || 0) > 1) return `Full packs of ${item.qtyPerPack}`;
+  if (item.countType === "loose-units") return "Units";
+  if ((item.qtyPerPack || 0) > 1) return `Packs of ${item.qtyPerPack}`;
   return "";
+}
+
+/** Single units in one of the group's packs. */
+const packSizeOf = (group) => Number(group?.pack?.qtyPerPack || group?.units?.qtyPerPack || 1) || 1;
+
+const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? "" : "s"}`;
+
+/** "2 packs · 5 units", with a dash for a side not counted yet. */
+function groupCountText(group) {
+  const packs = isCounted(group.pack) ? plural(group.pack.countedQty, "pack") : "packs –";
+  const units = isCounted(group.units) ? plural(group.units.countedQty, "unit") : "units –";
+  return `${packs} · ${units}`;
+}
+
+/**
+ * Over or short in single units, against what the system holds: packs × pack size + units. A side
+ * not counted is read as 0, the way it is sent to the manager. Null when neither is counted.
+ */
+function groupVariance(group, packs = group.pack?.countedQty, units = group.units?.countedQty) {
+  const hasPacks = packs !== null && packs !== undefined;
+  const hasUnits = units !== null && units !== undefined;
+  if ((!hasPacks && !hasUnits) || group.pack?.systemQty === undefined) return null;
+  const size = packSizeOf(group);
+  return Math.round((Number(packs || 0) * size + Number(units || 0)) - Number(group.pack.systemQty || 0) * size);
 }
 
 /** "10:42" today, "6 Oct" before. */
@@ -140,6 +170,8 @@ export default function MobileStockTakePage() {
   const [activeFrom, setActiveFrom] = useState("scan"); // scan | list
   const [choices, setChoices] = useState([]); // ids, when one barcode is on several lines
   const [qty, setQty] = useState("");
+  // A pack + units product's second box: single units
+  const [unitsQty, setUnitsQty] = useState("");
   const [findTerm, setFindTerm] = useState("");
   const [findOpen, setFindOpen] = useState(false);
   const [countedTerm, setCountedTerm] = useState("");
@@ -154,6 +186,7 @@ export default function MobileStockTakePage() {
   const [lookingUp, setLookingUp] = useState(false);
   const notFoundRef = useRef({ code: "", at: 0 });
   const qtyInputRef = useRef(null);
+  const unitsInputRef = useRef(null);
 
   /* ─── Session ─────────────────────────────────────────────────── */
 
@@ -487,24 +520,62 @@ export default function MobileStockTakePage() {
     return index;
   }, [items]);
 
+  /** Pack + units products: their two lines, by product id. */
+  const packGroups = useMemo(() => {
+    const groups = new Map();
+    for (const item of items || []) {
+      const key = String(item.productId || "");
+      if (!key) continue;
+      const group = groups.get(key) || {};
+      if (item.countType === "loose-units") group.units = item;
+      else group.pack = item;
+      groups.set(key, group);
+    }
+    for (const [key, group] of groups) if (!(group.pack && group.units)) groups.delete(key);
+    return groups;
+  }, [items]);
+  const groupOf = useCallback((item) => (item ? packGroups.get(String(item.productId)) || null : null), [packGroups]);
+
+  /**
+   * By product, not by line: a pack + units product is one product to count. One with only one
+   * side counted is counted (it is sent with the other side as 0), and `half` says how many.
+   */
   const progress = useMemo(() => {
-    const total = (items || []).length;
-    const counted = (items || []).filter(isCounted).length;
-    return { total, counted, pending: total - counted, pct: total ? Math.round((counted / total) * 100) : 0 };
+    const byProduct = new Map();
+    for (const item of items || []) {
+      const key = String(item.productId || item._id);
+      const entry = byProduct.get(key) || { lines: 0, counted: 0 };
+      entry.lines += 1;
+      if (isCounted(item)) entry.counted += 1;
+      byProduct.set(key, entry);
+    }
+    let total = 0;
+    let counted = 0;
+    let half = 0;
+    for (const entry of byProduct.values()) {
+      total += 1;
+      if (entry.counted > 0) counted += 1;
+      if (entry.counted > 0 && entry.counted < entry.lines) half += 1;
+    }
+    return { total, counted, half, pending: total - counted, pct: total ? Math.round((counted / total) * 100) : 0 };
   }, [items]);
 
   /**
-   * Send to the manager — also part-way through. The counted lines go for review now; the rest
+   * Send to the manager — also part-way through. The counted products go for review now; the rest
    * stay on this count, on this link, for later (api/stock-take/mobile/send.js).
    */
   const sendToManager = async () => {
     if (handing || !token || !id) return;
     const partial = progress.pending > 0;
+    const halfNote = progress.half
+      ? `${plural(progress.half, "pack product")} ${progress.half === 1 ? "has" : "have"} only packs or only units counted. ` +
+        "The other side goes as 0: units only means every pack was opened; packs only means nothing loose.\n\n"
+      : "";
     const ok = window.confirm(
       partial
-        ? `Send the ${progress.counted} counted line${progress.counted === 1 ? "" : "s"} to the manager now?\n\n` +
+        ? `Send the ${plural(progress.counted, "counted product")} to the manager now?\n\n${halfNote}` +
             `The ${progress.pending} not counted stay here to count later. Their stock is not changed.`
-        : `Send this finished stock take (${progress.total} line${progress.total === 1 ? "" : "s"}) to the manager?\n\nCounting on it then closes.`
+        : `Send this finished stock take (${plural(progress.total, "product")}) to the manager?\n\n${halfNote}Counting on it then closes.`
     );
     if (!ok) return;
     setHanding(true);
@@ -520,16 +591,17 @@ export default function MobileStockTakePage() {
         setMessage({ tone: "error", text: data.error || "Could not send the stock take. Try again." });
         return;
       }
+      const sentProducts = data.products ?? data.sent;
+      const halfText = data.halfCompleted ? ` ${plural(data.halfCompleted, "pack product")} went with the side not counted as 0.` : "";
       if (data.whole) {
         setClosed(true);
-        setMessage({ tone: "success", text: `Sent. ${data.sent} line${data.sent === 1 ? " is" : "s are"} with the manager for review.` });
+        setMessage({ tone: "success", text: `Sent. ${plural(sentProducts, "product")} ${sentProducts === 1 ? "is" : "are"} with the manager for review.${halfText}` });
         return;
       }
       setMessage({
         tone: "success",
         text:
-          `Sent ${data.sent} counted line${data.sent === 1 ? "" : "s"} to the manager (${data.reference}). ${data.left} left to count` +
-          (data.halfCounted ? `, including ${data.halfCounted} pack + each product${data.halfCounted === 1 ? "" : "s"} with one line still to count.` : "."),
+          `Sent ${plural(sentProducts, "counted product")} to the manager (${data.reference}). ${data.productsLeft ?? data.left} left to count.${halfText}`,
       });
       // The sent lines have moved off this count: load it afresh
       versionRef.current = "";
@@ -549,40 +621,91 @@ export default function MobileStockTakePage() {
     if (term.length < 2) return [];
     const out = [];
     for (const item of items || []) {
+      // A pack + units product shows once, by its packs line, and opens on one card
+      if (item.countType === "loose-units" && packGroups.has(String(item.productId))) continue;
       if (String(item.productName || "").toLowerCase().includes(term) || String(item.barcode || "").toLowerCase().includes(term)) {
         out.push(item);
         if (out.length >= 30) break;
       }
     }
     return out;
-  }, [items, findTerm]);
+  }, [items, findTerm, packGroups]);
+
+  /**
+   * What has been counted, one row per product: a pack + units product is one row with both
+   * figures, opened on its card.
+   */
+  const countedRows = useMemo(() => {
+    const rows = [];
+    const seen = new Set();
+    const counted = (items || []).filter(isCounted).sort((a, b) => new Date(b.countedAt || 0) - new Date(a.countedAt || 0));
+    for (const item of counted) {
+      const group = groupOf(item);
+      const key = group ? `pack:${item.productId}` : String(item._id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (group) {
+        const lines = [group.pack, group.units];
+        rows.push({
+          key,
+          open: group.pack,
+          name: productBaseName(group.pack.productName),
+          barcode: group.pack.barcode || "",
+          unit: `Packs of ${packSizeOf(group)} + units`,
+          qtyText: groupCountText(group),
+          countedBy: item.countedBy,
+          countedAt: item.countedAt,
+          countedByAll: lines.filter(isCounted).map((line) => line.countedBy),
+          variance: groupVariance(group),
+          unsent: lines.some((line) => queueRef.current[line._id]),
+        });
+      } else {
+        rows.push({
+          key,
+          open: item,
+          name: item.productName,
+          barcode: item.barcode || "",
+          unit: countUnit(item),
+          qtyText: String(item.countedQty),
+          countedBy: item.countedBy,
+          countedAt: item.countedAt,
+          countedByAll: [item.countedBy],
+          variance: item.variance === undefined ? null : Number(item.variance || 0),
+          unsent: Boolean(queueRef.current[item._id]),
+        });
+      }
+    }
+    return rows;
+  }, [items, groupOf]);
 
   const countedList = useMemo(() => {
     const term = countedTerm.trim().toLowerCase();
-    return (items || [])
-      .filter(isCounted)
-      .filter((item) => countedWho === "all" || item.countedBy === staffName)
-      .filter((item) => !diffOnly || Number(item.variance || 0) !== 0)
-      .filter((item) => !term || String(item.productName || "").toLowerCase().includes(term) || String(item.barcode || "").toLowerCase().includes(term))
-      .sort((a, b) => new Date(b.countedAt || 0) - new Date(a.countedAt || 0));
-  }, [items, countedTerm, countedWho, diffOnly, staffName]);
+    return countedRows
+      .filter((row) => countedWho === "all" || row.countedByAll.includes(staffName))
+      .filter((row) => !diffOnly || (row.variance !== null && row.variance !== 0))
+      .filter((row) => !term || row.name.toLowerCase().includes(term) || row.barcode.toLowerCase().includes(term));
+  }, [countedRows, countedTerm, countedWho, diffOnly, staffName]);
 
-  const myCount = useMemo(() => (items || []).filter((item) => isCounted(item) && item.countedBy === staffName).length, [items, staffName]);
+  const myCount = useMemo(() => countedRows.filter((row) => row.countedByAll.includes(staffName)).length, [countedRows, staffName]);
 
   /* ─── Counting ────────────────────────────────────────────────── */
 
+  /** Open a product to count. A pack + units product opens on its packs line, with both boxes. */
   const openItem = useCallback((item, from = "scan") => {
+    const group = groupOf(item);
+    const main = group ? group.pack : item;
     setChoices([]);
-    setActiveId(String(item._id));
+    setActiveId(String(main._id));
     setActiveFrom(from);
-    setQty(isCounted(item) ? String(item.countedQty) : "");
+    setQty(isCounted(main) ? String(main.countedQty) : "");
+    setUnitsQty(group && isCounted(group.units) ? String(group.units.countedQty) : "");
     setFindOpen(false);
     setFindTerm("");
     setTimeout(() => {
       qtyInputRef.current?.focus();
       qtyInputRef.current?.select();
     }, 120);
-  }, []);
+  }, [groupOf]);
 
   /** Look a scanned code up on the phone; ask the server only when the phone does not know it. */
   const lookupBarcode = useCallback(
@@ -619,32 +742,84 @@ export default function MobileStockTakePage() {
       setScanHint("");
       setScannerOpen(false);
       setTab("count");
-      if (matches.length === 1) openItem(matches[0], "scan");
+      // A pack + units product answers with both its lines (and a child's code with its pack's):
+      // one product, one card. Only a code on several products asks which.
+      const products = [];
+      for (const item of matches) {
+        if (!products.some((other) => String(other.productId) === String(item.productId))) products.push(item);
+      }
+      if (products.length === 1) openItem(products[0], "scan");
       else {
-        // One barcode, several lines: full packs and loose units
         setActiveId(null);
-        setChoices(matches.map((item) => String(item._id)));
+        setChoices(products.map((item) => String(item._id)));
       }
     },
     [byBarcode, byId, online, api, openItem]
   );
 
-  /** Put a count (or a clearing) on the line at once, queue it, and send it. */
-  const queueCount = (itemId, entry) => {
+  /** Put counts (or clearings) on lines at once, queue them, and send them together. */
+  const queueCounts = (entries) => {
     const at = new Date().toISOString();
-    queueRef.current = { ...queueRef.current, [itemId]: { ...entry, at, by: staffName } };
+    const next = { ...queueRef.current };
+    for (const [itemId, entry] of entries) next[itemId] = { ...entry, at, by: staffName };
+    queueRef.current = next;
     persistQueue();
     setItems((prev) => withQueued(prev || []));
     sendQueued();
   };
+  const queueCount = (itemId, entry) => queueCounts([[itemId, entry]]);
 
-  const adjustQty = (delta) => {
-    const base = Number(qty);
-    setQty(String(Math.max(0, (Number.isFinite(base) ? base : 0) + delta)));
+  const adjust = (value, setValue, delta) => {
+    const base = Number(value);
+    setValue(String(Math.max(0, (Number.isFinite(base) ? base : 0) + delta)));
+  };
+  const adjustQty = (delta) => adjust(qty, setQty, delta);
+
+  /** Back to the camera when counting down a shelf; back to the list when correcting from it. */
+  const afterSave = (hint) => {
+    setActiveId(null);
+    setQty("");
+    setUnitsQty("");
+    try {
+      navigator.vibrate?.(40);
+    } catch {}
+    if (activeFrom === "scan") {
+      setScanHint(hint);
+      setScannerOpen(true);
+    }
   };
 
   const saveActive = () => {
     if (!activeItem) return;
+    const sending = online ? "" : " (sends when back online)";
+    const group = groupOf(activeItem);
+
+    if (group) {
+      // An empty box is not counted: someone else may be counting that side. Whatever is still
+      // empty when the count goes to the manager is sent as 0.
+      const packsText = String(qty).trim();
+      const unitsText = String(unitsQty).trim();
+      const packs = Number(packsText);
+      const units = Number(unitsText);
+      if (packsText === "" && unitsText === "") {
+        setMessage({ tone: "error", text: "Enter the packs, the units, or both." });
+        return;
+      }
+      if ((packsText !== "" && (!Number.isFinite(packs) || packs < 0)) || (unitsText !== "" && (!Number.isFinite(units) || units < 0))) {
+        setMessage({ tone: "error", text: "Enter quantities of zero or more." });
+        return;
+      }
+      const entries = [];
+      if (packsText !== "") entries.push([String(group.pack._id), { countedQty: packs }]);
+      if (unitsText !== "") entries.push([String(group.units._id), { countedQty: units }]);
+      queueCounts(entries);
+      const name = productBaseName(group.pack.productName);
+      const text = [packsText !== "" ? plural(packs, "pack") : null, unitsText !== "" ? plural(units, "unit") : null].filter(Boolean).join(" · ");
+      setMessage({ tone: "success", text: `${name} saved: ${text}${sending}` });
+      afterSave(`Saved ${name}: ${text}`);
+      return;
+    }
+
     const value = Number(qty);
     if (qty === "" || !Number.isFinite(value) || value < 0) {
       setMessage({ tone: "error", text: "Enter a quantity of zero or more." });
@@ -653,31 +828,27 @@ export default function MobileStockTakePage() {
     const name = activeItem.productName;
     const wasCounted = isCounted(activeItem);
     queueCount(String(activeItem._id), { countedQty: value });
-    setMessage({ tone: "success", text: `${name} ${wasCounted ? "changed to" : "saved as"} ${value}${online ? "" : " (sends when back online)"}` });
-    setActiveId(null);
-    setQty("");
-    try {
-      navigator.vibrate?.(40);
-    } catch {}
-    // Counting down a shelf: straight back to the camera. Correcting from the list: back to it.
-    if (activeFrom === "scan") {
-      setScanHint(`Saved ${name} as ${value}`);
-      setScannerOpen(true);
-    }
+    setMessage({ tone: "success", text: `${name} ${wasCounted ? "changed to" : "saved as"} ${value}${sending}` });
+    afterSave(`Saved ${name} as ${value}`);
   };
 
   const clearActive = () => {
     if (!activeItem) return;
-    queueCount(String(activeItem._id), { clear: true });
-    setMessage({ tone: "success", text: `${activeItem.productName}: count taken off; it is waiting to be counted again` });
+    const group = groupOf(activeItem);
+    const lines = group ? [group.pack, group.units].filter(isCounted) : [activeItem];
+    queueCounts(lines.map((line) => [String(line._id), { clear: true }]));
+    const name = group ? productBaseName(group.pack.productName) : activeItem.productName;
+    setMessage({ tone: "success", text: `${name}: count taken off; it is waiting to be counted again` });
     setActiveId(null);
     setQty("");
+    setUnitsQty("");
   };
 
   const cancelActive = () => {
     setActiveId(null);
     setChoices([]);
     setQty("");
+    setUnitsQty("");
   };
 
   /* ─── Sign-in screen ──────────────────────────────────────────── */
@@ -796,8 +967,22 @@ export default function MobileStockTakePage() {
     );
   }
 
-  const variance =
-    seesSystem && activeItem && qty !== "" && Number.isFinite(Number(qty)) ? Number(qty) - Number(activeItem.systemQty || 0) : null;
+  const activeGroup = groupOf(activeItem);
+  const boxValue = (text) => (String(text).trim() !== "" && Number.isFinite(Number(text)) ? Number(text) : null);
+  // A pack + units product: over or short in single units, a box left empty as what is saved (or 0)
+  const variance = !seesSystem || !activeItem
+    ? null
+    : activeGroup
+      ? boxValue(qty) === null && boxValue(unitsQty) === null
+        ? null
+        : groupVariance(
+            activeGroup,
+            boxValue(qty) ?? activeGroup.pack.countedQty ?? 0,
+            boxValue(unitsQty) ?? activeGroup.units.countedQty ?? 0
+          )
+      : boxValue(qty) === null
+        ? null
+        : boxValue(qty) - Number(activeItem.systemQty || 0);
   const visibleCounted = countedList.slice(0, countedShown);
 
   /* ─── Counter ─────────────────────────────────────────────────── */
@@ -882,27 +1067,41 @@ export default function MobileStockTakePage() {
 
         <div className="mst-body">
           {activeItem ? (
-            /* ── The line being counted ── */
+            /* ── The product being counted ── */
             <div className="mst-card">
-              <p className="mst-card__label">{isCounted(activeItem) ? "Correcting" : "Counting"}</p>
-              <h2 className="mst-card__name">{activeItem.productName}</h2>
+              <p className="mst-card__label">
+                {(activeGroup ? isCounted(activeGroup.pack) || isCounted(activeGroup.units) : isCounted(activeItem)) ? "Correcting" : "Counting"}
+              </p>
+              <h2 className="mst-card__name">{activeGroup ? productBaseName(activeItem.productName) : activeItem.productName}</h2>
               <div className="mst-card__meta">
                 {activeItem.barcode && <span className="mst-chip is-mono">{activeItem.barcode.replace(/-LU$/i, "")}</span>}
-                {countUnit(activeItem) && <span className="mst-chip is-warn">{countUnit(activeItem)}</span>}
-                {seesSystem && <span className="mst-chip">System {activeItem.systemQty}</span>}
-                {isCounted(activeItem) && (
-                  <span className="mst-chip is-ok">
-                    Counted {activeItem.countedQty}
-                    {activeItem.countedBy ? ` by ${activeItem.countedBy}` : ""}
+                {activeGroup ? (
+                  <span className="mst-chip is-warn">Pack of {packSizeOf(activeGroup)} + units</span>
+                ) : (
+                  countUnit(activeItem) && <span className="mst-chip is-warn">{countUnit(activeItem)}</span>
+                )}
+                {seesSystem && (
+                  <span className="mst-chip">
+                    System {activeGroup ? formatPackQuantity(activeItem.systemQty, packSizeOf(activeGroup)) : activeItem.systemQty}
                   </span>
                 )}
+                {activeGroup
+                  ? (isCounted(activeGroup.pack) || isCounted(activeGroup.units)) && (
+                      <span className="mst-chip is-ok">Counted {groupCountText(activeGroup)}</span>
+                    )
+                  : isCounted(activeItem) && (
+                      <span className="mst-chip is-ok">
+                        Counted {activeItem.countedQty}
+                        {activeItem.countedBy ? ` by ${activeItem.countedBy}` : ""}
+                      </span>
+                    )}
               </div>
 
               <label className="mst-qty-label" htmlFor="mst-qty">
-                {activeItem.countType === "loose-units" ? "Single units counted" : (activeItem.qtyPerPack || 0) > 1 ? "Full packs counted" : "Counted quantity"}
+                {activeGroup ? `Packs (of ${packSizeOf(activeGroup)})` : (activeItem.qtyPerPack || 0) > 1 ? "Packs counted" : "Counted quantity"}
               </label>
               <div className="mst-qty">
-                <button type="button" onClick={() => adjustQty(-1)} aria-label="Decrease">−</button>
+                <button type="button" onClick={() => adjustQty(-1)} aria-label="Fewer packs">−</button>
                 <input
                   id="mst-qty"
                   ref={qtyInputRef}
@@ -915,17 +1114,53 @@ export default function MobileStockTakePage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
-                      saveActive();
+                      // Packs, then units, then save
+                      if (activeGroup) {
+                        unitsInputRef.current?.focus();
+                        unitsInputRef.current?.select();
+                      } else saveActive();
                     }
                   }}
-                  placeholder="0"
+                  placeholder={activeGroup ? "–" : "0"}
                 />
-                <button type="button" onClick={() => adjustQty(1)} aria-label="Increase">+</button>
+                <button type="button" onClick={() => adjustQty(1)} aria-label="More packs">+</button>
               </div>
+
+              {activeGroup && (
+                <>
+                  <label className="mst-qty-label" htmlFor="mst-units" style={{ marginTop: 14, display: "block" }}>Units</label>
+                  <div className="mst-qty">
+                    <button type="button" onClick={() => adjust(unitsQty, setUnitsQty, -1)} aria-label="Fewer units">−</button>
+                    <input
+                      id="mst-units"
+                      ref={unitsInputRef}
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      step="1"
+                      value={unitsQty}
+                      onChange={(e) => setUnitsQty(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          saveActive();
+                        }
+                      }}
+                      placeholder="–"
+                    />
+                    <button type="button" onClick={() => adjust(unitsQty, setUnitsQty, 1)} aria-label="More units">+</button>
+                  </div>
+                  <p className="mst-choice-hint">
+                    Leave a box empty if someone else is counting it. Still empty when sent to the manager, it goes as 0.
+                  </p>
+                </>
+              )}
 
               {variance !== null && (
                 <p className={`mst-variance ${variance === 0 ? "" : variance > 0 ? "is-up" : "is-down"}`}>
-                  {variance === 0 ? "Matches the system count" : `${variance > 0 ? "+" : ""}${variance} against system`}
+                  {variance === 0
+                    ? "Matches the system count"
+                    : `${variance > 0 ? "+" : ""}${variance}${activeGroup ? ` unit${Math.abs(variance) === 1 ? "" : "s"}` : ""} against system`}
                 </p>
               )}
 
@@ -935,26 +1170,30 @@ export default function MobileStockTakePage() {
                   {activeFrom === "scan" ? "Save & scan next" : "Save"}
                 </button>
               </div>
-              {isCounted(activeItem) && (
+              {(activeGroup ? isCounted(activeGroup.pack) || isCounted(activeGroup.units) : isCounted(activeItem)) && (
                 <button onClick={clearActive} className="mst-btn is-danger mst-full" disabled={closed}>
                   Take this count off
                 </button>
               )}
             </div>
           ) : choices.length > 0 ? (
-            /* ── One barcode, several lines ── */
+            /* ── One barcode, several products ── */
             <div className="mst-card">
-              <p className="mst-card__label">This barcode is on two lines</p>
-              <h2 className="mst-card__name">{byId.get(choices[0])?.productName?.replace(/\s*\(Loose Units\)$/i, "")}</h2>
+              <p className="mst-card__label">This barcode is on {choices.length} products</p>
               <p className="mst-choice-hint">Which are you counting?</p>
               <div className="mst-choices">
                 {choices.map((choiceId) => {
                   const item = byId.get(choiceId);
                   if (!item) return null;
+                  const group = groupOf(item);
                   return (
                     <button key={choiceId} onClick={() => openItem(item, "scan")} className="mst-choice">
-                      <span className="mst-choice__type">{countUnit(item) || "Standard"}</span>
-                      <span className="mst-choice__qty">{isCounted(item) ? `Counted ${item.countedQty}` : "Not counted"}</span>
+                      <span className="mst-choice__type">{group ? productBaseName(item.productName) : item.productName}</span>
+                      <span className="mst-choice__qty">
+                        {group
+                          ? isCounted(group.pack) || isCounted(group.units) ? `Counted ${groupCountText(group)}` : "Packs + units · not counted"
+                          : isCounted(item) ? `Counted ${item.countedQty}` : "Not counted"}
+                      </span>
                     </button>
                   );
                 })}
@@ -976,16 +1215,21 @@ export default function MobileStockTakePage() {
                 />
                 <div className="mst-results">
                   {findTerm.trim().length >= 2 && findResults.length === 0 && <p className="mst-results__note">Nothing on this count matches.</p>}
-                  {findResults.map((item) => (
-                    <button key={item._id} onClick={() => openItem(item, "list")} className="mst-result">
-                      <span className="mst-result__name">{item.productName}</span>
-                      <span className="mst-result__meta">
-                        {countUnit(item) ? `${countUnit(item)} · ` : ""}
-                        {isCounted(item) ? `Counted ${item.countedQty}` : "Not counted"}
-                        {seesSystem ? ` · System ${item.systemQty}` : ""}
-                      </span>
-                    </button>
-                  ))}
+                  {findResults.map((item) => {
+                    const group = groupOf(item);
+                    return (
+                      <button key={item._id} onClick={() => openItem(item, "list")} className="mst-result">
+                        <span className="mst-result__name">{group ? productBaseName(item.productName) : item.productName}</span>
+                        <span className="mst-result__meta">
+                          {group ? `Pack of ${packSizeOf(group)} + units · ` : countUnit(item) ? `${countUnit(item)} · ` : ""}
+                          {group
+                            ? isCounted(group.pack) || isCounted(group.units) ? `Counted ${groupCountText(group)}` : "Not counted"
+                            : isCounted(item) ? `Counted ${item.countedQty}` : "Not counted"}
+                          {seesSystem ? ` · System ${group ? formatPackQuantity(item.systemQty, packSizeOf(group)) : item.systemQty}` : ""}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
                 <button
                   onClick={() => {
@@ -1052,20 +1296,20 @@ export default function MobileStockTakePage() {
                 </p>
               ) : (
                 <div className="mst-rows">
-                  {visibleCounted.map((item) => (
-                    <button key={item._id} className="mst-row" onClick={() => openItem(item, "list")}>
+                  {visibleCounted.map((row) => (
+                    <button key={row.key} className="mst-row" onClick={() => openItem(row.open, "list")}>
                       <span className="mst-row__main">
-                        <span className="mst-row__name">{item.productName}</span>
+                        <span className="mst-row__name">{row.name}</span>
                         <span className="mst-row__meta">
-                          {countUnit(item) ? `${countUnit(item)} · ` : ""}
-                          {item.countedBy || "—"} · {whenText(item.countedAt)}
-                          {queueRef.current[item._id] ? " · not sent yet" : ""}
+                          {row.unit ? `${row.unit} · ` : ""}
+                          {row.countedBy || "—"} · {whenText(row.countedAt)}
+                          {row.unsent ? " · not sent yet" : ""}
                         </span>
                       </span>
                       <span className="mst-row__qty">
-                        {item.countedQty}
-                        {seesSystem && Number(item.variance || 0) !== 0 && (
-                          <em className={item.variance > 0 ? "is-up" : "is-down"}>{item.variance > 0 ? `+${item.variance}` : item.variance}</em>
+                        {row.qtyText}
+                        {seesSystem && row.variance !== null && row.variance !== 0 && (
+                          <em className={row.variance > 0 ? "is-up" : "is-down"}>{row.variance > 0 ? `+${row.variance}` : row.variance}</em>
                         )}
                       </span>
                     </button>

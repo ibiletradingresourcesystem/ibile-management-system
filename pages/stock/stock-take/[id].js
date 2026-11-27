@@ -10,6 +10,7 @@ import { formatCurrency } from "@/lib/format";
 import { showConfirmDialog } from "@/lib/dialogs";
 import { showToastMessage } from "@/lib/toast-state";
 import { useAuth } from "@/lib/useAuth";
+import { lineDisplayName } from "@/lib/stockTakeCounts";
 import ExportMenu from "@/components/ExportMenu";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -124,7 +125,7 @@ function varianceTone(item) {
 }
 
 // The quantity columns of the count tables. Numbers sit to the right, under their heading, and
-// every row keeps the same label slot, blank on a plain product and "Pack"/"Each" on a pack +
+// every row keeps the same label slot, blank on a plain product and "Pack"/"Units" on a pack +
 // each one. Each line is an input's height, so a pack line runs straight across the row.
 function QuantityLines({ lines }) {
   return (
@@ -146,7 +147,7 @@ function quantityLinesFor(group, render) {
   if (!hasPackAndLoose) return [{ key: "one", label: "", ...render(group.standard || group.primary, "standard") }];
   return [
     { key: "pack", label: "Pack", ...render(group.standard, "standard") },
-    { key: "each", label: "Each", ...render(group.loose, "loose") },
+    { key: "units", label: "Units", ...render(group.loose, "loose") },
   ];
 }
 
@@ -207,13 +208,13 @@ function ProductCell({ group }) {
         <span>{group.productName}</span>
         {hasPackAndLoose && (
           <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">
-            Pack + each
+            Pack + units
           </span>
         )}
       </div>
       {hasPackAndLoose && (
         <div className="mt-0.5 text-xs text-gray-500">
-          {group.loose.qtyPerPack || group.standard.qtyPerPack || 1} each per pack
+          {group.loose.qtyPerPack || group.standard.qtyPerPack || 1} units per pack
         </div>
       )}
     </>
@@ -648,7 +649,7 @@ export default function StockTakeDetail() {
   };
 
   const stockTakeExportColumns = [
-    { key: "productName", label: "Product", width: 2.6 },
+    { key: "productName", label: "Product", width: 2.6, value: (item) => lineDisplayName(item) },
     { key: "barcode", label: "Barcode", width: 1.4 },
     { key: "systemQty", label: "System Qty", type: "number", align: "right", width: 1 },
     { key: "countedQty", label: "Counted Qty", type: "number", align: "right", width: 1 },
@@ -1155,7 +1156,7 @@ export default function StockTakeDetail() {
                                     <div key={item._id} className="flex w-full max-w-md items-center gap-2">
                                       {hasPackAndLoose && (
                                         <span className="w-14 text-right text-xs font-semibold text-gray-500">
-                                          {item.countType === "loose-units" ? "Each" : "Pack"}
+                                          {item.countType === "loose-units" ? "Units" : "Pack"}
                                         </span>
                                       )}
                                       <select
@@ -1309,7 +1310,7 @@ export default function StockTakeDetail() {
                                     if (e.key !== "Enter") return;
                                     focusCount(hasPackAndLoose && kind === "standard" ? group.loose._id : nextFocusId);
                                   }}
-                                  aria-label={`${group.productName}${hasPackAndLoose ? (kind === "loose" ? ", each" : ", packs") : ""} counted`}
+                                  aria-label={`${group.productName}${hasPackAndLoose ? (kind === "loose" ? ", units" : ", packs") : ""} counted`}
                                   className={`h-8 w-16 rounded-md border px-2 py-0 text-right text-sm tabular-nums focus:border-transparent focus:ring-2 ${
                                     kind === "loose" ? "border-orange-200 focus:ring-orange-300" : "border-gray-300 focus:ring-blue-400"
                                   }`}

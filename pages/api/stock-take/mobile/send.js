@@ -8,15 +8,16 @@
  * - Some counted: the counted lines become a stock take of their own, completed and awaiting
  *   the manager (sentFrom points back here); this one keeps the lines not counted yet.
  *
- * A pack + each product goes only when both of its lines are counted, so a half-counted one is
- * never sent with its other half read as 0. Lines not counted are not sent and their stock is not
- * touched. Approving and applying stay with the manager, on the desktop.
+ * A pack + units product counted on one side only goes with the other side as 0: units only means
+ * every pack on the shelf has been opened, packs only means nothing is loose. Products not counted
+ * at all are not sent and their stock is not touched. Approving and applying stay with the
+ * manager, on the desktop.
  */
 import mongoose from "mongoose";
 import { mongooseConnect } from "@/lib/mongodb";
 import StockTake from "@/models/StockTake";
 import { parseMobileToken } from "@/lib/stockTakeMobile";
-import { generateStockTakeRef, groupByProduct, isCounted, recalcSummary } from "@/lib/stockTakeCounts";
+import { generateStockTakeRef, groupByProduct, isCounted, markItemCounted, recalcSummary } from "@/lib/stockTakeCounts";
 
 class SendError extends Error {
   constructor(message, status = 400, extra = {}) {
@@ -52,23 +53,28 @@ export default async function handler(req, res) {
         throw new SendError("This stock take has already been sent or closed", 400, { closed: true });
       }
 
-      // Whole products only: every line of a product counted, or none of it goes
+      // Whole products: any line of a product counted sends the product, its other line as 0
       const ready = new Set();
-      let halfCounted = 0;
+      let halfCompleted = 0;
+      let productsLeft = 0;
       for (const [productId, lines] of groupByProduct(stockTake.items || [])) {
-        if (lines.every(isCounted)) ready.add(productId);
-        else if (lines.some(isCounted)) halfCounted += 1;
+        if (!lines.some(isCounted)) {
+          productsLeft += 1;
+          continue;
+        }
+        ready.add(productId);
+        if (!lines.every(isCounted)) {
+          lines.forEach((line) => {
+            if (!isCounted(line)) markItemCounted(line, 0, by);
+          });
+          halfCompleted += 1;
+        }
       }
       const sending = stockTake.items.filter((item) => ready.has(String(item.productId)));
       const staying = stockTake.items.filter((item) => !ready.has(String(item.productId)));
 
-      if (sending.length === 0) {
-        throw new SendError(
-          halfCounted
-            ? `Nothing is ready to send: ${halfCounted} pack + each product${halfCounted === 1 ? " has" : "s have"} only one of its lines counted.`
-            : "Nothing has been counted yet."
-        );
-      }
+      if (sending.length === 0) throw new SendError("Nothing has been counted yet.");
+      const counts = { products: ready.size, productsLeft, halfCompleted };
 
       const now = new Date();
       if (staying.length === 0) {
@@ -78,7 +84,7 @@ export default async function handler(req, res) {
         stockTake.sentAt = now;
         recalcSummary(stockTake);
         await stockTake.save({ session: dbSession });
-        result = { whole: true, sent: sending.length, left: 0, reference: stockTake.reference, halfCounted: 0 };
+        result = { whole: true, sent: sending.length, left: 0, reference: stockTake.reference, ...counts };
         return;
       }
 
@@ -110,7 +116,7 @@ export default async function handler(req, res) {
       recalcSummary(stockTake);
       await stockTake.save({ session: dbSession });
 
-      result = { whole: false, sent: sending.length, left: staying.length, reference: part.reference, halfCounted };
+      result = { whole: false, sent: sending.length, left: staying.length, reference: part.reference, ...counts };
     });
     return res.status(200).json({ success: true, ...result });
   } catch (error) {

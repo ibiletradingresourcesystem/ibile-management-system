@@ -25,6 +25,7 @@ import StockTake from "@/models/StockTake";
 import Product from "@/models/Product";
 import { parseMobileToken as parseToken, seesSystemQty } from "@/lib/stockTakeMobile";
 import { recalcSummary } from "@/lib/stockTakeCounts";
+import { isDerivedChild } from "@/lib/packUnits";
 
 /** Most matches anyone needs to choose from on a phone screen. */
 const SEARCH_LIMIT = 12;
@@ -84,12 +85,40 @@ const escapeRegex = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"
 async function linesByProductBarcode(items, wanted) {
   if (!wanted) return [];
   const products = await Product.find({ barcode: { $regex: escapeRegex(wanted), $options: "i" } })
-    .select("_id barcode")
+    .select("_id barcode isChildProduct parentProduct packType")
     .limit(25)
     .lean();
-  const ids = new Set(products.filter((product) => barcodeMatches(product, wanted)).map((product) => String(product._id)));
+  // A child (a single can) is never on the count: its scan finds the pack it comes out of
+  const ids = new Set(
+    products
+      .filter((product) => barcodeMatches(product, wanted))
+      .map((product) => String(isDerivedChild(product) ? product.parentProduct : product._id))
+  );
   if (ids.size === 0) return [];
   return items.filter((item) => ids.has(String(item.productId)));
+}
+
+/**
+ * The barcodes of each pack's child products, by pack, for the phone's own lookup: scanning a
+ * single can then opens its carton without asking the server. One read, when the list is loaded.
+ */
+async function childBarcodesByPack(items) {
+  const packIds = [...new Set(items.filter((item) => item.countType === "loose-units").map((item) => String(item.productId)))];
+  if (packIds.length === 0) return new Map();
+  const children = await Product.find({
+    parentProduct: { $in: packIds },
+    isChildProduct: true,
+    packType: { $ne: "pack" },
+    barcode: { $nin: [null, ""] },
+  })
+    .select("parentProduct barcode")
+    .lean();
+  const byPack = new Map();
+  for (const child of children) {
+    const key = String(child.parentProduct);
+    byPack.set(key, [byPack.get(key), child.barcode].filter(Boolean).join(","));
+  }
+  return byPack;
 }
 
 function buildProgress(items, withSystem) {
@@ -166,13 +195,18 @@ export default async function handler(req, res) {
 
       // ── The whole list, for the phone to keep ────────────────
       if (list) {
+        const childCodes = await childBarcodesByPack(items);
         return res.status(200).json({
           success: true,
           stockTake: header,
           progress,
           version,
           ...role,
-          items: items.map((item) => publicItem(item, withSystem)),
+          items: items.map((item) => {
+            const line = publicItem(item, withSystem);
+            const codes = childCodes.get(String(item.productId));
+            return codes ? { ...line, childBarcodes: codes } : line;
+          }),
         });
       }
 
@@ -193,8 +227,7 @@ export default async function handler(req, res) {
           });
         }
 
-        // The same barcode can appear twice when a product is counted both as
-        // sealed packs and as loose units. Send both so the counter chooses.
+        // A pack + units product answers with both lines; the phone shows them on one card
         return res.status(200).json({
           success: true,
           found: true,

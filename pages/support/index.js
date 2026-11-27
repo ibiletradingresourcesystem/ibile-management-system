@@ -229,9 +229,9 @@ const KNOWLEDGE_BASE = [
     answer: "**Stock Management** shows where stock physically sits, based on stock movements and sales history. Product visibility locations only decide where a product can appear or be assigned; they are not the same as physical on-hand stock.\n\nUse **Stock Movement** to restock into a location, transfer between locations, return to vendor, or record operational loss. The Stock Management location filter should then reflect the movement destination and any sales from that location.",
   },
   {
-    keywords: ["stock take pack", "stock take child", "count pack and each", "loose units", "parent child stock take", "partial pack count"],
-    question: "How do I count pack and each products during stock take?",
-    answer: "During **Stock Take**, pack products and their each/loose child can be counted together from one product row. Enter the available pack count, loose-unit count, or both depending on what is physically present.\n\nExamples:\n1. If only sealed packs are present, enter the pack count and leave loose units as zero.\n2. If only loose units are present, enter the each count and leave packs as zero.\n3. If both are present, enter both values.\n\nThe system combines the values using the product's quantity-per-pack when calculating variance and adjustment.",
+    keywords: ["stock take pack", "stock take child", "count pack and each", "count pack and units", "loose units", "units", "parent child stock take", "partial pack count", "carton"],
+    question: "How do I count pack and unit products during stock take?",
+    answer: "A pack product (a carton of 24, say) is counted as **Packs** and **Units** on one product: full packs in the first box, single units (opened packs, the single cans) in the second.\n\nOn the phone, scanning the pack's barcode, or one of its child products' barcodes (a single can), opens one card with both boxes. Fill in either or both. A box left empty is not counted yet, so two people can share a product: one counts the packs in the store, another the units on the shelf.\n\nWhen the count is sent to the manager, a side still empty goes as **0**:\n1. Only units counted: every pack has been opened, so 0 packs.\n2. Only packs counted: nothing is loose, so 0 units.\n\nThe system combines packs and units using the pack size when working out the difference and the adjustment.",
   },
   {
     keywords: ["expiry", "expired", "expiration", "shelf life"],

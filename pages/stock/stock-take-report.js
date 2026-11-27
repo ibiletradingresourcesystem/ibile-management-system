@@ -8,6 +8,7 @@ import useProgress from "@/lib/useProgress";
 import { formatCurrency } from "@/lib/format";
 import { useTableSort, SortableTh } from "@/components/SortableTable";
 import ExportMenu from "@/components/ExportMenu";
+import { lineDisplayName } from "@/lib/stockTakeCounts";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faChartBar,  faSearch,
@@ -315,7 +316,7 @@ export default function StockTakeReport() {
                   <tbody>
                     {topDiscrepancies.map((item, i) => (
                       <tr key={i} className={`border-b border-gray-100 ${item.variance < 0 ? "bg-red-50/30" : item.variance > 0 ? "bg-green-50/30" : ""}`}>
-                        <td className="py-2 px-2 font-medium text-gray-900">{item.productName}</td>
+                        <td className="py-2 px-2 font-medium text-gray-900">{lineDisplayName(item)}</td>
                         <td className="py-2 px-2 font-mono text-xs text-gray-500 hidden md:table-cell">{item.barcode || "—"}</td>
                         <td className="py-2 px-2 text-center text-gray-700">{item.systemQty}</td>
                         <td className="py-2 px-2 text-center text-gray-700">{item.countedQty}</td>
